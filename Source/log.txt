@@ -1,0 +1,12 @@
+
+ERROR! : UNIFORM NOT FOUND!    |    UNIFORM : u_NormalMatrix  
+
+
+ERROR! : UNIFORM NOT FOUND!    |    UNIFORM : u_NormalMatrix  
+
+
+ERROR! : UNIFORM NOT FOUND!    |    UNIFORM : u_Projection  
+
+
+ERROR! : UNIFORM NOT FOUND!    |    UNIFORM : u_View  
+
