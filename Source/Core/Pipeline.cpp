@@ -131,7 +131,7 @@ void RenderProbe(Lumen::ProbeMap& probe, int face, const glm::vec3& center, cons
 	glEnable(GL_DEPTH_TEST);
 
 
-	const glm::mat4 projection_matrix = glm::perspective(glm::radians(90.0f), 1.0f, 0.1f, 400.0f);
+	const glm::mat4 projection_matrix = glm::perspective(glm::radians(90.0f), 1.0f, 0.1f, 800.0f);
 
 	std::array<glm::mat4, 6> view_matrices =
 	{
@@ -170,7 +170,7 @@ void RenderProbeAllFaces(Lumen::ProbeMap& probe, const glm::vec3& center, const 
 
 
 
-GLClasses::Framebuffer GBuffer(16, 16, { {GL_RGB, GL_RGB, GL_UNSIGNED_BYTE, true, true}, {GL_RGB16F, GL_RGB, GL_FLOAT, true, true}, {GL_RGB, GL_RGB, GL_UNSIGNED_BYTE, false, false} }, false, true);
+GLClasses::Framebuffer GBuffer(16, 16, { {GL_RGB, GL_RGB, GL_UNSIGNED_BYTE, true, true}, {GL_RGB16F, GL_RGB, GL_FLOAT, true, true}, {GL_RGB, GL_RGB, GL_UNSIGNED_BYTE, false, false}, {GL_RGB16F, GL_RGB, GL_FLOAT, true, true} }, false, true);
 GLClasses::Framebuffer LightingPass(16, 16, {GL_RGB16F, GL_RGB, GL_FLOAT, true, true}, false, true);
 
 void Lumen::StartPipeline()
@@ -237,7 +237,7 @@ void Lumen::StartPipeline()
 
 
 	// Probe Setup
-	ProbeMap PlayerProbe(128);
+	ProbeMap PlayerProbe(192);
 
 
 	while (!glfwWindowShouldClose(app.GetWindow()))
@@ -257,7 +257,7 @@ void Lumen::StartPipeline()
 
 
 
-		RenderProbeAllFaces(PlayerProbe, Camera.GetPosition(), EntityList, ProbeForwardShader);
+		RenderProbe(PlayerProbe, app.GetCurrentFrame() % 6, Camera.GetPosition(), EntityList, ProbeForwardShader);
 
 
 		// Render GBuffer

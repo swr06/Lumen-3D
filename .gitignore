@@ -348,3 +348,12 @@ MigrationBackup/
 
 # Ionide (cross platform F# VS Code tools) working folder
 .ionide/
+
+Source/log.txt
+Source/imgui.ini
+log.txt
+imgui.ini
+*Source/log.txt
+*Source/imgui.ini
+*log.txt
+*imgui.ini

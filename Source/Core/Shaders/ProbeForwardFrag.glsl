@@ -24,7 +24,7 @@ void main()
 {
 	vec3 Albedo, Normal, PBR;
 	Albedo = texture(u_AlbedoMap, v_TexCoords).xyz;
-	Normal = v_TBNMatrix * (texture(u_NormalMap, v_TexCoords).xyz * 2.0f - 1.0f);
+	Normal = v_Normal;
 
 	if (u_UsesGLTFPBR) {
 		PBR = vec3(texture(u_MetalnessRoughnessMap, v_TexCoords).yx, 1.0f);

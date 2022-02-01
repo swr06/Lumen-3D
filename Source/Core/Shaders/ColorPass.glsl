@@ -96,13 +96,13 @@ void main()
 	vec2 RoughnessMetalness = texture(u_PBRTexture, v_TexCoords).xy;
 
     vec3 Lo = normalize(u_ViewerPosition - WorldPosition);
-	vec3 R = reflect(Lo, Normal).xyz;
-	vec3 Reflected = texture(u_Probe, -Lo).xyz;
+	vec3 R = reflect(-Lo, Normal).xyz;
+	vec3 Reflected = texture(u_Probe, R).xyz;
 
 	float DirectionalShadow = CalculateSunShadow(WorldPosition, Normal);
 	vec3 DirectLighting = CalculateDirectionalLight(WorldPosition, normalize(u_LightDirection), SUN_COLOR, Albedo, Normal, RoughnessMetalness, DirectionalShadow).xyz;
 	vec3 AmbientTerm = (texture(u_Skymap, vec3(0.0f, 1.0f, 0.0f)).xyz * 0.225f) * Albedo;
-	o_Color = DirectLighting + AmbientTerm;//Reflected * 0.6f;// DirectLighting + AmbientTerm;
+	o_Color = vec3(Reflected);// DirectLighting + AmbientTerm;
 }
 
 
