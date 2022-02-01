@@ -40,7 +40,8 @@ void main()
 	o_AlbedoRoughness.xyz = Albedo;
 	o_AlbedoRoughness.w = PBR.x;
 
-	float Depth = length(v_FragPosition - u_CapturePosition);
+	//float Depth = length(v_FragPosition - u_CapturePosition);
+	float Depth = length(u_CapturePosition - v_FragPosition);
 	Depth /= 128.0f;
 	o_Depth = Depth;
 

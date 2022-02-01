@@ -121,15 +121,16 @@ void RenderEntityList(const std::vector<Lumen::Entity*> EntityList, GLClasses::S
 	}
 }
 
-void RenderProbe(Lumen::ProbeMap& probe, int face, const glm::vec3& center, const std::vector<Lumen::Entity*> EntityList, GLClasses::Shader& shader) {
+void RenderProbe(Lumen::ProbeMap& probe, int face, glm::vec3 center, const std::vector<Lumen::Entity*> EntityList, GLClasses::Shader& shader) {
 
 	if (face >= 6) {
 		throw "What the fuck";
 	}
 
-	glDisable(GL_CULL_FACE);
+	glEnable(GL_CULL_FACE);
 	glEnable(GL_DEPTH_TEST);
 
+	probe.CapturePoints[face] = center;
 
 	const glm::mat4 projection_matrix = glm::perspective(glm::radians(90.0f), 1.0f, 0.1f, 800.0f);
 
@@ -172,6 +173,7 @@ void RenderProbeAllFaces(Lumen::ProbeMap& probe, const glm::vec3& center, const 
 
 GLClasses::Framebuffer GBuffer(16, 16, { {GL_RGB, GL_RGB, GL_UNSIGNED_BYTE, true, true}, {GL_RGB16F, GL_RGB, GL_FLOAT, true, true}, {GL_RGB, GL_RGB, GL_UNSIGNED_BYTE, false, false}, {GL_RGB16F, GL_RGB, GL_FLOAT, true, true} }, false, true);
 GLClasses::Framebuffer LightingPass(16, 16, {GL_RGB16F, GL_RGB, GL_FLOAT, true, true}, false, true);
+GLClasses::Framebuffer SpecularIndirect(16, 16, {GL_RGB16F, GL_RGB, GL_FLOAT, true, true}, false, true);
 
 void Lumen::StartPipeline()
 {
@@ -234,6 +236,7 @@ void Lumen::StartPipeline()
 	GLClasses::Shader& LightingShader = ShaderManager::GetShader("LIGHTING_PASS");
 	GLClasses::Shader& FinalShader = ShaderManager::GetShader("FINAL");
 	GLClasses::Shader& ProbeForwardShader = ShaderManager::GetShader("PROBE_FORWARD");
+	GLClasses::Shader& ProbeSpecularShader = ShaderManager::GetShader("PROBE_SPECULAR");
 
 
 	// Probe Setup
@@ -244,6 +247,7 @@ void Lumen::StartPipeline()
 	{
 		GBuffer.SetSize(app.GetWidth(), app.GetHeight());
 		LightingPass.SetSize(app.GetWidth(), app.GetHeight());
+		SpecularIndirect.SetSize(app.GetWidth() * 0.375f, app.GetHeight() * 0.375f);
 
 		// App update 
 		app.OnUpdate();
@@ -258,7 +262,6 @@ void Lumen::StartPipeline()
 
 
 		RenderProbe(PlayerProbe, app.GetCurrentFrame() % 6, Camera.GetPosition(), EntityList, ProbeForwardShader);
-
 
 		// Render GBuffer
 		glEnable(GL_CULL_FACE);
@@ -281,6 +284,63 @@ void Lumen::StartPipeline()
 		glDisable(GL_CULL_FACE);
 		glDisable(GL_DEPTH_TEST);
 
+		SpecularIndirect.Bind();
+		ProbeSpecularShader.Use();
+		ProbeSpecularShader.SetFloat("u_Time", glfwGetTime());
+		ProbeSpecularShader.SetMatrix4("u_ViewProjection", Camera.GetViewProjection());
+		ProbeSpecularShader.SetMatrix4("u_Projection", Camera.GetProjectionMatrix());
+		ProbeSpecularShader.SetMatrix4("u_View", Camera.GetViewMatrix());
+		ProbeSpecularShader.SetMatrix4("u_InverseProjection", glm::inverse(Camera.GetProjectionMatrix()));
+		ProbeSpecularShader.SetMatrix4("u_InverseView", glm::inverse(Camera.GetViewMatrix()));
+		ProbeSpecularShader.SetVector3f("u_Incident", Camera.GetPosition());
+		ProbeSpecularShader.SetInteger("u_Depth", 0);
+		ProbeSpecularShader.SetInteger("u_Normals", 1);
+		ProbeSpecularShader.SetInteger("u_PBR", 2);
+		ProbeSpecularShader.SetInteger("u_ProbeAlbedo", 4);
+		ProbeSpecularShader.SetInteger("u_ProbeDepth", 5);
+		ProbeSpecularShader.SetInteger("u_ProbeNormals", 6);
+		ProbeSpecularShader.SetInteger("u_EnvironmentMap", 7);
+		ProbeSpecularShader.SetInteger("u_Shadowmap", 8);
+		ProbeSpecularShader.SetVector3f("u_SunDirection", SunDirection);
+		ProbeSpecularShader.SetMatrix4("u_SunShadowMatrix", GetLightViewProjection(SunDirection));
+
+		for (int i = 0; i < 6; i++) {
+			std::string name = "u_ProbeCapturePoints[" + std::to_string(i) + "]";
+			ProbeSpecularShader.SetVector3f(name.c_str(), PlayerProbe.CapturePoints[i]);
+		}
+
+		glActiveTexture(GL_TEXTURE0);
+		glBindTexture(GL_TEXTURE_2D, GBuffer.GetDepthBuffer());
+
+		glActiveTexture(GL_TEXTURE1);
+		glBindTexture(GL_TEXTURE_2D, GBuffer.GetTexture(1));
+		//glBindTexture(GL_TEXTURE_2D, GBuffer.GetTexture(3));
+
+		glActiveTexture(GL_TEXTURE2);
+		glBindTexture(GL_TEXTURE_2D, GBuffer.GetTexture(2));
+
+		glActiveTexture(GL_TEXTURE4);
+		glBindTexture(GL_TEXTURE_CUBE_MAP, PlayerProbe.m_CubemapTexture);
+
+		glActiveTexture(GL_TEXTURE5);
+		glBindTexture(GL_TEXTURE_CUBE_MAP, PlayerProbe.m_DepthCubemap);
+
+		glActiveTexture(GL_TEXTURE6);
+		glBindTexture(GL_TEXTURE_CUBE_MAP, PlayerProbe.NormalPBRPackedCubemap);
+
+		glActiveTexture(GL_TEXTURE7);
+		glBindTexture(GL_TEXTURE_CUBE_MAP, Skymap.GetID());
+
+		glActiveTexture(GL_TEXTURE8);
+		glBindTexture(GL_TEXTURE_2D, Shadowmap.GetDepthTexture());
+
+
+		ScreenQuadVAO.Bind();
+		glDrawArrays(GL_TRIANGLES, 0, 6);
+		ScreenQuadVAO.Unbind();
+
+
+
 		// Lighting pass : 
 
 		LightingShader.Use();
@@ -294,6 +354,7 @@ void Lumen::StartPipeline()
 		LightingShader.SetInteger("u_BlueNoise", 5);
 		LightingShader.SetInteger("u_Skymap", 6);
 		LightingShader.SetInteger("u_Probe", 7);
+		LightingShader.SetInteger("u_ResolvedSpecular", 8);
 
 		LightingShader.SetMatrix4("u_Projection", Camera.GetProjectionMatrix());
 		LightingShader.SetMatrix4("u_View", Camera.GetViewMatrix());
@@ -329,6 +390,9 @@ void Lumen::StartPipeline()
 
 		glActiveTexture(GL_TEXTURE7);
 		glBindTexture(GL_TEXTURE_CUBE_MAP, PlayerProbe.m_CubemapTexture);
+		
+		glActiveTexture(GL_TEXTURE8);
+		glBindTexture(GL_TEXTURE_2D, SpecularIndirect.GetTexture());
 
 		ScreenQuadVAO.Bind();
 		glDrawArrays(GL_TRIANGLES, 0, 6);

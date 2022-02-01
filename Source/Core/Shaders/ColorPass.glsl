@@ -11,6 +11,7 @@ uniform sampler2D u_PBRTexture;
 uniform sampler2D u_DepthTexture;
 uniform sampler2D u_ShadowTexture;
 uniform sampler2D u_BlueNoise;
+uniform sampler2D u_ResolvedSpecular;
 uniform samplerCube u_Skymap;
 uniform samplerCube u_Probe;
 
@@ -102,7 +103,8 @@ void main()
 	float DirectionalShadow = CalculateSunShadow(WorldPosition, Normal);
 	vec3 DirectLighting = CalculateDirectionalLight(WorldPosition, normalize(u_LightDirection), SUN_COLOR, Albedo, Normal, RoughnessMetalness, DirectionalShadow).xyz;
 	vec3 AmbientTerm = (texture(u_Skymap, vec3(0.0f, 1.0f, 0.0f)).xyz * 0.225f) * Albedo;
-	o_Color = vec3(Reflected);// DirectLighting + AmbientTerm;
+	vec3 SpecularIndirect = texture(u_ResolvedSpecular, v_TexCoords).xyz;
+	o_Color = DirectLighting + AmbientTerm + SpecularIndirect * 0.1f;
 }
 
 
