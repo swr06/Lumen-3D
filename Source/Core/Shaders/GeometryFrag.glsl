@@ -13,6 +13,8 @@ uniform sampler2D u_MetalnessRoughnessMap;
 
 uniform bool u_UsesGLTFPBR;
 
+uniform vec3 u_EmissiveColor;
+
 in vec2 v_TexCoords;
 in vec3 v_FragPosition;
 in vec3 v_Normal;
@@ -21,6 +23,8 @@ in mat3 v_TBNMatrix;
 void main()
 {
 	o_Albedo = texture(u_AlbedoMap, v_TexCoords).xyz;
+
+
 	o_HFNormal = normalize(v_TBNMatrix * (texture(u_NormalMap, v_TexCoords).xyz * 2.0f - 1.0f));
 	o_LFNormal = v_Normal;
 

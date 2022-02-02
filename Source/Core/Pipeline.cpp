@@ -1,3 +1,5 @@
+#define DUPLICATE(x) (x, x)
+
 #include "Pipeline.h"
 
 #include "FpsCamera.h"
@@ -15,6 +17,8 @@
 
 #include "ProbeMap.h"
 
+#include "TAAJitter.h"
+
 #include <string>
 
 Lumen::FPSCamera Camera(90.0f, 800.0f / 600.0f);
@@ -22,6 +26,12 @@ Lumen::FPSCamera Camera(90.0f, 800.0f / 600.0f);
 static bool vsync = false;
 static float SunTick = 50.0f;
 static glm::vec3 SunDirection = glm::vec3(0.1f, -1.0f, 0.1f);
+
+// Flags 
+static bool TAA = true;
+static float SpecularIndirectRes = 0.25f;
+static float SpecularIndirectUpsampleRes = 0.5f;
+
 
 class RayTracerApp : public Lumen::Application
 {
@@ -73,6 +83,14 @@ public:
 		ImGui::Text("Front : %f,  %f,  %f", Camera.GetFront().x, Camera.GetFront().y, Camera.GetFront().z);
 		ImGui::SliderFloat("Sun Time ", &SunTick, 0.1f, 256.0f);
 		ImGui::SliderFloat3("Sun Dir : ", &SunDirection[0], -1.0f, 1.0f);
+
+		ImGui::NewLine();
+		ImGui::NewLine();
+
+		ImGui::SliderFloat("Specular Resolution", &SpecularIndirectRes, 0.1f, 1.0f);
+		ImGui::SliderFloat("Specular Upsample Resolution", &SpecularIndirectUpsampleRes, 0.1f, 1.0f);
+
+		ImGui::Checkbox("TAA", &TAA);
 	}
 
 	void OnEvent(Lumen::Event e) override
@@ -110,6 +128,31 @@ public:
 
 };
 
+struct CommonUniforms {
+	glm::mat4 View, Projection, InvView, InvProjection, PrevProj, PrevView, InvPrevProj, InvPrevView;
+	int Frame;
+};
+
+void SetCommonUniforms(GLClasses::Shader& shader, CommonUniforms& uniforms) {
+	shader.SetFloat("u_Time", glfwGetTime());
+	shader.SetInteger("u_Frame", uniforms.Frame);
+	shader.SetInteger("u_CurrentFrame", uniforms.Frame);
+	shader.SetMatrix4("u_ViewProjection", Camera.GetViewProjection());
+	shader.SetMatrix4("u_Projection", uniforms.Projection);
+	shader.SetMatrix4("u_View", uniforms.View);
+	shader.SetMatrix4("u_InverseProjection", uniforms.InvProjection);
+	shader.SetMatrix4("u_InverseView", uniforms.InvView);
+	shader.SetMatrix4("u_PrevProjection", uniforms.PrevProj);
+	shader.SetMatrix4("u_PrevView", uniforms.PrevView);
+	shader.SetMatrix4("u_PrevInverseProjection", uniforms.InvPrevProj);
+	shader.SetMatrix4("u_PrevInverseView", uniforms.InvPrevView);
+	shader.SetVector3f("u_ViewerPosition", glm::vec3(uniforms.InvView[3]));
+	shader.SetVector3f("u_Incident", glm::vec3(uniforms.InvView[3]));
+	shader.SetVector3f("u_SunDirection", SunDirection);
+	shader.SetFloat("u_zNear", Camera.GetNearPlane());
+	shader.SetFloat("u_zFar", Camera.GetFarPlane());
+}
+
 void UnbindEverything() {
 	glBindFramebuffer(GL_FRAMEBUFFER, 0);
 	glUseProgram(0);
@@ -124,7 +167,7 @@ void RenderEntityList(const std::vector<Lumen::Entity*> EntityList, GLClasses::S
 void RenderProbe(Lumen::ProbeMap& probe, int face, glm::vec3 center, const std::vector<Lumen::Entity*> EntityList, GLClasses::Shader& shader) {
 
 	if (face >= 6) {
-		throw "What the fuck";
+		throw "What.";
 	}
 
 	glEnable(GL_CULL_FACE);
@@ -171,9 +214,11 @@ void RenderProbeAllFaces(Lumen::ProbeMap& probe, const glm::vec3& center, const 
 
 
 
-GLClasses::Framebuffer GBuffer(16, 16, { {GL_RGB, GL_RGB, GL_UNSIGNED_BYTE, true, true}, {GL_RGB16F, GL_RGB, GL_FLOAT, true, true}, {GL_RGB, GL_RGB, GL_UNSIGNED_BYTE, false, false}, {GL_RGB16F, GL_RGB, GL_FLOAT, true, true} }, false, true);
+GLClasses::Framebuffer GBuffers[2] = { GLClasses::Framebuffer(16, 16, { {GL_RGB, GL_RGB, GL_UNSIGNED_BYTE, true, true}, {GL_RGB16F, GL_RGB, GL_FLOAT, true, true}, {GL_RGB, GL_RGB, GL_UNSIGNED_BYTE, false, false}, {GL_RGB16F, GL_RGB, GL_FLOAT, true, true} }, false, true), GLClasses::Framebuffer(16, 16, { {GL_RGB, GL_RGB, GL_UNSIGNED_BYTE, true, true}, {GL_RGB16F, GL_RGB, GL_FLOAT, true, true}, {GL_RGB, GL_RGB, GL_UNSIGNED_BYTE, false, false}, {GL_RGB16F, GL_RGB, GL_FLOAT, true, true} }, false, true) };
 GLClasses::Framebuffer LightingPass(16, 16, {GL_RGB16F, GL_RGB, GL_FLOAT, true, true}, false, true);
 GLClasses::Framebuffer SpecularIndirect(16, 16, {GL_RGB16F, GL_RGB, GL_FLOAT, true, true}, false, true);
+GLClasses::Framebuffer SpecularIndirectTemporalBuffers[2] = { GLClasses::Framebuffer(16, 16, {GL_RGB16F, GL_RGB, GL_FLOAT, true, true}, false, true), GLClasses::Framebuffer(16, 16, {GL_RGB16F, GL_RGB, GL_FLOAT, true, true}, false, true) };
+GLClasses::Framebuffer TAABuffers[2] = { GLClasses::Framebuffer(16, 16, {GL_RGB16F, GL_RGB, GL_FLOAT, true, true}, false, true), GLClasses::Framebuffer(16, 16, {GL_RGB16F, GL_RGB, GL_FLOAT, true, true}, false, true) };
 
 void Lumen::StartPipeline()
 {
@@ -190,8 +235,7 @@ void Lumen::StartPipeline()
 	std::vector<Entity*> EntityRenderList = { &MainModel };
 	auto& EntityList = EntityRenderList;
 
-
-
+	// Data object initialization 
 	GLClasses::VertexBuffer ScreenQuadVBO;
 	GLClasses::VertexArray ScreenQuadVAO;
 	GLClasses::DepthBuffer Shadowmap(3584, 3584);
@@ -237,31 +281,76 @@ void Lumen::StartPipeline()
 	GLClasses::Shader& FinalShader = ShaderManager::GetShader("FINAL");
 	GLClasses::Shader& ProbeForwardShader = ShaderManager::GetShader("PROBE_FORWARD");
 	GLClasses::Shader& ProbeSpecularShader = ShaderManager::GetShader("PROBE_SPECULAR");
+	GLClasses::Shader& SpecularTemporalShader = ShaderManager::GetShader("SPECULAR_TEMPORAL");
+	GLClasses::Shader& TAAShader = ShaderManager::GetShader("TAA");
 
+	// History
+	glm::mat4 PreviousView;
+	glm::mat4 PreviousProjection;
+	glm::mat4 View;
+	glm::mat4 Projection;
+	glm::mat4 InverseView;
+	glm::mat4 InverseProjection;
 
 	// Probe Setup
 	ProbeMap PlayerProbe(192);
 
+	// Temporal jitter
+	GenerateJitterStuff();
 
 	while (!glfwWindowShouldClose(app.GetWindow()))
 	{
-		GBuffer.SetSize(app.GetWidth(), app.GetHeight());
-		LightingPass.SetSize(app.GetWidth(), app.GetHeight());
-		SpecularIndirect.SetSize(app.GetWidth() * 0.375f, app.GetHeight() * 0.375f);
+		// Matrices 
+		PreviousProjection = Camera.GetProjectionMatrix();
+		PreviousView = Camera.GetViewMatrix();
 
 		// App update 
 		app.OnUpdate();
 
+		// Update current matrices 
+		Projection = Camera.GetProjectionMatrix();
+		View = Camera.GetViewMatrix();
+		InverseProjection = glm::inverse(Camera.GetProjectionMatrix());
+		InverseView = glm::inverse(Camera.GetViewMatrix());
 
+		// Common uniform buffer
+		CommonUniforms UniformBuffer = { View, Projection, InverseView, InverseProjection, PreviousProjection, PreviousView, glm::inverse(PreviousProjection), glm::inverse(PreviousView), (int)app.GetCurrentFrame() };
+
+		// Resize buffers (to maintain aspect ratio)
+		GBuffers[0].SetSize(app.GetWidth(), app.GetHeight());
+		GBuffers[1].SetSize(app.GetWidth(), app.GetHeight());
+		LightingPass.SetSize(app.GetWidth(), app.GetHeight());
+		TAABuffers[0].SetSize(app.GetWidth(), app.GetHeight());
+		TAABuffers[1].SetSize(app.GetWidth(), app.GetHeight());
+		SpecularIndirect.SetSize(app.GetWidth() * SpecularIndirectRes, app.GetHeight() * SpecularIndirectRes);
+		SpecularIndirectTemporalBuffers[0].SetSize(app.GetWidth() * SpecularIndirectUpsampleRes, app.GetHeight() * SpecularIndirectUpsampleRes);
+		SpecularIndirectTemporalBuffers[1].SetSize(app.GetWidth() * SpecularIndirectUpsampleRes, app.GetHeight() * SpecularIndirectUpsampleRes);
+
+		// Shadowmap update 
 		if (app.GetCurrentFrame() % 8 == 0)
 		{
 			// Shadow pass 
 			RenderShadowMap(Shadowmap, SunDirection, EntityRenderList, Camera.GetViewProjection());
 		}
 
-
-
+		// Probe update (single slice)
 		RenderProbe(PlayerProbe, app.GetCurrentFrame() % 6, Camera.GetPosition(), EntityList, ProbeForwardShader);
+
+		// Ping pong framebuffers
+		bool FrameCheckerStep = app.GetCurrentFrame() % 2 == 0;
+		
+		// Gbuffer 
+		auto& GBuffer = FrameCheckerStep ? GBuffers[0] : GBuffers[1];
+		auto& PrevGBuffer = FrameCheckerStep ? GBuffers[1] : GBuffers[0];
+
+		// Specular 
+		auto& SpecularTemporal = FrameCheckerStep ? SpecularIndirectTemporalBuffers[0] : SpecularIndirectTemporalBuffers[1];
+		auto& PrevSpecularTemporal = FrameCheckerStep ? SpecularIndirectTemporalBuffers[1] : SpecularIndirectTemporalBuffers[0];
+
+		// TAA
+		auto& TAATemporal = FrameCheckerStep ? TAABuffers[0] : TAABuffers[1];
+		auto& PrevTAATemporal = FrameCheckerStep ? TAABuffers[1] : TAABuffers[0];
+
 
 		// Render GBuffer
 		glEnable(GL_CULL_FACE);
@@ -276,6 +365,7 @@ void Lumen::StartPipeline()
 		GBufferShader.SetInteger("u_RoughnessMap", 2);
 		GBufferShader.SetInteger("u_MetalnessMap", 3);
 		GBufferShader.SetInteger("u_MetalnessRoughnessMap", 5);
+		GBufferShader.SetMatrix4("u_JitterMatrix", GetTAAJitterMatrix(app.GetCurrentFrame(), GBuffer.GetDimensions()));
 
 		RenderEntityList(EntityRenderList, GBufferShader);
 		UnbindEverything();
@@ -286,12 +376,6 @@ void Lumen::StartPipeline()
 
 		SpecularIndirect.Bind();
 		ProbeSpecularShader.Use();
-		ProbeSpecularShader.SetFloat("u_Time", glfwGetTime());
-		ProbeSpecularShader.SetMatrix4("u_ViewProjection", Camera.GetViewProjection());
-		ProbeSpecularShader.SetMatrix4("u_Projection", Camera.GetProjectionMatrix());
-		ProbeSpecularShader.SetMatrix4("u_View", Camera.GetViewMatrix());
-		ProbeSpecularShader.SetMatrix4("u_InverseProjection", glm::inverse(Camera.GetProjectionMatrix()));
-		ProbeSpecularShader.SetMatrix4("u_InverseView", glm::inverse(Camera.GetViewMatrix()));
 		ProbeSpecularShader.SetVector3f("u_Incident", Camera.GetPosition());
 		ProbeSpecularShader.SetInteger("u_Depth", 0);
 		ProbeSpecularShader.SetInteger("u_Normals", 1);
@@ -301,8 +385,12 @@ void Lumen::StartPipeline()
 		ProbeSpecularShader.SetInteger("u_ProbeNormals", 6);
 		ProbeSpecularShader.SetInteger("u_EnvironmentMap", 7);
 		ProbeSpecularShader.SetInteger("u_Shadowmap", 8);
+		ProbeSpecularShader.SetInteger("u_Frame", app.GetCurrentFrame());
 		ProbeSpecularShader.SetVector3f("u_SunDirection", SunDirection);
 		ProbeSpecularShader.SetMatrix4("u_SunShadowMatrix", GetLightViewProjection(SunDirection));
+		ProbeSpecularShader.SetVector2f("u_Jitter", GetTAAJitterSecondary(app.GetCurrentFrame()));
+		ProbeSpecularShader.SetVector2f("u_Dimensions", SpecularIndirect.GetDimensions());
+		SetCommonUniforms(ProbeSpecularShader, UniformBuffer);
 
 		for (int i = 0; i < 6; i++) {
 			std::string name = "u_ProbeCapturePoints[" + std::to_string(i) + "]";
@@ -339,6 +427,32 @@ void Lumen::StartPipeline()
 		glDrawArrays(GL_TRIANGLES, 0, 6);
 		ScreenQuadVAO.Unbind();
 
+		// Temporal resolve :
+
+		SpecularTemporalShader.Use();
+		SpecularTemporal.Bind();
+
+		SpecularTemporalShader.SetInteger("u_Specular", 0);
+		SpecularTemporalShader.SetInteger("u_HistorySpecular", 1);
+		SpecularTemporalShader.SetInteger("u_Depth", 2);
+		SpecularTemporalShader.SetInteger("u_PreviousDepth", 3);
+		SetCommonUniforms(SpecularTemporalShader, UniformBuffer);
+
+		glActiveTexture(GL_TEXTURE0);
+		glBindTexture(GL_TEXTURE_2D, SpecularIndirect.GetTexture());
+
+		glActiveTexture(GL_TEXTURE1);
+		glBindTexture(GL_TEXTURE_2D, PrevSpecularTemporal.GetTexture());
+
+		glActiveTexture(GL_TEXTURE2);
+		glBindTexture(GL_TEXTURE_2D, GBuffer.GetDepthBuffer());
+
+		glActiveTexture(GL_TEXTURE3);
+		glBindTexture(GL_TEXTURE_2D, PrevGBuffer.GetDepthBuffer());
+
+		ScreenQuadVAO.Bind();
+		glDrawArrays(GL_TRIANGLES, 0, 6);
+		ScreenQuadVAO.Unbind();
 
 
 		// Lighting pass : 
@@ -356,17 +470,14 @@ void Lumen::StartPipeline()
 		LightingShader.SetInteger("u_Probe", 7);
 		LightingShader.SetInteger("u_ResolvedSpecular", 8);
 
-		LightingShader.SetMatrix4("u_Projection", Camera.GetProjectionMatrix());
-		LightingShader.SetMatrix4("u_View", Camera.GetViewMatrix());
-		LightingShader.SetMatrix4("u_InverseProjection", glm::inverse(Camera.GetProjectionMatrix()));
-		LightingShader.SetMatrix4("u_InverseView", glm::inverse(Camera.GetViewMatrix()));
 		LightingShader.SetMatrix4("u_LightVP", GetLightViewProjection(SunDirection));
 		LightingShader.SetVector2f("u_Dims", glm::vec2(app.GetWidth(), app.GetHeight()));
-
 
 		LightingShader.SetVector3f("u_LightDirection", SunDirection);
 		LightingShader.SetVector3f("u_ViewerPosition", Camera.GetPosition());
 
+		SetCommonUniforms(LightingShader, UniformBuffer);
+		
 		glActiveTexture(GL_TEXTURE0);
 		glBindTexture(GL_TEXTURE_2D, GBuffer.GetTexture(0));
 
@@ -392,7 +503,36 @@ void Lumen::StartPipeline()
 		glBindTexture(GL_TEXTURE_CUBE_MAP, PlayerProbe.m_CubemapTexture);
 		
 		glActiveTexture(GL_TEXTURE8);
-		glBindTexture(GL_TEXTURE_2D, SpecularIndirect.GetTexture());
+		glBindTexture(GL_TEXTURE_2D, SpecularTemporal.GetTexture());
+
+		ScreenQuadVAO.Bind();
+		glDrawArrays(GL_TRIANGLES, 0, 6);
+		ScreenQuadVAO.Unbind();
+
+
+		// TAA 
+
+		TAAShader.Use();
+		TAATemporal.Bind();
+
+		TAAShader.SetInteger("u_CurrentColorTexture", 0);
+		TAAShader.SetInteger("u_PreviousColorTexture", 1);
+		TAAShader.SetInteger("u_DepthTexture", 2);
+		TAAShader.SetInteger("u_PreviousDepthTexture", 3);
+		TAAShader.SetBool("u_Enabled", TAA);
+		SetCommonUniforms(TAAShader, UniformBuffer);
+
+		glActiveTexture(GL_TEXTURE0);
+		glBindTexture(GL_TEXTURE_2D, LightingPass.GetTexture());
+
+		glActiveTexture(GL_TEXTURE1);
+		glBindTexture(GL_TEXTURE_2D, PrevTAATemporal.GetTexture());
+
+		glActiveTexture(GL_TEXTURE2);
+		glBindTexture(GL_TEXTURE_2D, GBuffer.GetDepthBuffer());
+
+		glActiveTexture(GL_TEXTURE3);
+		glBindTexture(GL_TEXTURE_2D, PrevGBuffer.GetDepthBuffer());
 
 		ScreenQuadVAO.Bind();
 		glDrawArrays(GL_TRIANGLES, 0, 6);
@@ -400,7 +540,8 @@ void Lumen::StartPipeline()
 
 
 
-		// Final
+		// Tonemapper 
+
 		glBindFramebuffer(GL_FRAMEBUFFER, 0);
 		glViewport(0, 0, app.GetWidth(), app.GetHeight());
 
@@ -408,7 +549,7 @@ void Lumen::StartPipeline()
 		FinalShader.SetInteger("u_MainTexture", 0);
 
 		glActiveTexture(GL_TEXTURE0);
-		glBindTexture(GL_TEXTURE_2D, LightingPass.GetTexture(0));
+		glBindTexture(GL_TEXTURE_2D, TAATemporal.GetTexture(0));
 
 		ScreenQuadVAO.Bind();
 		glDrawArrays(GL_TRIANGLES, 0, 6);

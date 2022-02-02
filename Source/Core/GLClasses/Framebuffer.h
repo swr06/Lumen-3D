@@ -6,6 +6,8 @@
 #include "../Application/Logger.h"
 #include <vector>
 
+#include <glm/glm.hpp>
+
 namespace GLClasses
 {
 	struct FORMAT
@@ -94,12 +96,17 @@ namespace GLClasses
 
 		inline GLuint GetDepthBuffer() const
 		{
+			if (m_DepthBuffer == 0)
+				throw "Depth buffer tried to be accessed when it doesn't exist!";
+
 			return m_DepthBuffer;
 		}
 
 		inline GLuint GetFramebuffer() const noexcept { return m_FBO; }
 		inline unsigned int GetWidth() const noexcept { return m_FBWidth; }
 		inline unsigned int GetHeight() const noexcept { return m_FBHeight; }
+
+		glm::vec2 GetDimensions() const noexcept { return glm::vec2(GetWidth(), GetHeight()); }
 
 		// Creates the framebuffer with the appropriate settings
 		void CreateFramebuffer();

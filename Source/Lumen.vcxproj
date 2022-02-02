@@ -240,6 +240,8 @@
     <None Include="Core\Shaders\ProbeForwardFrag.glsl" />
     <None Include="Core\Shaders\ProbeForwardVert.glsl" />
     <None Include="Core\Shaders\ProbeSpecularTrace.glsl" />
+    <None Include="Core\Shaders\SpecularTemporal.glsl" />
+    <None Include="Core\Shaders\TemporalAA.glsl" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

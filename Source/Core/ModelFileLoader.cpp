@@ -83,7 +83,7 @@ namespace Lumen
 			}
 		}
 
-		void ProcessAssimpMesh(aiMesh* mesh, const aiScene* scene, Object* object, const std::string& pth, const glm::vec4& col, const glm::vec3& reflectivity)
+		void ProcessAssimpMesh(aiMesh* mesh, const aiScene* scene, Object* object, const std::string& pth, const glm::vec4& col, const glm::vec3& reflectivity, glm::vec3 emissive_color)
 		{
 			Mesh& _mesh = object->GenerateMesh();
 			std::vector<Vertex>& vertices = _mesh.m_Vertices;
@@ -160,6 +160,8 @@ namespace Lumen
 			aiMaterial* material = scene->mMaterials[mesh->mMaterialIndex];
 			_mesh.m_Color = col;
 
+			_mesh.m_EmissivityColor = emissive_color;
+
 			LoadMaterialTextures(mesh, material, &object->m_Meshes.back(), pth);
 		}
 
@@ -192,11 +194,17 @@ namespace Lumen
 					_reflectivity = aiVector3D(0.0f);
 				}
 
+				aiVector3D emissivity;
+
+				material->Get(AI_MATKEY_COLOR_EMISSIVE, emissivity);
+
+				
+
 				glm::vec3 reflectivity = glm::vec3(_reflectivity.x, _reflectivity.y, _reflectivity.z);
 				glm::vec4 final_color;
 				final_color = glm::vec4(diffuse_color.r, diffuse_color.g, diffuse_color.b, diffuse_color.a);
 				ProcessAssimpMesh(mesh, Scene, object, pth,
-					final_color, reflectivity);
+					final_color, reflectivity, glm::vec3(emissivity.x, emissivity.y, emissivity.z));
 			}
 
 			for (int i = 0; i < Node->mNumChildren; i++)

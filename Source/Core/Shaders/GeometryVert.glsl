@@ -7,6 +7,8 @@ layout (location = 2) in uint a_TexCoords;
 uniform mat4 u_ModelMatrix;
 uniform mat3 u_NormalMatrix;
 
+uniform mat4 u_JitterMatrix;
+
 out mat3 v_TBNMatrix;
 out vec2 v_TexCoords;
 out vec3 v_FragPosition;
@@ -18,7 +20,8 @@ void main()
 {
 	gl_Position = u_ModelMatrix * vec4(a_Position, 1.0f);
 	v_FragPosition = gl_Position.xyz;
-	gl_Position = u_ViewProjection * gl_Position;
+	gl_Position = u_JitterMatrix * u_ViewProjection * gl_Position;
+
 	
 	// Unpack data ->
 	v_TexCoords = unpackHalf2x16(a_TexCoords);

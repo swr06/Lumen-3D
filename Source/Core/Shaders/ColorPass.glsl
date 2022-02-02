@@ -23,6 +23,8 @@ uniform mat4 u_Projection;
 uniform mat4 u_View;
 uniform mat4 u_LightVP;
 
+uniform int u_CurrentFrame;
+
 uniform vec2 u_Dims;
 
 const vec3 SUN_COLOR = vec3(6.9f, 6.9f, 10.0f);
@@ -102,9 +104,9 @@ void main()
 
 	float DirectionalShadow = CalculateSunShadow(WorldPosition, Normal);
 	vec3 DirectLighting = CalculateDirectionalLight(WorldPosition, normalize(u_LightDirection), SUN_COLOR, Albedo, Normal, RoughnessMetalness, DirectionalShadow).xyz;
-	vec3 AmbientTerm = (texture(u_Skymap, vec3(0.0f, 1.0f, 0.0f)).xyz * 0.225f) * Albedo;
+	vec3 AmbientTerm = (texture(u_Skymap, vec3(0.0f, 1.0f, 0.0f)).xyz * 0.3f) * Albedo;
 	vec3 SpecularIndirect = texture(u_ResolvedSpecular, v_TexCoords).xyz;
-	o_Color = DirectLighting + AmbientTerm + SpecularIndirect * 0.1f;
+	o_Color = SpecularIndirect * 0.5f;
 }
 
 
@@ -122,9 +124,10 @@ float CalculateSunShadow(vec3 WorldPosition, vec3 N)
 
     float ClosestDepth = texture(u_ShadowTexture, ProjectionCoordinates.xy).r; 
     float Depth = ProjectionCoordinates.z;
-	float Bias = max(0.00025f * (1.0f - dot(N, u_LightDirection)), 0.0005f);  
+	float Bias = max(0.00025f * (1.0f - dot(N, u_LightDirection)), 0.0008f);  
 	vec2 TexelSize = 1.0 / textureSize(u_ShadowTexture, 0);
 	float noise = texture(u_BlueNoise, v_TexCoords * (u_Dims / textureSize(u_BlueNoise, 0).xy)).r;
+	noise = mod(noise + 1.61803f * mod(float(u_CurrentFrame), 100.0f), 1.0f);
 	float scale = 1.0f;
 	float scale_multiplier = 1.0f+(1.0f/16.0f);
 

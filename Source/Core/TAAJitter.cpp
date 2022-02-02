@@ -38,3 +38,12 @@ glm::vec2 Lumen::GetTAAJitterSecondary(int CurrentFrame)
 	glm::vec2 Jitter = HaltonSequenceData[CurrentFrame % 32];
 	return Jitter;
 }
+
+
+glm::mat4 Lumen::GetTAAJitterMatrix(int CurrentFrame, const glm::vec2& resolution)
+{
+	glm::vec2 Jitter = HaltonSequenceData[CurrentFrame % 64];
+	Jitter *= 0.75f;
+	glm::vec2 TexelSize = 1.0f / glm::vec2(resolution);
+	return glm::translate(glm::mat4(1.0f), glm::vec3((2.0 * Jitter.x - 1.0) * TexelSize.x, (2.0 * Jitter.y - 1.0) * TexelSize.y, 0.0f));
+}

@@ -13,4 +13,5 @@ namespace Lumen {
 	void GenerateJitterStuff();
 	glm::vec2 GetTAAJitter(int CurrentFrame);
 	glm::vec2 GetTAAJitterSecondary(int CurrentFrame);
+	glm::mat4 GetTAAJitterMatrix(int CurrentFrame, const glm::vec2& resolution);
 }

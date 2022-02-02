@@ -13,6 +13,8 @@ void Lumen::ShaderManager::CreateShaders()
 	AddShader("PROBE_FORWARD", "Core/Shaders/ProbeForwardVert.glsl", "Core/Shaders/ProbeForwardFrag.glsl");
 
 	AddShader("PROBE_SPECULAR", "Core/Shaders/FBOVert.glsl", "Core/Shaders/ProbeSpecularTrace.glsl");
+	AddShader("SPECULAR_TEMPORAL", "Core/Shaders/FBOVert.glsl", "Core/Shaders/SpecularTemporal.glsl");
+	AddShader("TAA", "Core/Shaders/FBOVert.glsl", "Core/Shaders/TemporalAA.glsl");
 }
 
 void Lumen::ShaderManager::AddShader(const std::string& name, const std::string& vert, const std::string& frag, const std::string& geo)

@@ -26,6 +26,8 @@ namespace Lumen
 		std::vector<GLuint> m_Indices;
 		std::string m_MeshName;
 
+		glm::vec3 m_EmissivityColor;
+
 		std::string TexturePaths[6];
 
 		GLClasses::Texture m_AlbedoMap;
