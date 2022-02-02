@@ -89,6 +89,7 @@ namespace Lumen
 		// Cubemaps 
 		GLuint m_CubemapTexture = 0;
 		GLuint m_DepthCubemap = 0;
+		GLuint m_MaskMap = 0;
 		GLuint NormalPBRPackedCubemap = 0; 
 
 		glm::vec3 CapturePoints[6];

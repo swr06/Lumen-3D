@@ -164,7 +164,7 @@ void RenderEntityList(const std::vector<Lumen::Entity*> EntityList, GLClasses::S
 	}
 }
 
-void RenderProbe(Lumen::ProbeMap& probe, int face, glm::vec3 center, const std::vector<Lumen::Entity*> EntityList, GLClasses::Shader& shader) {
+void RenderProbe(Lumen::ProbeMap& probe, int face, glm::vec3 center, const std::vector<Lumen::Entity*> EntityList, GLClasses::Shader& shader, int env, GLClasses::VertexArray& vao) {
 
 	if (face >= 6) {
 		throw "What.";
@@ -176,6 +176,9 @@ void RenderProbe(Lumen::ProbeMap& probe, int face, glm::vec3 center, const std::
 	probe.CapturePoints[face] = center;
 
 	const glm::mat4 projection_matrix = glm::perspective(glm::radians(90.0f), 1.0f, 0.1f, 800.0f);
+	const glm::mat4 inverse_projection = glm::inverse(projection_matrix);
+
+	auto& ProbeSkyShader = Lumen::ShaderManager::GetShader("PROBE_SKY");
 
 	std::array<glm::mat4, 6> view_matrices =
 	{
@@ -189,6 +192,7 @@ void RenderProbe(Lumen::ProbeMap& probe, int face, glm::vec3 center, const std::
 
 	probe.BindFace(face, false);
 	shader.Use();
+	glClearColor(0., 0., 0., 0.);
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 	shader.SetVector3f("u_CapturePosition", center);
 	shader.SetMatrix4("u_ViewProjection", projection_matrix * view_matrices[face]);
@@ -201,25 +205,48 @@ void RenderProbe(Lumen::ProbeMap& probe, int face, glm::vec3 center, const std::
 
 	glDisable(GL_CULL_FACE);
 	glDisable(GL_DEPTH_TEST);
+
+	ProbeSkyShader.Use();
+	ProbeSkyShader.SetInteger("u_EnvironmentMap", 0);
+	ProbeSkyShader.SetInteger("u_Mask", 1);
+	ProbeSkyShader.SetMatrix4("u_InverseProjection", inverse_projection);
+	ProbeSkyShader.SetMatrix4("u_InverseView", glm::inverse(view_matrices[face]));
+
+	glActiveTexture(GL_TEXTURE0);
+	glBindTexture(GL_TEXTURE_CUBE_MAP, env);
+
+	glActiveTexture(GL_TEXTURE1);
+	glBindTexture(GL_TEXTURE_CUBE_MAP, probe.m_DepthCubemap);
+
+	vao.Bind();
+	glDrawArrays(GL_TRIANGLES, 0, 6);
+	vao.Unbind();
 }
 
-void RenderProbeAllFaces(Lumen::ProbeMap& probe, const glm::vec3& center, const std::vector<Lumen::Entity*> EntityList, GLClasses::Shader& shader) 
+void RenderProbeAllFaces(Lumen::ProbeMap& probe, const glm::vec3& center, const std::vector<Lumen::Entity*> EntityList, GLClasses::Shader& shader, int env) 
 {
 	for (int i = 0; i < 6; i++) {
-		RenderProbe(probe, i, center, EntityList, shader);
+		//RenderProbe(probe, i, center, EntityList, shader, env);
 	}
 
 	return;
 }
 
 
-
+// Geometry buffer (For deferred shading)
 GLClasses::Framebuffer GBuffers[2] = { GLClasses::Framebuffer(16, 16, { {GL_RGB, GL_RGB, GL_UNSIGNED_BYTE, true, true}, {GL_RGB16F, GL_RGB, GL_FLOAT, true, true}, {GL_RGB, GL_RGB, GL_UNSIGNED_BYTE, false, false}, {GL_RGB16F, GL_RGB, GL_FLOAT, true, true} }, false, true), GLClasses::Framebuffer(16, 16, { {GL_RGB, GL_RGB, GL_UNSIGNED_BYTE, true, true}, {GL_RGB16F, GL_RGB, GL_FLOAT, true, true}, {GL_RGB, GL_RGB, GL_UNSIGNED_BYTE, false, false}, {GL_RGB16F, GL_RGB, GL_FLOAT, true, true} }, false, true) };
+
+// Lighting 
 GLClasses::Framebuffer LightingPass(16, 16, {GL_RGB16F, GL_RGB, GL_FLOAT, true, true}, false, true);
-GLClasses::Framebuffer SpecularIndirect(16, 16, {GL_RGB16F, GL_RGB, GL_FLOAT, true, true}, false, true);
+
+// Specular Indirect 
+GLClasses::Framebuffer SpecularIndirectBuffers[2]{ GLClasses::Framebuffer(16, 16, { {GL_RGB16F, GL_RGB, GL_FLOAT, true, true}, {GL_R16F, GL_RED, GL_FLOAT, true, true} }, false, true), GLClasses::Framebuffer(16, 16, { {GL_RGB16F, GL_RGB, GL_FLOAT, true, true}, {GL_R16F, GL_RED, GL_FLOAT, true, true} }, false, true) };
 GLClasses::Framebuffer SpecularIndirectTemporalBuffers[2] = { GLClasses::Framebuffer(16, 16, {GL_RGB16F, GL_RGB, GL_FLOAT, true, true}, false, true), GLClasses::Framebuffer(16, 16, {GL_RGB16F, GL_RGB, GL_FLOAT, true, true}, false, true) };
+
+// TAA Buffers
 GLClasses::Framebuffer TAABuffers[2] = { GLClasses::Framebuffer(16, 16, {GL_RGB16F, GL_RGB, GL_FLOAT, true, true}, false, true), GLClasses::Framebuffer(16, 16, {GL_RGB16F, GL_RGB, GL_FLOAT, true, true}, false, true) };
 
+// Main pipeline
 void Lumen::StartPipeline()
 {
 	RayTracerApp app;
@@ -319,10 +346,17 @@ void Lumen::StartPipeline()
 		// Resize buffers (to maintain aspect ratio)
 		GBuffers[0].SetSize(app.GetWidth(), app.GetHeight());
 		GBuffers[1].SetSize(app.GetWidth(), app.GetHeight());
+
+		// Light combine (Direct + Indirect)
 		LightingPass.SetSize(app.GetWidth(), app.GetHeight());
+
+		// Temporal AA
 		TAABuffers[0].SetSize(app.GetWidth(), app.GetHeight());
 		TAABuffers[1].SetSize(app.GetWidth(), app.GetHeight());
-		SpecularIndirect.SetSize(app.GetWidth() * SpecularIndirectRes, app.GetHeight() * SpecularIndirectRes);
+
+		// Specular 
+		SpecularIndirectBuffers[0].SetSize(app.GetWidth() * SpecularIndirectRes, app.GetHeight() * SpecularIndirectRes);
+		SpecularIndirectBuffers[1].SetSize(app.GetWidth() * SpecularIndirectRes, app.GetHeight() * SpecularIndirectRes);
 		SpecularIndirectTemporalBuffers[0].SetSize(app.GetWidth() * SpecularIndirectUpsampleRes, app.GetHeight() * SpecularIndirectUpsampleRes);
 		SpecularIndirectTemporalBuffers[1].SetSize(app.GetWidth() * SpecularIndirectUpsampleRes, app.GetHeight() * SpecularIndirectUpsampleRes);
 
@@ -334,7 +368,7 @@ void Lumen::StartPipeline()
 		}
 
 		// Probe update (single slice)
-		RenderProbe(PlayerProbe, app.GetCurrentFrame() % 6, Camera.GetPosition(), EntityList, ProbeForwardShader);
+		RenderProbe(PlayerProbe, app.GetCurrentFrame() % 6, Camera.GetPosition(), EntityList, ProbeForwardShader, Skymap.GetID(), ScreenQuadVAO);
 
 		// Ping pong framebuffers
 		bool FrameCheckerStep = app.GetCurrentFrame() % 2 == 0;
@@ -344,6 +378,8 @@ void Lumen::StartPipeline()
 		auto& PrevGBuffer = FrameCheckerStep ? GBuffers[1] : GBuffers[0];
 
 		// Specular 
+		auto& SpecularIndirect = FrameCheckerStep ? SpecularIndirectBuffers[0] : SpecularIndirectBuffers[1];
+		auto& PrevSpecularIndirect = FrameCheckerStep ? SpecularIndirectBuffers[1] : SpecularIndirectBuffers[0];
 		auto& SpecularTemporal = FrameCheckerStep ? SpecularIndirectTemporalBuffers[0] : SpecularIndirectTemporalBuffers[1];
 		auto& PrevSpecularTemporal = FrameCheckerStep ? SpecularIndirectTemporalBuffers[1] : SpecularIndirectTemporalBuffers[0];
 
@@ -371,8 +407,12 @@ void Lumen::StartPipeline()
 		UnbindEverything();
 
 		// Post processing passes here : 
+
+		// Flags 
 		glDisable(GL_CULL_FACE);
 		glDisable(GL_DEPTH_TEST);
+
+		// Specular Indirect lighting trace :
 
 		SpecularIndirect.Bind();
 		ProbeSpecularShader.Use();
@@ -401,8 +441,8 @@ void Lumen::StartPipeline()
 		glBindTexture(GL_TEXTURE_2D, GBuffer.GetDepthBuffer());
 
 		glActiveTexture(GL_TEXTURE1);
-		glBindTexture(GL_TEXTURE_2D, GBuffer.GetTexture(1));
-		//glBindTexture(GL_TEXTURE_2D, GBuffer.GetTexture(3));
+		//glBindTexture(GL_TEXTURE_2D, GBuffer.GetTexture(1));
+		glBindTexture(GL_TEXTURE_2D, GBuffer.GetTexture(3));
 
 		glActiveTexture(GL_TEXTURE2);
 		glBindTexture(GL_TEXTURE_2D, GBuffer.GetTexture(2));
@@ -427,15 +467,17 @@ void Lumen::StartPipeline()
 		glDrawArrays(GL_TRIANGLES, 0, 6);
 		ScreenQuadVAO.Unbind();
 
-		// Temporal resolve :
+		// Specular Temporal resolve :
 
 		SpecularTemporalShader.Use();
 		SpecularTemporal.Bind();
-
 		SpecularTemporalShader.SetInteger("u_Specular", 0);
 		SpecularTemporalShader.SetInteger("u_HistorySpecular", 1);
 		SpecularTemporalShader.SetInteger("u_Depth", 2);
 		SpecularTemporalShader.SetInteger("u_PreviousDepth", 3);
+		SpecularTemporalShader.SetInteger("u_Normals", 4);
+		SpecularTemporalShader.SetInteger("u_Transversals", 5);
+		SpecularTemporalShader.SetInteger("u_PrevTransversals", 6);
 		SetCommonUniforms(SpecularTemporalShader, UniformBuffer);
 
 		glActiveTexture(GL_TEXTURE0);
@@ -450,12 +492,20 @@ void Lumen::StartPipeline()
 		glActiveTexture(GL_TEXTURE3);
 		glBindTexture(GL_TEXTURE_2D, PrevGBuffer.GetDepthBuffer());
 
+		glActiveTexture(GL_TEXTURE4);
+		glBindTexture(GL_TEXTURE_2D, GBuffer.GetTexture(3));
+
+		glActiveTexture(GL_TEXTURE5);
+		glBindTexture(GL_TEXTURE_2D, SpecularIndirect.GetTexture(1));
+
+		glActiveTexture(GL_TEXTURE6);
+		glBindTexture(GL_TEXTURE_2D, PrevSpecularIndirect.GetTexture(1));
+
 		ScreenQuadVAO.Bind();
 		glDrawArrays(GL_TRIANGLES, 0, 6);
 		ScreenQuadVAO.Unbind();
 
-
-		// Lighting pass : 
+		// Lighting combine pass : 
 
 		LightingShader.Use();
 		LightingPass.Bind();
@@ -509,8 +559,7 @@ void Lumen::StartPipeline()
 		glDrawArrays(GL_TRIANGLES, 0, 6);
 		ScreenQuadVAO.Unbind();
 
-
-		// TAA 
+		// Temporal AA Resolve :
 
 		TAAShader.Use();
 		TAATemporal.Bind();
@@ -538,9 +587,7 @@ void Lumen::StartPipeline()
 		glDrawArrays(GL_TRIANGLES, 0, 6);
 		ScreenQuadVAO.Unbind();
 
-
-
-		// Tonemapper 
+		// Tonemap + Gamma correct + Output :
 
 		glBindFramebuffer(GL_FRAMEBUFFER, 0);
 		glViewport(0, 0, app.GetWidth(), app.GetHeight());
@@ -555,8 +602,8 @@ void Lumen::StartPipeline()
 		glDrawArrays(GL_TRIANGLES, 0, 6);
 		ScreenQuadVAO.Unbind();
 
-		// Finish : 
-		glFinish();
+		// Finish :
+
 		app.FinishFrame();
 		GLClasses::DisplayFrameRate(app.GetWindow(), "Lumen ");
 

@@ -80,6 +80,7 @@ vec3 GetRayDirectionAt(vec2 screenspace)
 	return vec3(u_InverseView * eye);
 }
 
+
 void main() 
 {	
 	float depth = texture(u_DepthTexture, v_TexCoords).r;
@@ -100,13 +101,17 @@ void main()
 
     vec3 Lo = normalize(u_ViewerPosition - WorldPosition);
 	vec3 R = reflect(-Lo, Normal).xyz;
-	vec3 Reflected = texture(u_Probe, R).xyz;
+	vec3 Reflected = texture(u_Probe, -Lo).xyz;
 
 	float DirectionalShadow = CalculateSunShadow(WorldPosition, Normal);
 	vec3 DirectLighting = CalculateDirectionalLight(WorldPosition, normalize(u_LightDirection), SUN_COLOR, Albedo, Normal, RoughnessMetalness, DirectionalShadow).xyz;
 	vec3 AmbientTerm = (texture(u_Skymap, vec3(0.0f, 1.0f, 0.0f)).xyz * 0.3f) * Albedo;
 	vec3 SpecularIndirect = texture(u_ResolvedSpecular, v_TexCoords).xyz;
-	o_Color = SpecularIndirect * 0.5f;
+	o_Color = SpecularIndirect;
+
+	if (isnan(o_Color.x) || isnan(o_Color.y) || isnan(o_Color.z) || isinf(o_Color.x) || isinf(o_Color.y) || isinf(o_Color.z)) {
+        o_Color = vec3(0.0f);
+    }
 }
 
 

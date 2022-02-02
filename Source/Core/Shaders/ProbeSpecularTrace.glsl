@@ -4,6 +4,8 @@
 #define PHI 1.6180339
 #define SAMPLES 1
 
+#define ROUGH_REFLECTIONS 1
+
 #define Bayer4(a)   (Bayer2(  0.5 * (a)) * 0.25 + Bayer2(a))
 #define Bayer8(a)   (Bayer4(  0.5 * (a)) * 0.25 + Bayer2(a))
 #define Bayer16(a)  (Bayer8(  0.5 * (a)) * 0.25 + Bayer2(a))
@@ -100,7 +102,7 @@ vec3 ImportanceSampleGGX(vec3 N, float roughness, vec2 Xi)
 
 vec3 SampleMicrofacet(vec3 N, float R) {
 
-    R *= 0.75f;
+    R *= 0.7f;
     R = max(R, 0.05f);
 	float NearestDot = -100.0f;
 	vec3 BestDirection;
@@ -159,17 +161,17 @@ GBufferData Raytrace(vec3 WorldPosition, vec3 Normal, float Depth, float Hash, o
     const float Distance = 384.0f;
 
     const int Steps = 192;
-    const int BinarySteps = 8;
+    const int BinarySteps = 10;
 
     float StepSize = Distance / float(Steps);
     float UnditheredStepSize = StepSize;
 
-    StepSize *= mix(Hash, 1.0f, 0.8f);
+    StepSize *= mix(Hash * 1.0f, 1.0f, 0.8f);
 
     vec3 ViewDirection = normalize(WorldPosition - u_Incident);
     vec3 ReflectionVector = normalize(reflect(ViewDirection, Normal)); 
     MicrofacetReflected = ReflectionVector;
-    vec3 RayPosition = (WorldPosition + Normal * 1.0f) + ReflectionVector * StepSize * 2.0f;
+    vec3 RayPosition = (WorldPosition + Normal * 2.0f) + ReflectionVector * StepSize * 2.0f;
     vec3 RayOrigin = RayPosition;
 
     float BestError = 100000.0f;
@@ -191,7 +193,7 @@ GBufferData Raytrace(vec3 WorldPosition, vec3 Normal, float Depth, float Hash, o
         vec3 SampleWorldPosition = SamplePosition + CapturePoint;
         float Error = DistanceSqr(SampleWorldPosition, RayPosition); 
 
-        if (Error < 2.82f) {
+        if (Error < 3.0f) {
              BestError = Error;
              BestPosition = RayPosition;
              FoundHit = true;
@@ -267,7 +269,7 @@ const vec3 SUN_COLOR = vec3(6.9f, 6.9f, 10.0f);
 vec3 BRDF(GBufferData Hit, vec3 Direction) {
     
     if (!Hit.ValidMask) {
-        return texture(u_EnvironmentMap, Direction).xyz * 0.6f;
+        return vec3(0.0f);//texture(u_EnvironmentMap, Direction).xyz * 0.6f;
     }
 
     const vec2 Poisson[6] = vec2[6](vec2(-0.613392, 0.617481),  vec2(0.751946, 0.453352),
@@ -306,18 +308,26 @@ void main() {
     HASH2SEED = (JitteredTexCoords.x * JitteredTexCoords.y) * 64.0;
 	HASH2SEED += fract(u_Time) * 64.0f;
 
-    float BayerHash = fract(fract(mod(float(u_Frame), 256.0f) * (1.0 / PHI)) + Bayer32(gl_FragCoord.st));
+    float BayerHash = fract(fract(mod(float(u_Frame), 256.0f) * (1.0 / PHI)) + Bayer32(gl_FragCoord.xy));
     float Depth = texture(u_Depth, JitteredTexCoords).x;
 	vec3 WorldPosition = WorldPosFromDepth(Depth, JitteredTexCoords);
     vec3 Normal = texture(u_Normals, JitteredTexCoords).xyz; 
     vec3 PBR = texture(u_PBR, JitteredTexCoords).xyz;
 
-    vec3 Microfacet = SampleMicrofacet(Normal, PBR.x);
+    vec3 Microfacet;
+    
+    #if ROUGH_REFLECTIONS
+        Microfacet = SampleMicrofacet(Normal, PBR.x);
+    #else 
+        Microfacet = Normal;
+    #endif 
+
     vec3 Reflected = vec3(0.0f);
     GBufferData Intersection = Raytrace(WorldPosition, Microfacet, Depth, BayerHash, Reflected);
     o_Color = BRDF(Intersection, Reflected);
 
-    o_Transversal = distance(Intersection.Position, WorldPosition);
+    o_Transversal = Intersection.ValidMask ? distance(Intersection.Position, WorldPosition) : 32.0f;
+    o_Transversal /= 64.0f;
 
     if (isnan(o_Color.x) || isnan(o_Color.y) || isnan(o_Color.z) || isinf(o_Color.x) || isinf(o_Color.y) || isinf(o_Color.z)) {
         o_Color = vec3(0.0f);
