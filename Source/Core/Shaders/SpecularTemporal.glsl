@@ -79,7 +79,7 @@ void main() {
 
         float PreviousT = texture(u_PrevTransversals, Reprojected).x * 64.0f;
 
-        float TemporalBlur = 0.96f;
+        float TemporalBlur = 0.95f;
 
         if (abs(PreviousT - Transversal) > 12.0f) {
            // TemporalBlur = 0.6f;

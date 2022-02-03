@@ -53,7 +53,7 @@ public:
 		glfwSwapInterval((int)vsync);
 
 		GLFWwindow* window = GetWindow();
-		float camera_speed = 0.525f;
+		float camera_speed = 0.525f * 2.0f;
 
 		if (GetCursorLocked()) {
 			if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS)
@@ -206,27 +206,27 @@ void RenderProbe(Lumen::ProbeMap& probe, int face, glm::vec3 center, const std::
 	glDisable(GL_CULL_FACE);
 	glDisable(GL_DEPTH_TEST);
 
-	ProbeSkyShader.Use();
-	ProbeSkyShader.SetInteger("u_EnvironmentMap", 0);
-	ProbeSkyShader.SetInteger("u_Mask", 1);
-	ProbeSkyShader.SetMatrix4("u_InverseProjection", inverse_projection);
-	ProbeSkyShader.SetMatrix4("u_InverseView", glm::inverse(view_matrices[face]));
-
-	glActiveTexture(GL_TEXTURE0);
-	glBindTexture(GL_TEXTURE_CUBE_MAP, env);
-
-	glActiveTexture(GL_TEXTURE1);
-	glBindTexture(GL_TEXTURE_CUBE_MAP, probe.m_DepthCubemap);
-
-	vao.Bind();
-	glDrawArrays(GL_TRIANGLES, 0, 6);
-	vao.Unbind();
+	//ProbeSkyShader.Use();
+	//ProbeSkyShader.SetInteger("u_EnvironmentMap", 0);
+	//ProbeSkyShader.SetInteger("u_Mask", 1);
+	//ProbeSkyShader.SetMatrix4("u_InverseProjection", inverse_projection);
+	//ProbeSkyShader.SetMatrix4("u_InverseView", glm::inverse(view_matrices[face]));
+	//
+	//glActiveTexture(GL_TEXTURE0);
+	//glBindTexture(GL_TEXTURE_CUBE_MAP, env);
+	//
+	//glActiveTexture(GL_TEXTURE1);
+	//glBindTexture(GL_TEXTURE_CUBE_MAP, probe.m_DepthCubemap);
+	//
+	//vao.Bind();
+	//glDrawArrays(GL_TRIANGLES, 0, 6);
+	//vao.Unbind();
 }
 
-void RenderProbeAllFaces(Lumen::ProbeMap& probe, const glm::vec3& center, const std::vector<Lumen::Entity*> EntityList, GLClasses::Shader& shader, int env) 
+void RenderProbeAllFaces(Lumen::ProbeMap& probe, const glm::vec3& center, const std::vector<Lumen::Entity*> EntityList, GLClasses::Shader& shader, int env, GLClasses::VertexArray& vao)
 {
 	for (int i = 0; i < 6; i++) {
-		//RenderProbe(probe, i, center, EntityList, shader, env);
+		RenderProbe(probe, i, center, EntityList, shader, env, vao);
 	}
 
 	return;
@@ -321,9 +321,11 @@ void Lumen::StartPipeline()
 
 	// Probe Setup
 	ProbeMap PlayerProbe(192);
+	glm::vec3 PlayerProbeCapturePoint;
 
 	// Temporal jitter
 	GenerateJitterStuff();
+
 
 	while (!glfwWindowShouldClose(app.GetWindow()))
 	{
@@ -367,8 +369,12 @@ void Lumen::StartPipeline()
 			RenderShadowMap(Shadowmap, SunDirection, EntityRenderList, Camera.GetViewProjection());
 		}
 
-		// Probe update (single slice)
-		RenderProbe(PlayerProbe, app.GetCurrentFrame() % 6, Camera.GetPosition(), EntityList, ProbeForwardShader, Skymap.GetID(), ScreenQuadVAO);
+		// Probe update 
+		PlayerProbeCapturePoint = Camera.GetPosition();
+
+		RenderProbe(PlayerProbe, ((app.GetCurrentFrame() % 2) * 3) + 0, PlayerProbeCapturePoint, EntityList, ProbeForwardShader, Skymap.GetID(), ScreenQuadVAO);
+		RenderProbe(PlayerProbe, ((app.GetCurrentFrame() % 2) * 3) + 1, PlayerProbeCapturePoint, EntityList, ProbeForwardShader, Skymap.GetID(), ScreenQuadVAO);
+		RenderProbe(PlayerProbe, ((app.GetCurrentFrame() % 2) * 3) + 2, PlayerProbeCapturePoint, EntityList, ProbeForwardShader, Skymap.GetID(), ScreenQuadVAO);
 
 		// Ping pong framebuffers
 		bool FrameCheckerStep = app.GetCurrentFrame() % 2 == 0;
@@ -425,6 +431,7 @@ void Lumen::StartPipeline()
 		ProbeSpecularShader.SetInteger("u_ProbeNormals", 6);
 		ProbeSpecularShader.SetInteger("u_EnvironmentMap", 7);
 		ProbeSpecularShader.SetInteger("u_Shadowmap", 8);
+		ProbeSpecularShader.SetInteger("u_LFNormals", 9);
 		ProbeSpecularShader.SetInteger("u_Frame", app.GetCurrentFrame());
 		ProbeSpecularShader.SetVector3f("u_SunDirection", SunDirection);
 		ProbeSpecularShader.SetMatrix4("u_SunShadowMatrix", GetLightViewProjection(SunDirection));
@@ -441,8 +448,8 @@ void Lumen::StartPipeline()
 		glBindTexture(GL_TEXTURE_2D, GBuffer.GetDepthBuffer());
 
 		glActiveTexture(GL_TEXTURE1);
-		//glBindTexture(GL_TEXTURE_2D, GBuffer.GetTexture(1));
-		glBindTexture(GL_TEXTURE_2D, GBuffer.GetTexture(3));
+		glBindTexture(GL_TEXTURE_2D, GBuffer.GetTexture(1));
+		//glBindTexture(GL_TEXTURE_2D, GBuffer.GetTexture(3));
 
 		glActiveTexture(GL_TEXTURE2);
 		glBindTexture(GL_TEXTURE_2D, GBuffer.GetTexture(2));
@@ -462,6 +469,8 @@ void Lumen::StartPipeline()
 		glActiveTexture(GL_TEXTURE8);
 		glBindTexture(GL_TEXTURE_2D, Shadowmap.GetDepthTexture());
 
+		glActiveTexture(GL_TEXTURE9);
+		glBindTexture(GL_TEXTURE_2D, GBuffer.GetTexture(3));
 
 		ScreenQuadVAO.Bind();
 		glDrawArrays(GL_TRIANGLES, 0, 6);

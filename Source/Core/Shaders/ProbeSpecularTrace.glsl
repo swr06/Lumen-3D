@@ -4,6 +4,11 @@
 #define PHI 1.6180339
 #define SAMPLES 1
 
+const float TAU = radians(360.0f);
+const float PHI2 = sqrt(5.0f) * 0.5f + 0.5f;
+const float GOLDEN_ANGLE = TAU / PHI2 / PHI2;
+
+
 #define ROUGH_REFLECTIONS 1
 
 #define Bayer4(a)   (Bayer2(  0.5 * (a)) * 0.25 + Bayer2(a))
@@ -49,6 +54,7 @@ uniform vec3 u_Incident;
 
 uniform sampler2D u_Depth;
 uniform sampler2D u_Normals;
+uniform sampler2D u_LFNormals;
 uniform sampler2D u_PBR;
 
 uniform sampler2D u_Shadowmap;
@@ -105,9 +111,9 @@ vec3 SampleMicrofacet(vec3 N, float R) {
     R *= 0.7f;
     R = max(R, 0.05f);
 	float NearestDot = -100.0f;
-	vec3 BestDirection;
+	vec3 BestDirection = N;
 
-	for (int i = 0 ; i < 4 ; i++) 
+	for (int i = 0 ; i < 5 ; i++) 
     {
 		vec2 Xi = hash2() * vec2(0.9f, 0.8f);
         
@@ -120,7 +126,26 @@ vec3 SampleMicrofacet(vec3 N, float R) {
 		}
 	}
 
+    if (dot(N, BestDirection) < 0.0f) {
+        return N;
+    }
+
 	return BestDirection;
+}
+
+vec3 SampleMicrofacetBayer(vec3 N, float R, vec2 Xi) {
+
+    R *= 0.7f;
+    R = max(R, 0.05f);
+    Xi *= vec2(0.7f, 0.5f);
+
+    vec3 ImportanceSampled = ImportanceSampleGGX(N, R, Xi);
+
+    if (dot(N, ImportanceSampled) < 0.0f) {
+        return N;
+    }
+
+	return ImportanceSampled;
 }
 
 
@@ -157,21 +182,26 @@ float DistanceSqr(vec3 A, vec3 B)
     return dot(C, C);
 }
 
-GBufferData Raytrace(vec3 WorldPosition, vec3 Normal, float Depth, float Hash, out vec3 MicrofacetReflected) {
-    const float Distance = 384.0f;
+GBufferData Raytrace(vec3 WorldPosition, vec3 Normal, vec3 LFNormal, float Depth, float Hash, out vec3 MicrofacetReflected) {
+   
+    WorldPosition = (WorldPosition + LFNormal * 0.5f);
 
+    const float Distance = 512.0f;
     const int Steps = 192;
-    const int BinarySteps = 10;
+    const int BinarySteps = 8;
 
     float StepSize = Distance / float(Steps);
     float UnditheredStepSize = StepSize;
 
-    StepSize *= mix(Hash * 1.0f, 1.0f, 0.8f);
+    StepSize *= mix(Hash * 1.0f, 1.0f, 0.75f);
 
     vec3 ViewDirection = normalize(WorldPosition - u_Incident);
     vec3 ReflectionVector = normalize(reflect(ViewDirection, Normal)); 
+    vec3 ReflectionVectorLF = normalize(reflect(ViewDirection, LFNormal));
+    
     MicrofacetReflected = ReflectionVector;
-    vec3 RayPosition = (WorldPosition + Normal * 2.0f) + ReflectionVector * StepSize * 2.0f;
+
+    vec3 RayPosition = WorldPosition + ReflectionVectorLF * StepSize * 0.5f;
     vec3 RayOrigin = RayPosition;
 
     float BestError = 100000.0f;
@@ -181,19 +211,30 @@ GBufferData Raytrace(vec3 WorldPosition, vec3 Normal, float Depth, float Hash, o
     vec3 PreviousSampleDirection = ReflectionVector;
 
     bool FoundHit = false;
+
+    int StepExponential = Steps - (Steps / 4);
+    float ExpStep = mix(1.0f, 1.6f, Hash);
     
     // Find intersection with geometry 
     // You probably want to take geometrical thickness into account here as well 
     for (int CurrentStep = 0; CurrentStep < Steps ; CurrentStep++) 
     {
+        if (CurrentStep > StepExponential) {
+            StepSize *= ExpStep;
+        }
+
         vec3 CapturePoint = GetCapturePoint(PreviousSampleDirection);
-        vec3 SampleDirection = normalize(RayPosition - CapturePoint);
+        vec3 Diff = RayPosition - CapturePoint;
+        float L = length(Diff);
+        vec3 SampleDirection = Diff / L;
         PreviousSampleDirection = SampleDirection;
         vec3 SamplePosition = SampleDirection * (texture(u_ProbeDepth, SampleDirection).x * 128.0f);
         vec3 SampleWorldPosition = SamplePosition + CapturePoint;
         float Error = DistanceSqr(SampleWorldPosition, RayPosition); 
 
-        if (Error < 3.0f) {
+        float IntersectionThresh = mix(StepSize * 0.1f, StepSize * 2.2f, clamp(float(CurrentStep) / 8.0f, 0.0f, 1.0f));
+
+        if (Error < IntersectionThresh) {
              BestError = Error;
              BestPosition = RayPosition;
              FoundHit = true;
@@ -204,7 +245,6 @@ GBufferData Raytrace(vec3 WorldPosition, vec3 Normal, float Depth, float Hash, o
         
     }
 
-    vec3 IntersectionPosition = vec3(0.0f);
 
     // Binary refinement ->
 
@@ -220,9 +260,8 @@ GBufferData Raytrace(vec3 WorldPosition, vec3 Normal, float Depth, float Hash, o
             PreviousSampleDirection = BR_SampleDirection;
             vec3 BR_SamplePosition = BR_SampleDirection * (texture(u_ProbeDepth, BR_SampleDirection).x * 128.0f);
             vec3 BR_SampleWorldPosition = BR_SamplePosition + CapturePoint;
-            IntersectionPosition = BR_SampleWorldPosition;
 
-            if (DistanceSqr(FinalBinaryRefinePos, BR_SampleWorldPosition) < BestError) 
+            if (DistanceSqr(FinalBinaryRefinePos, BR_SampleWorldPosition) < StepSize * 1.65f) 
             {
                 FinalBinaryRefinePos -= ReflectionVector * BR_StepSize;
             }
@@ -241,25 +280,28 @@ GBufferData Raytrace(vec3 WorldPosition, vec3 Normal, float Depth, float Hash, o
         // Return 
         vec4 AlbedoFetch = texture(u_ProbeAlbedo, FinalSampleDirection);
         vec4 NormalFetch = texture(u_ProbeNormals, FinalSampleDirection);
+        float DepthFetch = texture(u_ProbeDepth, FinalSampleDirection).x * 128.0f;
 
         GBufferData ReturnValue;
-        ReturnValue.Position = IntersectionPosition;
+        ReturnValue.Position = CapturePoint + DepthFetch * FinalSampleDirection;
         ReturnValue.Normal = NormalFetch.xyz;
         ReturnValue.Albedo = AlbedoFetch.xyz;
         ReturnValue.Data = vec3(AlbedoFetch.w, NormalFetch.w, 1.0f);
         ReturnValue.ValidMask = true;
+
         return ReturnValue;
 
     }
 
-     GBufferData ReturnValue;
-     ReturnValue.Position = vec3(RayOrigin) + ReflectionVector * 700.0f;
-     ReturnValue.Normal = vec3(0.0f);
-     ReturnValue.Albedo = vec3(0.0f);
-     ReturnValue.Data = vec3(0.0f, 0.0f, 1.0f);
-     ReturnValue.ValidMask = false;
+    // No hit found 
+    GBufferData ReturnValue;
+    ReturnValue.Position = vec3(RayOrigin) + ReflectionVector * 120.0f;
+    ReturnValue.Normal = vec3(0.0f);
+    ReturnValue.Albedo = vec3(0.0f);
+    ReturnValue.Data = vec3(0.0f, 0.0f, 1.0f);
+    ReturnValue.ValidMask = false;
 
-     return ReturnValue;
+    return ReturnValue;
 }
 
 
@@ -269,18 +311,20 @@ const vec3 SUN_COLOR = vec3(6.9f, 6.9f, 10.0f);
 vec3 BRDF(GBufferData Hit, vec3 Direction) {
     
     if (!Hit.ValidMask) {
-        return vec3(0.0f);//texture(u_EnvironmentMap, Direction).xyz * 0.6f;
+        return vec3(0.0f);
+       // return texture(u_EnvironmentMap, Direction).xyz * 0.3f;
     }
+
 
     const vec2 Poisson[6] = vec2[6](vec2(-0.613392, 0.617481),  vec2(0.751946, 0.453352),
                                     vec2(0.170019, -0.040254),  vec2(0.078707, -0.715323),
                                     vec2(-0.299417, 0.791925),  vec2(-0.075838, -0.529344));
     
-    vec4 ProjectionCoordinates = u_SunShadowMatrix * vec4(Hit.Position, 1.0f);
+    vec4 ProjectionCoordinates = u_SunShadowMatrix * vec4(Hit.Position + Hit.Normal * 0.0f, 1.0f);
 	ProjectionCoordinates.xyz = ProjectionCoordinates.xyz / ProjectionCoordinates.w;
     ProjectionCoordinates.xyz = ProjectionCoordinates.xyz * 0.5f + 0.5f;
     float Depth = ProjectionCoordinates.z;
-	float Bias = 0.0008f;  
+	float Bias = 0.004f;  
     float Fetch = texture(u_Shadowmap, ProjectionCoordinates.xy).x;
     float Shadow = 0.0f; 
     
@@ -295,13 +339,16 @@ vec3 BRDF(GBufferData Hit, vec3 Direction) {
     Shadow /= 6.0f;
     Shadow = 1.0f - Shadow;
 
+
     float Lambertian = max(0.0f, dot(Hit.Normal, -u_SunDirection));
-    vec3 Direct = Lambertian * SUN_COLOR * 0.25f * Shadow * Hit.Albedo;
+    vec3 Direct = Lambertian * SUN_COLOR * 0.2f * Shadow * Hit.Albedo;
     vec3 Ambient = texture(u_EnvironmentMap, vec3(0.0f, 1.0f, 0.0f)).xyz * 0.2f * Hit.Albedo;
     return Direct + Ambient;
 }
 
 void main() {
+    
+
     vec2 JitteredTexCoords = v_TexCoords;
     JitteredTexCoords += u_Jitter / u_Dimensions;
 
@@ -312,6 +359,7 @@ void main() {
     float Depth = texture(u_Depth, JitteredTexCoords).x;
 	vec3 WorldPosition = WorldPosFromDepth(Depth, JitteredTexCoords);
     vec3 Normal = texture(u_Normals, JitteredTexCoords).xyz; 
+    vec3 LFNormal = texture(u_LFNormals, JitteredTexCoords).xyz; 
     vec3 PBR = texture(u_PBR, JitteredTexCoords).xyz;
 
     vec3 Microfacet;
@@ -323,13 +371,18 @@ void main() {
     #endif 
 
     vec3 Reflected = vec3(0.0f);
-    GBufferData Intersection = Raytrace(WorldPosition, Microfacet, Depth, BayerHash, Reflected);
+    GBufferData Intersection = Raytrace(WorldPosition, Microfacet, LFNormal, Depth, BayerHash, Reflected);
     o_Color = BRDF(Intersection, Reflected);
 
     o_Transversal = Intersection.ValidMask ? distance(Intersection.Position, WorldPosition) : 32.0f;
     o_Transversal /= 64.0f;
 
+    // Nan/inf check
     if (isnan(o_Color.x) || isnan(o_Color.y) || isnan(o_Color.z) || isinf(o_Color.x) || isinf(o_Color.y) || isinf(o_Color.z)) {
         o_Color = vec3(0.0f);
+    }
+
+    if (isnan(o_Transversal) || isinf(o_Transversal)) {
+        o_Transversal = 0.0f;
     }
 }
