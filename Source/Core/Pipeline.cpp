@@ -240,7 +240,7 @@ void RenderProbeAllFaces(Lumen::ProbeMap& probe, const glm::vec3& center, const 
 
 
 // Geometry buffer (For deferred shading)
-GLClasses::Framebuffer GBuffers[2] = { GLClasses::Framebuffer(16, 16, { {GL_RGB, GL_RGB, GL_UNSIGNED_BYTE, true, true}, {GL_RGB16F, GL_RGB, GL_FLOAT, true, true}, {GL_RGB, GL_RGB, GL_UNSIGNED_BYTE, false, false}, {GL_RGB16F, GL_RGB, GL_FLOAT, true, true} }, false, true), GLClasses::Framebuffer(16, 16, { {GL_RGB, GL_RGB, GL_UNSIGNED_BYTE, true, true}, {GL_RGB16F, GL_RGB, GL_FLOAT, true, true}, {GL_RGB, GL_RGB, GL_UNSIGNED_BYTE, false, false}, {GL_RGB16F, GL_RGB, GL_FLOAT, true, true} }, false, true) };
+GLClasses::Framebuffer GBuffers[2] = { GLClasses::Framebuffer(16, 16, { {GL_RGB16F, GL_RGB, GL_FLOAT, true, true}, {GL_RGB16F, GL_RGB, GL_FLOAT, true, true}, {GL_RGB, GL_RGB, GL_UNSIGNED_BYTE, false, false}, {GL_RGB16F, GL_RGB, GL_FLOAT, true, true} }, false, true), GLClasses::Framebuffer(16, 16, { {GL_RGB16F, GL_RGB, GL_FLOAT, true, true}, {GL_RGB16F, GL_RGB, GL_FLOAT, true, true}, {GL_RGB, GL_RGB, GL_UNSIGNED_BYTE, false, false}, {GL_RGB16F, GL_RGB, GL_FLOAT, true, true} }, false, true) };
 
 // Lighting 
 GLClasses::Framebuffer LightingPass(16, 16, {GL_RGB16F, GL_RGB, GL_FLOAT, true, true}, false, true);
@@ -268,7 +268,35 @@ void Lumen::StartPipeline()
 	Entity MainModel(&Sponza);
 	MainModel.m_Model = glm::scale(glm::mat4(1.0f), glm::vec3(0.2f));
 	MainModel.m_Model = glm::translate(MainModel.m_Model, glm::vec3(0.0f));
-	std::vector<Entity*> EntityRenderList = { &MainModel };
+
+	Object SecondaryModel;
+	FileLoader::LoadModelFile(&SecondaryModel, "Models/teapot/teapot.obj");
+	Entity SecondaryEntity(&SecondaryModel);
+	SecondaryEntity.m_Model = glm::scale(glm::mat4(1.0f), glm::vec3(0.15f));
+	SecondaryEntity.m_Model = glm::translate(SecondaryEntity.m_Model, glm::vec3(0.0f, 128.0f, 0.0f));
+
+	Entity SecondaryEntity0(&SecondaryModel);
+	SecondaryEntity0.m_Model = glm::scale(glm::mat4(1.0f), glm::vec3(0.3f));
+	SecondaryEntity0.m_Model = glm::translate(SecondaryEntity0.m_Model, glm::vec3(0.0f, 25.0f, -90.0f) * (1.0f / 0.3f));
+	SecondaryEntity0.m_EmissiveAmount = 10.0f;
+
+	Entity SecondaryEntity1(&SecondaryModel);
+	SecondaryEntity1.m_Model = glm::scale(glm::mat4(1.0f), glm::vec3(0.3f));
+	SecondaryEntity1.m_Model = glm::translate(SecondaryEntity1.m_Model, glm::vec3(0.0f, 25.0f, 90.0f) * (1.0f / 0.3f));
+	SecondaryEntity1.m_EmissiveAmount = 10.0f;
+
+	Entity SecondaryEntity2(&SecondaryModel);
+	SecondaryEntity2.m_Model = glm::scale(glm::mat4(1.0f), glm::vec3(0.3f));
+	SecondaryEntity2.m_Model = glm::translate(SecondaryEntity2.m_Model, glm::vec3(220.0f, 25.0f, 0.0f) * (1.0f / 0.3f));
+	SecondaryEntity2.m_EmissiveAmount = 10.0f;
+
+	Entity SecondaryEntity3(&SecondaryModel);
+	SecondaryEntity3.m_Model = glm::scale(glm::mat4(1.0f), glm::vec3(0.3f));
+	SecondaryEntity3.m_Model = glm::translate(SecondaryEntity3.m_Model, glm::vec3(-220.0f, 25.0f, 0.0f) * (1.0f / 0.3f));
+	SecondaryEntity3.m_EmissiveAmount = 10.0f;
+
+
+	std::vector<Entity*> EntityRenderList = { &MainModel, &SecondaryEntity, &SecondaryEntity0, &SecondaryEntity1, &SecondaryEntity2, &SecondaryEntity3 };
 	auto& EntityList = EntityRenderList;
 
 	// Data object initialization 

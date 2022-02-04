@@ -12,6 +12,7 @@ uniform sampler2D u_RoughnessMap;
 uniform sampler2D u_MetalnessRoughnessMap;
 
 uniform bool u_UsesGLTFPBR;
+uniform float u_ModelEmission;
 
 uniform vec3 u_EmissiveColor;
 
@@ -23,6 +24,8 @@ in mat3 v_TBNMatrix;
 void main()
 {
 	o_Albedo = texture(u_AlbedoMap, v_TexCoords).xyz;
+
+	o_Albedo += u_ModelEmission * 5.0f * o_Albedo;
 
 
 	o_HFNormal = normalize(v_TBNMatrix * (texture(u_NormalMap, v_TexCoords).xyz * 2.0f - 1.0f));

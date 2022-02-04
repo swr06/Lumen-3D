@@ -122,7 +122,7 @@ void main() {
         vec2 SampleUV = v_TexCoords.xy + AdjacentUnit * 0.0f * (AdjacentLength - InscribedCircleSize);
         float MipNumber = clamp(log2(InscribedCircleSize * max(Dimensions.x, Dimensions.y)), 0.0, 6.0f);
         float Weight = 1.0f;
-        Total += ConeSampleWeightedColor(SampleUV, MipNumber, GlossMultiplier).xyz * Weight;
+        Total += ConeSampleWeightedColor(SampleUV, MipNumber * 0.6f, GlossMultiplier).xyz * Weight;
         AdjacentLength = IsoscelesTriangleNextAdjacent(AdjacentLength, InscribedCircleSize);
         TotalWeight += Weight;
     }

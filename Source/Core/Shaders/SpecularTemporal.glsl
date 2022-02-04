@@ -87,7 +87,7 @@ void main() {
 
         vec3 History = texture(u_HistorySpecular, Reprojected.xy).xyz;
 
-        TemporalBlur *= pow(exp(-Error), 32.0f);
+        TemporalBlur *= pow(exp(-Error), 48.0f);
 
         o_Color = mix(Current, History, TemporalBlur);
     }

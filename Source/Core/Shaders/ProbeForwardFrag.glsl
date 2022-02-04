@@ -20,6 +20,8 @@ in mat3 v_TBNMatrix;
 // Remember!
 uniform vec3 u_CapturePosition;
 
+uniform float u_ModelEmission;
+
 void main()
 {
 	vec3 Albedo, Normal, PBR;
@@ -45,6 +47,6 @@ void main()
 	Depth /= 128.0f;
 	o_Depth = Depth;
 
-	o_NormalMetalness = vec4(Normal, PBR.y);
+	o_NormalMetalness = vec4(Normal, u_ModelEmission / 8.0f);
 
 }

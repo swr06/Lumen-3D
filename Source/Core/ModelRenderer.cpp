@@ -48,6 +48,7 @@ void Lumen::RenderEntity(Entity& entity, GLClasses::Shader& shader)
 
 		shader.SetBool("u_UsesGLTFPBR", false);
 		shader.SetVector3f("u_EmissiveColor", mesh->m_EmissivityColor);
+		shader.SetFloat("u_ModelEmission", entity.m_EmissiveAmount);
 
 		if (mesh->TexturePaths[5].size() > 0 && mesh->m_MetalnessRoughnessMap.GetID() > 0) {
 
