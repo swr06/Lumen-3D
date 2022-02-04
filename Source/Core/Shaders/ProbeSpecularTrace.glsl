@@ -9,7 +9,6 @@ const float PHI2 = sqrt(5.0f) * 0.5f + 0.5f;
 const float GOLDEN_ANGLE = TAU / PHI2 / PHI2;
 
 
-#define ROUGH_REFLECTIONS 1
 
 #define Bayer4(a)   (Bayer2(  0.5 * (a)) * 0.25 + Bayer2(a))
 #define Bayer8(a)   (Bayer4(  0.5 * (a)) * 0.25 + Bayer2(a))
@@ -34,6 +33,8 @@ uniform float u_Time;
 uniform int u_Frame;
 uniform vec2 u_Jitter;
 uniform vec2 u_Dimensions;
+
+uniform bool u_RoughSpecular;
 
 uniform mat4 u_Projection;
 uniform mat4 u_View;
@@ -113,9 +114,9 @@ vec3 SampleMicrofacet(vec3 N, float R) {
 	float NearestDot = -100.0f;
 	vec3 BestDirection = N;
 
-	for (int i = 0 ; i < 5 ; i++) 
+	for (int i = 0 ; i < 4 ; i++) 
     {
-		vec2 Xi = hash2() * vec2(0.9f, 0.8f);
+		vec2 Xi = hash2() * vec2(0.9f, 0.85f);
         
         vec3 ImportanceSampled = ImportanceSampleGGX(N, R, Xi);
 		float d = dot(ImportanceSampled, N);
@@ -184,7 +185,7 @@ float DistanceSqr(vec3 A, vec3 B)
 
 GBufferData Raytrace(vec3 WorldPosition, vec3 Normal, vec3 LFNormal, float Depth, float Hash, out vec3 MicrofacetReflected) {
    
-    WorldPosition = (WorldPosition + LFNormal * 0.5f);
+    WorldPosition = (WorldPosition + LFNormal * 1.0f);
 
     const float Distance = 512.0f;
     const int Steps = 192;
@@ -213,7 +214,7 @@ GBufferData Raytrace(vec3 WorldPosition, vec3 Normal, vec3 LFNormal, float Depth
     bool FoundHit = false;
 
     int StepExponential = Steps - (Steps / 4);
-    float ExpStep = mix(1.0f, 1.6f, Hash);
+    float ExpStep = mix(1.0f, 1.7f, mix(Hash, 1.0f, 0.2f));
     
     // Find intersection with geometry 
     // You probably want to take geometrical thickness into account here as well 
@@ -278,12 +279,12 @@ GBufferData Raytrace(vec3 WorldPosition, vec3 Normal, vec3 LFNormal, float Depth
         vec3 FinalSampleDirection = normalize(FinalBinaryRefinePos - CapturePoint);
 
         // Return 
-        vec4 AlbedoFetch = texture(u_ProbeAlbedo, FinalSampleDirection);
-        vec4 NormalFetch = texture(u_ProbeNormals, FinalSampleDirection);
-        float DepthFetch = texture(u_ProbeDepth, FinalSampleDirection).x * 128.0f;
+        vec4 AlbedoFetch = textureLod(u_ProbeAlbedo, FinalSampleDirection, 0.0f);
+        vec4 NormalFetch = textureLod(u_ProbeNormals, FinalSampleDirection, 0.0f);
+        float DepthFetch = textureLod(u_ProbeDepth, FinalSampleDirection, 0.0f).x * 128.0f;
 
         GBufferData ReturnValue;
-        ReturnValue.Position = CapturePoint + DepthFetch * FinalSampleDirection;
+        ReturnValue.Position = (CapturePoint + DepthFetch * FinalSampleDirection);
         ReturnValue.Normal = NormalFetch.xyz;
         ReturnValue.Albedo = AlbedoFetch.xyz;
         ReturnValue.Data = vec3(AlbedoFetch.w, NormalFetch.w, 1.0f);
@@ -341,7 +342,7 @@ vec3 BRDF(GBufferData Hit, vec3 Direction) {
 
 
     float Lambertian = max(0.0f, dot(Hit.Normal, -u_SunDirection));
-    vec3 Direct = Lambertian * SUN_COLOR * 0.2f * Shadow * Hit.Albedo;
+    vec3 Direct = Lambertian * SUN_COLOR * 0.03f * Shadow * Hit.Albedo;
     vec3 Ambient = texture(u_EnvironmentMap, vec3(0.0f, 1.0f, 0.0f)).xyz * 0.2f * Hit.Albedo;
     return Direct + Ambient;
 }
@@ -364,11 +365,13 @@ void main() {
 
     vec3 Microfacet;
     
-    #if ROUGH_REFLECTIONS
+    if (u_RoughSpecular) {
         Microfacet = SampleMicrofacet(Normal, PBR.x);
-    #else 
+    }
+        
+    else {
         Microfacet = Normal;
-    #endif 
+    }
 
     vec3 Reflected = vec3(0.0f);
     GBufferData Intersection = Raytrace(WorldPosition, Microfacet, LFNormal, Depth, BayerHash, Reflected);

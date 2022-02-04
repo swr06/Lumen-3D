@@ -15,7 +15,11 @@ void Lumen::ShaderManager::CreateShaders()
 
 	AddShader("PROBE_SPECULAR", "Core/Shaders/FBOVert.glsl", "Core/Shaders/ProbeSpecularTrace.glsl");
 	AddShader("SPECULAR_TEMPORAL", "Core/Shaders/FBOVert.glsl", "Core/Shaders/SpecularTemporal.glsl");
+	AddShader("SPECULAR_CONE_TRACE", "Core/Shaders/FBOVert.glsl", "Core/Shaders/ScreenspaceConeTracing.glsl");
+	AddShader("BLIT", "Core/Shaders/FBOVert.glsl", "Core/Shaders/BasicBlit.glsl");
 	AddShader("TAA", "Core/Shaders/FBOVert.glsl", "Core/Shaders/TemporalAA.glsl");
+	AddShader("RED", "Core/Shaders/FBOVert.glsl", "Core/Shaders/DebugRedOutput.glsl");
+	AddShader("CONE_TRACE_CONVOLVE", "Core/Shaders/FBOVert.glsl", "Core/Shaders/ConeTraceConvolution.glsl");
 }
 
 void Lumen::ShaderManager::AddShader(const std::string& name, const std::string& vert, const std::string& frag, const std::string& geo)

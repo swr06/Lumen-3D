@@ -228,6 +228,7 @@
     <ClCompile Include="main.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <None Include="Core\Shaders\BasicBlit.glsl" />
     <None Include="Core\Shaders\BasicFrag.glsl" />
     <None Include="Core\Shaders\BasicVert.glsl" />
     <None Include="Core\Shaders\ColorPass.glsl" />
@@ -235,6 +236,7 @@
     <None Include="Core\Shaders\DepthVert.glsl" />
     <None Include="Core\Shaders\FBOFrag.glsl" />
     <None Include="Core\Shaders\FBOVert.glsl" />
+    <None Include="Core\Shaders\GaussianBlur.glsl" />
     <None Include="Core\Shaders\GeometryFrag.glsl" />
     <None Include="Core\Shaders\GeometryVert.glsl" />
     <None Include="Core\Shaders\ProbeForwardFrag.glsl" />
@@ -242,6 +244,7 @@
     <None Include="Core\Shaders\ProbeSkyFrag.glsl" />
     <None Include="Core\Shaders\ProbeSkyVert.glsl" />
     <None Include="Core\Shaders\ProbeSpecularTrace.glsl" />
+    <None Include="Core\Shaders\ScreenspaceConeTracing.glsl" />
     <None Include="Core\Shaders\SpecularTemporal.glsl" />
     <None Include="Core\Shaders\TemporalAA.glsl" />
   </ItemGroup>

@@ -105,9 +105,9 @@ void main()
 
 	float DirectionalShadow = CalculateSunShadow(WorldPosition, Normal);
 	vec3 DirectLighting = CalculateDirectionalLight(WorldPosition, normalize(u_LightDirection), SUN_COLOR, Albedo, Normal, RoughnessMetalness, DirectionalShadow).xyz;
-	vec3 AmbientTerm = (texture(u_Skymap, vec3(0.0f, 1.0f, 0.0f)).xyz * 0.3f) * Albedo;
+	vec3 AmbientTerm = (texture(u_Skymap, vec3(0.0f, 1.0f, 0.0f)).xyz * 0.18f) * Albedo;
 	vec3 SpecularIndirect = texture(u_ResolvedSpecular, v_TexCoords).xyz;
-	o_Color = SpecularIndirect;
+	o_Color = DirectLighting + AmbientTerm + SpecularIndirect * 0.75f;
 
 	if (isnan(o_Color.x) || isnan(o_Color.y) || isnan(o_Color.z) || isinf(o_Color.x) || isinf(o_Color.y) || isinf(o_Color.z)) {
         o_Color = vec3(0.0f);
@@ -134,7 +134,6 @@ float CalculateSunShadow(vec3 WorldPosition, vec3 N)
 	float noise = texture(u_BlueNoise, v_TexCoords * (u_Dims / textureSize(u_BlueNoise, 0).xy)).r;
 	noise = mod(noise + 1.61803f * mod(float(u_CurrentFrame), 100.0f), 1.0f);
 	float scale = 1.0f;
-	float scale_multiplier = 1.0f+(1.0f/16.0f);
 
     int Samples = 16;
 
@@ -147,8 +146,9 @@ float CalculateSunShadow(vec3 WorldPosition, vec3 N)
 		vec2 jitter_value;
 		jitter_value = PoissonDisk[x] * dither;
 		float pcf = texture(u_ShadowTexture, ProjectionCoordinates.xy + (jitter_value * scale * TexelSize)).r;  // force hardware bilinear
-		shadow += ProjectionCoordinates.z - Bias > pcf ? 1.0f : 0.0f;    
-		scale *= scale_multiplier;
+		shadow += ProjectionCoordinates.z - Bias > pcf ? 1.0f : 0.0f;
+		
+		scale *= 1.06f;
 	}
 
 	shadow /= float(Samples);

@@ -23,7 +23,6 @@ namespace Lumen
         glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
 
 
-
         // Depth 
         glBindTexture(GL_TEXTURE_CUBE_MAP, 0);
         glGenTextures(1, &m_DepthCubemap);
