@@ -2,7 +2,7 @@
 
 #define PI 3.14159265359
 #define PHI 1.6180339
-#define SAMPLES 2
+#define SAMPLES 1
 
 const float TAU = radians(360.0f);
 const float PHI2 = sqrt(5.0f) * 0.5f + 0.5f;
@@ -58,6 +58,8 @@ uniform sampler2D u_PBR;
 
 uniform sampler2D u_Shadowmap;
 uniform mat4 u_SunShadowMatrix;
+
+uniform bool u_Checker;
 
 struct GBufferData {
    vec3 Position;
@@ -248,7 +250,7 @@ GBufferData Raytrace(vec3 WorldPosition, vec3 Normal, vec3 LFNormal, float Depth
         }
 
         // Compute ray weighting factor 
-        float RayWeight = pow(1.0f / float(CurrentStep + 1.0f), 5.0f) * pow(1.0f / max(Error, 0.00000001f), 6.725f);
+        float RayWeight = pow(1.0f / float(CurrentStep + 1.0f), 3.25f) * pow(1.0f / max(Error, 0.00000001f), 6.725f);
 
         // Weight rays
         if (RayWeight > BestRayWeight) {
@@ -398,24 +400,43 @@ vec3 IntegrateLighting(GBufferData Hit, vec3 Direction) {
     return Direct + Ambient;
 }
 
+ivec2 UpscaleOffsets[] = ivec2[](
+	ivec2(1, 1),
+	ivec2(0, 1),
+	ivec2(0, 0),
+	ivec2(1, 0));
+
+
 void main() {
     
     // For temporal super sampling 
-    vec2 JitteredTexCoords = v_TexCoords;
-    JitteredTexCoords += u_Jitter / u_Dimensions;
+    vec2 TexCoordJittered = v_TexCoords;
 
-    HASH2SEED = (JitteredTexCoords.x * JitteredTexCoords.y) * 64.0;
+
+    HASH2SEED = (TexCoordJittered.x * TexCoordJittered.y) * 64.0;
 
     // Animate noise for temporal integration
 	HASH2SEED += fract(u_Time) * 64.0f;
 
+    ivec2 Pixel = ivec2(gl_FragCoord.xy);
+
+    if (u_Checker) {
+        Pixel.x *= 2;
+	    bool IsCheckerStep = Pixel.x % 2 == int(Pixel.y % 2 == (u_Frame % 2));
+        Pixel.x += int(IsCheckerStep);
+    }
+
+    Pixel += UpscaleOffsets[u_Frame % 4];
+
+    ivec2 HighResPixel = Pixel * 2;
+    vec2 HighResUV = vec2(HighResPixel) / textureSize(u_Depth, 0).xy;
 
     // GBuffer fetches 
-    float Depth = texture(u_Depth, JitteredTexCoords).x;
-	vec3 WorldPosition = WorldPosFromDepth(Depth, JitteredTexCoords);
-    vec3 Normal = texture(u_Normals, JitteredTexCoords).xyz; 
-    vec3 LFNormal = texture(u_LFNormals, JitteredTexCoords).xyz; 
-    vec3 PBR = texture(u_PBR, JitteredTexCoords).xyz;
+    float Depth = texelFetch(u_Depth, HighResPixel, 0).x;
+	vec3 WorldPosition = WorldPosFromDepth(Depth, HighResUV);
+    vec3 Normal = texelFetch(u_Normals, HighResPixel, 0).xyz; 
+    vec3 LFNormal = texelFetch(u_LFNormals, HighResPixel, 0).xyz; 
+    vec3 PBR = texelFetch(u_PBR, HighResPixel, 0).xyz;
 
     // Sample integration
     vec3 TotalRadiance = vec3(0.0f);

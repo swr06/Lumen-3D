@@ -231,7 +231,10 @@
     <None Include="Core\Shaders\BasicBlit.glsl" />
     <None Include="Core\Shaders\BasicFrag.glsl" />
     <None Include="Core\Shaders\BasicVert.glsl" />
+    <None Include="Core\Shaders\SpecularCheckerboarder.glsl" />
     <None Include="Core\Shaders\ColorPass.glsl" />
+    <None Include="Core\Shaders\ConeTraceConvolution.glsl" />
+    <None Include="Core\Shaders\DebugRedOutput.glsl" />
     <None Include="Core\Shaders\DepthFrag.glsl" />
     <None Include="Core\Shaders\DepthVert.glsl" />
     <None Include="Core\Shaders\FBOFrag.glsl" />

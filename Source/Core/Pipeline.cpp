@@ -31,10 +31,11 @@ static glm::vec3 SunDirection = glm::vec3(0.1f, -1.0f, 0.1f);
 static bool TAA = true;
 
 // Specular settings
-static float SpecularIndirectRes = 0.25f;
-static float SpecularIndirectUpsampleRes = 0.5f;
+static const float SpecularIndirectRes = 0.5f;
+static const float SpecularIndirectUpsampleRes = glm::max(SpecularIndirectRes, 0.5f);
 static bool SSCT = false;
 static bool RoughSpecular = false;
+static bool SpecularCheckerboard = true;
 
 
 class RayTracerApp : public Lumen::Application
@@ -85,16 +86,18 @@ public:
 	{
 		ImGui::Text("Position : %f,  %f,  %f", Camera.GetPosition().x, Camera.GetPosition().y, Camera.GetPosition().z);
 		ImGui::Text("Front : %f,  %f,  %f", Camera.GetFront().x, Camera.GetFront().y, Camera.GetFront().z);
+		ImGui::Text("VSync : %d", &vsync);
 		ImGui::SliderFloat("Sun Time ", &SunTick, 0.1f, 256.0f);
 		ImGui::SliderFloat3("Sun Dir : ", &SunDirection[0], -1.0f, 1.0f);
 
 		ImGui::NewLine();
 		ImGui::NewLine();
 
-		ImGui::SliderFloat("Specular Resolution", &SpecularIndirectRes, 0.1f, 1.0f);
-		ImGui::SliderFloat("Specular Upsample Resolution", &SpecularIndirectUpsampleRes, 0.1f, 1.0f);
+		ImGui::Text("Specular Resolution : %f on each axis", &SpecularIndirectRes);
+		ImGui::Text("Specular Upsample Resolution : %f on each axis", &SpecularIndirectUpsampleRes);
 		ImGui::Checkbox("Rough Specular?", &RoughSpecular);
 		ImGui::Checkbox("Screenspace cone tracing?", &SSCT);
+		ImGui::Checkbox("Specular Checkerboarding? (Resolution effectively halved)", &SpecularCheckerboard);
 
 		ImGui::Checkbox("TAA", &TAA);
 	}
@@ -247,6 +250,7 @@ GLClasses::Framebuffer LightingPass(16, 16, {GL_RGB16F, GL_RGB, GL_FLOAT, true, 
 
 // Specular Indirect 
 GLClasses::Framebuffer SpecularIndirectBuffers[2]{ GLClasses::Framebuffer(16, 16, { {GL_RGB16F, GL_RGB, GL_FLOAT, true, true}, {GL_R16F, GL_RED, GL_FLOAT, true, true} }, false, true), GLClasses::Framebuffer(16, 16, { {GL_RGB16F, GL_RGB, GL_FLOAT, true, true}, {GL_R16F, GL_RED, GL_FLOAT, true, true} }, false, true) };
+GLClasses::Framebuffer SpecularIndirectCheckerUpscaled(16, 16, { {GL_RGB16F, GL_RGB, GL_FLOAT, true, true}, {GL_R16F, GL_RED, GL_FLOAT, true, true} }, false, true);
 GLClasses::Framebuffer SpecularIndirectTemporalBuffers[2] = { GLClasses::Framebuffer(16, 16, {GL_RGB16F, GL_RGB, GL_FLOAT, true, true}, false, true), GLClasses::Framebuffer(16, 16, {GL_RGB16F, GL_RGB, GL_FLOAT, true, true}, false, true) };
 GLClasses::Framebuffer SpecularIndirectConeTraceInput(16, 16, { GL_RGB16F, GL_RGB, GL_FLOAT, true, true }, false, true);
 GLClasses::Framebuffer SpecularIndirectConeTraceInputAlternate(16, 16, { GL_RGB16F, GL_RGB, GL_FLOAT, true, true }, false, true);
@@ -348,6 +352,7 @@ void Lumen::StartPipeline()
 	GLClasses::Shader& ProbeSpecularShader = ShaderManager::GetShader("PROBE_SPECULAR");
 	GLClasses::Shader& ScreenspaceConetraceShader = ShaderManager::GetShader("SPECULAR_CONE_TRACE");
 	GLClasses::Shader& SpecularTemporalShader = ShaderManager::GetShader("SPECULAR_TEMPORAL");
+	GLClasses::Shader& SpecularCheckerboarder = ShaderManager::GetShader("SPECULAR_CHECKER");
 
 	GLClasses::Shader& TAAShader = ShaderManager::GetShader("TAA");
 
@@ -408,9 +413,9 @@ void Lumen::StartPipeline()
 		TAABuffers[1].SetSize(app.GetWidth(), app.GetHeight());
 
 		// Specular 
-		SpecularIndirectUpsampleRes = glm::max(SpecularIndirectRes, SpecularIndirectUpsampleRes);
-		SpecularIndirectBuffers[0].SetSize(app.GetWidth() * SpecularIndirectRes, app.GetHeight() * SpecularIndirectRes);
-		SpecularIndirectBuffers[1].SetSize(app.GetWidth() * SpecularIndirectRes, app.GetHeight() * SpecularIndirectRes);
+		SpecularIndirectBuffers[0].SetSize(app.GetWidth() * SpecularIndirectRes * (SpecularCheckerboard ? 0.5f : 1.0f), app.GetHeight()* SpecularIndirectRes);
+		SpecularIndirectBuffers[1].SetSize(app.GetWidth()* SpecularIndirectRes * (SpecularCheckerboard ? 0.5f : 1.0f), app.GetHeight() * SpecularIndirectRes);
+		SpecularIndirectCheckerUpscaled.SetSize(app.GetWidth() * SpecularIndirectUpsampleRes, app.GetHeight() * SpecularIndirectUpsampleRes);
 		SpecularIndirectTemporalBuffers[0].SetSize(app.GetWidth() * SpecularIndirectUpsampleRes, app.GetHeight() * SpecularIndirectUpsampleRes);
 		SpecularIndirectTemporalBuffers[1].SetSize(app.GetWidth() * SpecularIndirectUpsampleRes, app.GetHeight() * SpecularIndirectUpsampleRes);
 		
@@ -418,6 +423,8 @@ void Lumen::StartPipeline()
 		SpecularIndirectConeTraced.SetSize(app.GetWidth() * SpecularIndirectUpsampleRes, app.GetHeight() * SpecularIndirectUpsampleRes);
 		SpecularIndirectConeTraceInput.SetSize(app.GetWidth() * SpecularIndirectUpsampleRes, app.GetHeight() * SpecularIndirectUpsampleRes);
 		SpecularIndirectConeTraceInputAlternate.SetSize(app.GetWidth() * SpecularIndirectUpsampleRes, app.GetHeight() * SpecularIndirectUpsampleRes);
+
+
 
 		// Generate mipmaps 
 		if (app.GetCurrentFrame() % 8 == 0) {
@@ -507,6 +514,7 @@ void Lumen::StartPipeline()
 		ProbeSpecularShader.SetInteger("u_LFNormals", 9);
 		ProbeSpecularShader.SetInteger("u_Frame", app.GetCurrentFrame());
 		ProbeSpecularShader.SetBool("u_RoughSpecular", RoughSpecular);
+		ProbeSpecularShader.SetBool("u_Checker", SpecularCheckerboard);
 		ProbeSpecularShader.SetVector3f("u_SunDirection", SunDirection);
 		ProbeSpecularShader.SetMatrix4("u_SunShadowMatrix", GetLightViewProjection(SunDirection));
 		ProbeSpecularShader.SetVector2f("u_Jitter", GetTAAJitterSecondary(app.GetCurrentFrame()));
@@ -550,7 +558,37 @@ void Lumen::StartPipeline()
 		glDrawArrays(GL_TRIANGLES, 0, 6);
 		ScreenQuadVAO.Unbind();
 
-		// Specular Temporal resolve :
+		// Checkerboard reconstruction :
+
+		if (SpecularCheckerboard) {
+			SpecularCheckerboarder.Use();
+			SpecularIndirectCheckerUpscaled.Bind();
+			SpecularCheckerboarder.SetInteger("u_Input", 0);
+			SpecularCheckerboarder.SetInteger("u_InputTransversal", 1);
+			SpecularCheckerboarder.SetInteger("u_Depth", 2);
+			SpecularCheckerboarder.SetInteger("u_Normals", 3);
+			SetCommonUniforms(SpecularCheckerboarder, UniformBuffer);
+
+			glActiveTexture(GL_TEXTURE0);
+			glBindTexture(GL_TEXTURE_2D, SpecularIndirect.GetTexture());
+
+			glActiveTexture(GL_TEXTURE1);
+			glBindTexture(GL_TEXTURE_2D, SpecularIndirect.GetTexture(1));
+
+			glActiveTexture(GL_TEXTURE2);
+			glBindTexture(GL_TEXTURE_2D, GBuffer.GetDepthBuffer());
+
+			glActiveTexture(GL_TEXTURE3);
+			glBindTexture(GL_TEXTURE_2D, GBuffer.GetTexture(3));
+
+			ScreenQuadVAO.Bind();
+			glDrawArrays(GL_TRIANGLES, 0, 6);
+			ScreenQuadVAO.Unbind();
+
+			SpecularIndirectCheckerUpscaled.Unbind();
+		}
+
+		// Specular temporal resolve :
 
 		SpecularTemporalShader.Use();
 		SpecularTemporal.Bind();
@@ -564,7 +602,7 @@ void Lumen::StartPipeline()
 		SetCommonUniforms(SpecularTemporalShader, UniformBuffer);
 
 		glActiveTexture(GL_TEXTURE0);
-		glBindTexture(GL_TEXTURE_2D, SpecularIndirect.GetTexture());
+		glBindTexture(GL_TEXTURE_2D, SpecularCheckerboard ? SpecularIndirectCheckerUpscaled.GetTexture() : SpecularIndirect.GetTexture());
 
 		glActiveTexture(GL_TEXTURE1);
 		glBindTexture(GL_TEXTURE_2D, PrevSpecularTemporal.GetTexture());
@@ -579,7 +617,7 @@ void Lumen::StartPipeline()
 		glBindTexture(GL_TEXTURE_2D, GBuffer.GetTexture(3));
 
 		glActiveTexture(GL_TEXTURE5);
-		glBindTexture(GL_TEXTURE_2D, SpecularIndirect.GetTexture(1));
+		glBindTexture(GL_TEXTURE_2D, SpecularCheckerboard ? SpecularIndirectCheckerUpscaled.GetTexture(1) : SpecularIndirect.GetTexture(1));
 
 		glActiveTexture(GL_TEXTURE6);
 		glBindTexture(GL_TEXTURE_2D, PrevSpecularIndirect.GetTexture(1));
@@ -588,6 +626,7 @@ void Lumen::StartPipeline()
 		glDrawArrays(GL_TRIANGLES, 0, 6);
 		ScreenQuadVAO.Unbind();
 
+		// Screen space cone tracing 
 		if (SSCT) {
 			// Gaussian convolution for cone tracing step
 
@@ -617,7 +656,7 @@ void Lumen::StartPipeline()
 			ScreenQuadVAO.Unbind();
 
 
-			// Convolve :
+			// Convolve mipmaps :
 
 			for (int i = 1; i <= 6; i++) {
 				glBindFramebuffer(GL_FRAMEBUFFER, GaussianMipFBO);
@@ -680,7 +719,7 @@ void Lumen::StartPipeline()
 			glBindTexture(GL_TEXTURE_2D, GBuffer.GetTexture(2));
 
 			glActiveTexture(GL_TEXTURE3);
-			glBindTexture(GL_TEXTURE_2D, SpecularIndirect.GetTexture(1));
+			glBindTexture(GL_TEXTURE_2D, SpecularCheckerboard ? SpecularIndirectCheckerUpscaled.GetTexture(1) : SpecularIndirect.GetTexture(1));
 
 			glActiveTexture(GL_TEXTURE4);
 			glBindTexture(GL_TEXTURE_2D, SpecularIndirectConeTraceInput.GetTexture(0));
@@ -788,9 +827,7 @@ void Lumen::StartPipeline()
 		ScreenQuadVAO.Unbind();
 
 		// Finish :
-
 		app.FinishFrame();
 		GLClasses::DisplayFrameRate(app.GetWindow(), "Lumen ");
-
 	}
 }
