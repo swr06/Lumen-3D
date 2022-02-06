@@ -119,7 +119,7 @@ void main()
 		PrevColor = ClampColor(PrevColor);
 		vec2 Dimensions = textureSize(u_CurrentColorTexture, 0).xy;
 		vec2 velocity = (v_TexCoords - PreviousCoord.xy) * Dimensions;
-		float BlendFactor = exp(-length(velocity)) * 0.8f + 0.5f;
+		float BlendFactor = exp(-length(velocity)) * 0.9f + 0.6f;
 		BlendFactor = clamp(BlendFactor, 0.0f, 0.95f);
 
 		//BlendFactor *= pow(exp(-abs(LinearExpectedDepth-LinearPrevDepth)), 128.0f);
