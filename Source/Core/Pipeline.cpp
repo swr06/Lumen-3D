@@ -94,8 +94,8 @@ public:
 		ImGui::NewLine();
 		ImGui::NewLine();
 
-		ImGui::Text("Specular Resolution : %f on each axis", &SpecularIndirectRes);
-		ImGui::Text("Specular Upsample Resolution : %f on each axis", &SpecularIndirectUpsampleRes);
+		ImGui::Text("Specular Resolution : %f on each axis", SpecularIndirectRes);
+		ImGui::Text("Specular Upsample Resolution : %f on each axis", SpecularIndirectUpsampleRes);
 		ImGui::NewLine();
 		ImGui::Checkbox("Rough Specular?", &RoughSpecular);
 		ImGui::Checkbox("Screenspace cone tracing?", &SSCT);
