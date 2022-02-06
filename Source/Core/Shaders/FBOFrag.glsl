@@ -5,6 +5,8 @@ layout(location = 0) out vec3 o_Color;
 
 uniform sampler2D u_MainTexture;
 
+uniform bool u_FXAA;
+
 mat3 ACESInputMat = mat3(
     0.59719, 0.07600, 0.02840,
     0.35458, 0.90834, 0.13383,
@@ -27,7 +29,7 @@ vec3 RRTAndODTFit(vec3 v)
 
 vec4 ACESFitted(vec4 Color, float Exposure)
 {
-    Color.rgb *= Exposure * 0.6;
+    Color.rgb *= Exposure;
     
     Color.rgb = ACESInputMat * Color.rgb;
     Color.rgb = RRTAndODTFit(Color.rgb);
@@ -41,8 +43,11 @@ vec3 FXAA311(vec3 color);
 void main()
 {
     o_Color.xyz = texture(u_MainTexture, v_TexCoords).xyz;
-	o_Color = FXAA311(o_Color);
-    o_Color = ACESFitted(vec4(o_Color, 1.0f), 4.25f).xyz;
+
+	if (u_FXAA)
+		o_Color = FXAA311(o_Color);
+
+    o_Color = ACESFitted(vec4(o_Color, 1.0f), 2.6f).xyz;
     o_Color = pow(o_Color, vec3(1.0f / 2.2f));
 }
 
@@ -61,7 +66,7 @@ vec3 FXAA311(vec3 color)
 
 	float edgeThresholdMin = 0.03125;
 	float edgeThresholdMax = 0.125;
-	float subpixelQuality = 0.7;
+	float subpixelQuality = 0.75f;
 	int iterations = 12;
 	
 	vec2 view = 1.0 / textureSize(u_MainTexture, 0).xy;

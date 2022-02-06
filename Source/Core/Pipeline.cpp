@@ -29,6 +29,7 @@ static glm::vec3 SunDirection = glm::vec3(0.1f, -1.0f, 0.1f);
 
 // Flags 
 static bool TAA = true;
+static bool FXAA = true;
 
 // Specular settings
 static const float SpecularIndirectRes = 0.5f;
@@ -95,11 +96,17 @@ public:
 
 		ImGui::Text("Specular Resolution : %f on each axis", &SpecularIndirectRes);
 		ImGui::Text("Specular Upsample Resolution : %f on each axis", &SpecularIndirectUpsampleRes);
+		ImGui::NewLine();
 		ImGui::Checkbox("Rough Specular?", &RoughSpecular);
 		ImGui::Checkbox("Screenspace cone tracing?", &SSCT);
 		ImGui::Checkbox("Specular Checkerboarding? (Resolution effectively halved)", &SpecularCheckerboard);
 
+		ImGui::NewLine();
+		ImGui::NewLine();
+		ImGui::Text("Antialiasing : ");
+		ImGui::NewLine();
 		ImGui::Checkbox("TAA", &TAA);
+		ImGui::Checkbox("FXAA 3.11", &FXAA);
 	}
 
 	void OnEvent(Lumen::Event e) override
@@ -487,7 +494,7 @@ void Lumen::StartPipeline()
 		GBufferShader.SetInteger("u_RoughnessMap", 2);
 		GBufferShader.SetInteger("u_MetalnessMap", 3);
 		GBufferShader.SetInteger("u_MetalnessRoughnessMap", 5);
-		GBufferShader.SetMatrix4("u_JitterMatrix", GetTAAJitterMatrix(app.GetCurrentFrame(), GBuffer.GetDimensions()));
+		GBufferShader.SetMatrix4("u_JitterMatrix", TAA ? GetTAAJitterMatrix(app.GetCurrentFrame(), GBuffer.GetDimensions()) : glm::mat4(1.0f));
 
 		RenderEntityList(EntityRenderList, GBufferShader);
 		UnbindEverything();
@@ -818,6 +825,7 @@ void Lumen::StartPipeline()
 
 		FinalShader.Use();
 		FinalShader.SetInteger("u_MainTexture", 0);
+		FinalShader.SetBool("u_FXAA", FXAA);
 
 		glActiveTexture(GL_TEXTURE0);
 		glBindTexture(GL_TEXTURE_2D, TAATemporal.GetTexture(0));
