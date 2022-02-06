@@ -110,7 +110,7 @@ vec3 GGX_VNDF(vec3 N, float roughness, vec2 Xi)
 
 vec3 SampleMicrofacet(vec3 N, float R) {
 
-    R *= 0.7f;
+    R *= 0.64f;
     R = max(R, 0.05f);
 	float NearestDot = -100.0f;
 	vec3 BestDirection = N;
@@ -137,7 +137,7 @@ vec3 SampleMicrofacet(vec3 N, float R) {
 
 vec3 SampleMicrofacetBayer(vec3 N, float R, vec2 Xi) {
 
-    R *= 0.7f;
+    R *= 0.64f;
     R = max(R, 0.05f);
     Xi *= vec2(0.7f, 0.5f);
 
@@ -395,7 +395,7 @@ vec3 IntegrateLighting(GBufferData Hit, vec3 Direction) {
     }
 
     float Lambertian = max(0.0f, dot(Hit.Normal, -u_SunDirection));
-    vec3 Direct = Lambertian * SUN_COLOR * 0.03f * Shadow * Hit.Albedo;
+    vec3 Direct = Lambertian * SUN_COLOR * 0.0475f * Shadow * Hit.Albedo;
     vec3 Ambient = texture(u_EnvironmentMap, vec3(0.0f, 1.0f, 0.0f)).xyz * 0.2f * Hit.Albedo;
     return Direct + Ambient;
 }

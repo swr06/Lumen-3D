@@ -69,26 +69,30 @@ void main() {
     vec3 I = normalize((u_ViewerPosition) - WorldPosition.xyz);
 	vec3 ReflectedPosition = (WorldPosition.xyz) - I * Transversal;
     vec2 Reprojected = Reprojection(ReflectedPosition);
+    vec2 ReprojectedSurface = Reprojection(WorldPosition);
 
     vec3 Current = texture(u_Specular, v_TexCoords).xyz;
 
-    if (Reprojected == clamp(Reprojected, 0.003f, 0.997f)) {
+    if (Reprojected == clamp(Reprojected, 0.002f, 0.998f) && ReprojectedSurface == clamp(ReprojectedSurface, 0.002f, 0.998f)) {
 
         float ReprojectedDepth = linearizeDepth(texture(u_PreviousDepth, Reprojected.xy).x);
+        float ReprojectedSurfaceDepth = linearizeDepth(texture(u_PreviousDepth, ReprojectedSurface.xy).x);
         float Error = abs(ReprojectedDepth - LinearizedDepth);
+        float ErrorSurface = abs(ReprojectedSurfaceDepth - LinearizedDepth);
 
         float PreviousT = texture(u_PrevTransversals, Reprojected).x * 64.0f;
 
-        float TemporalBlur = 0.95f;
+        vec2 Dimensions = textureSize(u_HistorySpecular, 0).xy;
+		vec2 Velocity = (v_TexCoords - Reprojected.xy) * Dimensions;
 
-        if (abs(PreviousT - Transversal) > 12.0f) {
-           // TemporalBlur = 0.6f;
-        }
+        float TemporalBlur = clamp(exp(-length(Velocity)) * 0.95f + 0.88f, 0.0f, 0.97f);
 
         vec3 History = texture(u_HistorySpecular, Reprojected.xy).xyz;
 
-        TemporalBlur *= pow(exp(-Error), 48.0f);
+        const float DepthWeightStrength = 1.6f;
+        TemporalBlur *= pow(exp(-Error), 24.0f * DepthWeightStrength) * pow(exp(-ErrorSurface), 32.0f * DepthWeightStrength);
 
+        TemporalBlur = clamp(TemporalBlur, 0.0f, 0.96f);
         o_Color = mix(Current, History, TemporalBlur);
     }
 
