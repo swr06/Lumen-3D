@@ -110,7 +110,7 @@ vec3 GGX_VNDF(vec3 N, float roughness, vec2 Xi)
 
 vec3 SampleMicrofacet(vec3 N, float R) {
 
-    R *= 0.75f;
+    R *= 0.825f;
     R = max(R, 0.05f);
 	float NearestDot = -100.0f;
 	vec3 BestDirection = N;
@@ -137,7 +137,7 @@ vec3 SampleMicrofacet(vec3 N, float R) {
 
 vec3 SampleMicrofacetBayer(vec3 N, float R, vec2 Xi) {
 
-    R *= 0.64f;
+    R *= 0.825f;
     R = max(R, 0.05f);
     Xi *= vec2(0.7f, 0.5f);
 
