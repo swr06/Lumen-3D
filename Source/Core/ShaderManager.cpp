@@ -21,6 +21,7 @@ void Lumen::ShaderManager::CreateShaders()
 	AddShader("RED", "Core/Shaders/FBOVert.glsl", "Core/Shaders/DebugRedOutput.glsl");
 	AddShader("CONE_TRACE_CONVOLVE", "Core/Shaders/FBOVert.glsl", "Core/Shaders/ConeTraceConvolution.glsl");
 	AddShader("SPECULAR_CHECKER", "Core/Shaders/FBOVert.glsl", "Core/Shaders/SpecularCheckerboarder.glsl");
+	AddShader("SCREENSPACE_OCCLUSION_RT", "Core/Shaders/FBOVert.glsl", "Core/Shaders/ScreenspaceRaytracing.glsl");
 }
 
 void Lumen::ShaderManager::AddShader(const std::string& name, const std::string& vert, const std::string& frag, const std::string& geo)

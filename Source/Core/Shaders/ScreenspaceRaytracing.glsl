@@ -1,0 +1,226 @@
+#version 330 core 
+
+#define PI 3.14159265359
+#define PHI 1.6180339
+
+#define Bayer4(a)   (Bayer2(  0.5 * (a)) * 0.25 + Bayer2(a))
+#define Bayer8(a)   (Bayer4(  0.5 * (a)) * 0.25 + Bayer2(a))
+#define Bayer16(a)  (Bayer8(  0.5 * (a)) * 0.25 + Bayer2(a))
+#define Bayer32(a)  (Bayer16( 0.5 * (a)) * 0.25 + Bayer2(a))
+#define Bayer64(a)  (Bayer32( 0.5 * (a)) * 0.25 + Bayer2(a))
+#define Bayer128(a) (Bayer64( 0.5 * (a)) * 0.25 + Bayer2(a))
+#define Bayer256(a) (Bayer128(0.5 * (a)) * 0.25 + Bayer2(a))
+
+const float TAU = radians(360.0f);
+const float PHI2 = sqrt(5.0f) * 0.5f + 0.5f;
+const float GOLDEN_ANGLE = TAU / PHI2 / PHI2;
+
+float Bayer2(vec2 a) 
+{
+    a = floor(a);
+    return fract(dot(a, vec2(0.5, a.y * 0.75)));
+}
+
+layout (location = 0) out float o_AO;
+layout (location = 1) out float o_Direct;
+
+in vec2 v_TexCoords;
+
+uniform float u_Time;
+uniform int u_Frame;
+
+uniform mat4 u_Projection;
+uniform mat4 u_View;
+uniform mat4 u_ViewProjection;
+uniform mat4 u_InverseProjection;
+uniform mat4 u_InverseView;
+
+uniform sampler2D u_Depth;
+uniform sampler2D u_Normals;
+uniform sampler2D u_PBR;
+
+uniform vec3 u_SunDirection;
+
+uniform float u_zNear;
+uniform float u_zFar;
+
+uniform bool u_Shadow;
+uniform bool u_AO;
+
+
+float HASH2SEED = 0.0f;
+vec2 hash2() 
+{
+	return fract(sin(vec2(HASH2SEED += 0.1, HASH2SEED += 0.1)) * vec2(43758.5453123, 22578.1459123));
+}
+
+float LinearizeDepth(float depth)
+{
+	return (2.0 * u_zNear) / (u_zFar + u_zNear - depth * (u_zFar - u_zNear));
+}
+
+vec3 WorldPosFromDepth(float depth, vec2 txc)
+{
+    float z = depth * 2.0 - 1.0;
+    vec4 ClipSpacePosition = vec4(txc * 2.0 - 1.0, z, 1.0);
+    vec4 ViewSpacePosition = u_InverseProjection * ClipSpacePosition;
+    ViewSpacePosition /= ViewSpacePosition.w;
+    vec4 WorldPos = u_InverseView * ViewSpacePosition;
+    return WorldPos.xyz;
+}
+
+vec3 ProjectToScreenSpace(vec3 WorldPos) 
+{
+	vec4 ProjectedPosition = u_ViewProjection * vec4(WorldPos, 1.0f);
+	ProjectedPosition.xyz /= ProjectedPosition.w;
+	ProjectedPosition.xyz = ProjectedPosition.xyz * 0.5f + 0.5f;
+	return ProjectedPosition.xyz;
+}
+
+vec3 ProjectToClipSpace(vec3 WorldPos) 
+{
+	vec4 ProjectedPosition = u_ViewProjection * vec4(WorldPos, 1.0f);
+	ProjectedPosition.xyz /= ProjectedPosition.w;
+	return ProjectedPosition.xyz;
+}
+
+vec3 ProjectToViewSpace(vec3 WorldPos) 
+{
+	vec4 ProjectedPosition = u_View * vec4(WorldPos, 1.0f);
+	return ProjectedPosition.xyz;
+}
+
+
+bool RayValid(vec2 x) {
+	if (x == clamp(x, 0.0003f, 0.9997)) {
+		return true;
+	}
+
+	return false;
+}
+
+vec3 CosWeightedHemisphere(const vec3 n) 
+{
+  	vec2 r = vec2(0.0f);
+	r = vec2(hash2());
+	float PI2 = 2.0f * PI;
+	vec3  uu = normalize(cross(n, vec3(0.0,1.0,1.0)));
+	vec3  vv = cross(uu, n);
+	float ra = sqrt(r.y);
+	float rx = ra * cos(PI2 * r.x); 
+	float ry = ra * sin(PI2 * r.x);
+	float rz = sqrt(1.0 - r.y);
+	vec3  rr = vec3(rx * uu + ry * vv + rz * n );
+    return normalize(rr);
+}
+
+float Raytrace(vec3 Origin, vec3 Direction, float RayDistance, int Steps, float Threshold, float Hash)
+{
+	Origin += Direction * 0.05f;
+
+	vec3 StepVector = (Direction * RayDistance) / float(Steps); 
+	vec3 RayPosition = Origin + StepVector * Hash; 
+	vec2 FinalUV = vec2(-1.0f);
+
+	for(int CurrentStep = 0; CurrentStep < Steps; CurrentStep++) 
+	{
+		vec3 ProjectedRayScreenspace = ProjectToClipSpace(RayPosition); 
+		
+		if(abs(ProjectedRayScreenspace.x) > 1.0f || abs(ProjectedRayScreenspace.y) > 1.0f || abs(ProjectedRayScreenspace.z) > 1.0f) 
+		{
+			return 1.0f; 
+		}
+		
+		ProjectedRayScreenspace.xyz = ProjectedRayScreenspace.xyz * 0.5f + 0.5f; 
+
+		if (ProjectedRayScreenspace.xy != clamp(ProjectedRayScreenspace.xy, 0.0f, 1.0f))
+		{
+			return 1.0f;
+		}
+		
+		float DepthAt = texture(u_Depth, ProjectedRayScreenspace.xy).x; 
+		float CurrentRayDepth = LinearizeDepth(ProjectedRayScreenspace.z); 
+		float Error = abs(LinearizeDepth(DepthAt) - CurrentRayDepth);
+		
+		if (Error < Threshold && ProjectedRayScreenspace.z > DepthAt) 
+		{
+			//return float(StepVector) / float(Steps);
+
+			// Binary refinement : 
+
+			bool DoBinaryRefinement = true;
+
+			if (DoBinaryRefinement) {
+
+				vec3 BinaryStepVector = StepVector / 2.0f;
+
+				for (int BinaryStep = 0 ; BinaryStep < 3 ; BinaryStep++) {
+					
+					vec3 Projected = ProjectToClipSpace(RayPosition); 
+					Projected = Projected * 0.5f + 0.5f;
+					float BinaryDepthAt = (texture(u_Depth, Projected.xy).x); 
+					float BinaryRayDepth = LinearizeDepth(Projected.z); 
+
+					if (BinaryDepthAt < BinaryRayDepth) {
+						RayPosition -= BinaryStepVector;
+					}
+
+					else {
+						RayPosition += BinaryStepVector;
+					}
+
+					BinaryStepVector /= 2.0f;
+				}
+			}
+
+			// Calculate occlusion 
+
+			vec2 FinalPosition = ProjectToClipSpace(RayPosition).xy * 0.5f + 0.5f;
+			float Occlusion = distance(WorldPosFromDepth(texture(u_Depth, FinalPosition).x, FinalPosition), Origin.xyz);
+			Occlusion = clamp(Occlusion, 0.0f, RayDistance) / RayDistance;
+			return Occlusion ;
+		}
+
+
+		RayPosition += StepVector; 
+
+	}
+
+	return 1.0f;
+
+}
+
+
+
+void main() {
+
+    HASH2SEED = (v_TexCoords.x * v_TexCoords.y) * 64.0;
+	HASH2SEED += fract(u_Time) * 64.0f;
+
+	float Depth = texture(u_Depth, v_TexCoords).x;
+	float LinearizedDepth = LinearizeDepth(Depth);
+
+	vec3 WorldPosition = WorldPosFromDepth(Depth, v_TexCoords).xyz;
+	vec3 Normal = texture(u_Normals, v_TexCoords).xyz;
+
+	WorldPosition.xyz += Normal * 0.5f;
+
+	vec3 ViewDirection = normalize(WorldPosition - u_InverseView[3].xyz);
+
+    float BayerHash = fract(fract(mod(float(u_Frame) + float(0.0f) * 2., 384.0f) * (1.0 / PHI)) + Bayer32(gl_FragCoord.xy));
+
+	const float AOScale = 0.8f;
+
+	vec3 AODirection = mix(CosWeightedHemisphere(Normal), Normal, 1.0f - AOScale);
+	AODirection = normalize(AODirection);
+
+	vec3 Hash3D = vec3(hash2(), hash2().x);
+	vec3 ContactShadowDirection = -u_SunDirection;
+	ContactShadowDirection = normalize(ContactShadowDirection);
+
+	float IndirectAO = u_AO ? Raytrace(WorldPosition, AODirection, 22.0f, 48, 0.02f, BayerHash) : 1.0f;
+	float DirectContactShadow = u_Shadow ? Raytrace(WorldPosition, ContactShadowDirection, 16.0f, 72, 0.01f, BayerHash) : 1.0f;
+	
+	o_AO = IndirectAO;
+	o_Direct = DirectContactShadow;
+}

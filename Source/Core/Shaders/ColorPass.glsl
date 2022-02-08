@@ -12,6 +12,8 @@ uniform sampler2D u_DepthTexture;
 uniform sampler2D u_ShadowTexture;
 uniform sampler2D u_BlueNoise;
 uniform sampler2D u_ResolvedSpecular;
+uniform sampler2D u_RTAO;
+uniform sampler2D u_ScreenspaceShadows;
 uniform samplerCube u_Skymap;
 uniform samplerCube u_Probe;
 
@@ -24,6 +26,8 @@ uniform mat4 u_View;
 uniform mat4 u_LightVP;
 
 uniform int u_CurrentFrame;
+
+uniform float u_RTAOStrength;
 
 uniform vec2 u_Dims;
 
@@ -83,32 +87,47 @@ vec3 GetRayDirectionAt(vec2 screenspace)
 
 void main() 
 {	
-	float depth = texture(u_DepthTexture, v_TexCoords).r;
+	float Depth = texture(u_DepthTexture, v_TexCoords).r;
 	vec3 rD = GetRayDirectionAt(v_TexCoords).xyz;
 
-	if (depth > 0.99995f) {
+	// Sky check
+	if (Depth > 0.99995f) {
 		vec3 Sample = texture(u_Skymap, normalize(rD)).xyz;
 		o_Color = Sample*Sample;
 		return;
 	}
 
+	// Common 
 	vec3 NormalizedSunDir = normalize(u_LightDirection);
 
-	vec3 WorldPosition = WorldPosFromDepth(depth,v_TexCoords);
-	vec3 Normal = texture(u_NormalTexture, v_TexCoords).xyz;
+	// GBuffer 
+	vec3 WorldPosition = WorldPosFromDepth(Depth, v_TexCoords);
+	vec3 Normal = normalize(texture(u_NormalTexture, v_TexCoords).xyz);
 	vec3 Albedo = texture(u_AlbedoTexture, v_TexCoords).xyz;
-	vec2 RoughnessMetalness = texture(u_PBRTexture, v_TexCoords).xy;
+	vec4 PBR = texture(u_PBRTexture, v_TexCoords).xyzw;
 
+	// Model emission
+	vec3 Emission = PBR.w * 0.7f * Albedo;
+
+	// View vector 
     vec3 Lo = normalize(u_ViewerPosition - WorldPosition);
-	vec3 R = reflect(-Lo, Normal).xyz;
-	vec3 Reflected = texture(u_Probe, -Lo).xyz;
 
-	float DirectionalShadow = CalculateSunShadow(WorldPosition, Normal);
-	vec3 DirectLighting = CalculateDirectionalLight(WorldPosition, normalize(u_LightDirection), SUN_COLOR * 0.15f, Albedo, Normal, RoughnessMetalness, DirectionalShadow).xyz;
-	vec3 AmbientTerm = (texture(u_Skymap, vec3(0.0f, 1.0f, 0.0f)).xyz * 0.18f) * Albedo;
+	// Direct lighting ->
+	float ScreenspaceShadow = texture(u_ScreenspaceShadows, v_TexCoords).x;
+	float Shadowmap = CalculateSunShadow(WorldPosition, Normal);
+	float DirectionalShadow = clamp(max(Shadowmap, 1.-clamp(pow(ScreenspaceShadow, 8.0f),0.0f,1.0f)), 0.0f, 1.0f);
+	vec3 DirectLighting = CalculateDirectionalLight(WorldPosition, normalize(u_LightDirection), SUN_COLOR * 0.15f, Albedo, Normal, PBR.xy, DirectionalShadow).xyz;
+	
+	// Indirect lighting ->
+	float AO = texture(u_RTAO, v_TexCoords).x;
 	vec3 SpecularIndirect = texture(u_ResolvedSpecular, v_TexCoords).xyz;
-	o_Color = DirectLighting + AmbientTerm + SpecularIndirect * 0.4f;
+	vec3 AmbientTerm = (texture(u_Skymap, vec3(0.0f, 1.0f, 0.0f)).xyz * 0.18f) * Albedo;
 
+	// Combine (Temporarily done in a non-accurate way)
+	// Todo : Use fresnel and DFG BRDF to combine indirect diffuse and specular lighting (Account for metallic tining as well)
+	o_Color = DirectLighting + (AmbientTerm * clamp(pow(AO, u_RTAOStrength * 4.0f), 0.05f, 1.0f)) + Emission + SpecularIndirect * 0.1f;
+
+	// Nan/inf check
 	if (isnan(o_Color.x) || isnan(o_Color.y) || isnan(o_Color.z) || isinf(o_Color.x) || isinf(o_Color.y) || isinf(o_Color.z)) {
         o_Color = vec3(0.0f);
     }

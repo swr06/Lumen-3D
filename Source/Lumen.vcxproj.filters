@@ -43,6 +43,9 @@
     <Filter Include="Source Files\Lumen\Lumen-Core\Lumen-Shaders">
       <UniqueIdentifier>{e98655fb-fe9b-49c6-aeb4-aaf8dca40331}</UniqueIdentifier>
     </Filter>
+    <Filter Include="Source Files\Lumen\Lumen-Core\BVH">
+      <UniqueIdentifier>{38ae97c8-9f9b-4211-897f-03f5f1758a59}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Dependencies\imgui\imconfig.h">
@@ -162,6 +165,9 @@
     <ClInclude Include="Core\TAAJitter.h">
       <Filter>Source Files\Lumen\Lumen-Core</Filter>
     </ClInclude>
+    <ClInclude Include="Core\BVH\BVHConstructor.h">
+      <Filter>Source Files\Lumen\Lumen-Core\BVH</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="Dependencies\imgui\imgui.cpp">
@@ -269,6 +275,9 @@
     <ClCompile Include="Core\TAAJitter.cpp">
       <Filter>Source Files\Lumen\Lumen-Core</Filter>
     </ClCompile>
+    <ClCompile Include="Core\BVH\BVHConstructor.cpp">
+      <Filter>Source Files\Lumen\Lumen-Core\BVH</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <None Include="Core\Shaders\BasicFrag.glsl">
@@ -335,6 +344,9 @@
       <Filter>Source Files\Lumen\Lumen-Core\Lumen-Shaders</Filter>
     </None>
     <None Include="Core\Shaders\DebugRedOutput.glsl">
+      <Filter>Source Files\Lumen\Lumen-Core\Lumen-Shaders</Filter>
+    </None>
+    <None Include="Core\Shaders\ScreenspaceRaytracing.glsl">
       <Filter>Source Files\Lumen\Lumen-Core\Lumen-Shaders</Filter>
     </None>
   </ItemGroup>

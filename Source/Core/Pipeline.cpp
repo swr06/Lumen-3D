@@ -21,9 +21,13 @@
 
 #include <string>
 
+// Camera
 Lumen::FPSCamera Camera(90.0f, 800.0f / 600.0f);
 
-static bool vsync = false;
+// Vertical Sync (FPS Cap)
+static bool VSync = false;
+
+// Sun Settings 
 static float SunTick = 50.0f;
 static glm::vec3 SunDirection = glm::vec3(0.1f, -1.0f, 0.1f);
 
@@ -35,10 +39,16 @@ static bool FXAA = true;
 static const float SpecularIndirectRes = 0.5f;
 static const float SpecularIndirectUpsampleRes = glm::max(SpecularIndirectRes, 0.5f);
 static bool SSCT = false;
-static bool RoughSpecular = false;
+static bool RoughSpecular = true;
 static bool SpecularCheckerboard = true;
 
+// AO 
+static float ScreenspaceOcclusionRes = 0.5f;
+static bool DoScreenspaceAO = true;
+static bool DoScreenspaceShadow = true;
+static float ScreenspaceAOStrength = 0.75f;
 
+// Application 
 class RayTracerApp : public Lumen::Application
 {
 public:
@@ -56,7 +66,7 @@ public:
 
 	void OnUserUpdate(double ts) override
 	{
-		glfwSwapInterval((int)vsync);
+		glfwSwapInterval((int)VSync);
 
 		GLFWwindow* window = GetWindow();
 		float camera_speed = 0.525f * 2.0f;
@@ -87,8 +97,7 @@ public:
 	{
 		ImGui::Text("Position : %f,  %f,  %f", Camera.GetPosition().x, Camera.GetPosition().y, Camera.GetPosition().z);
 		ImGui::Text("Front : %f,  %f,  %f", Camera.GetFront().x, Camera.GetFront().y, Camera.GetFront().z);
-		ImGui::Text("VSync : %d", &vsync);
-		ImGui::SliderFloat("Sun Time ", &SunTick, 0.1f, 256.0f);
+		ImGui::Text("VSync : %d", &VSync);
 		ImGui::SliderFloat3("Sun Dir : ", &SunDirection[0], -1.0f, 1.0f);
 
 		ImGui::NewLine();
@@ -100,6 +109,16 @@ public:
 		ImGui::Checkbox("Rough Specular?", &RoughSpecular);
 		ImGui::Checkbox("Screenspace cone tracing?", &SSCT);
 		ImGui::Checkbox("Specular Checkerboarding? (Resolution effectively halved)", &SpecularCheckerboard);
+
+		ImGui::NewLine();
+		ImGui::NewLine();
+
+		ImGui::SliderFloat("RTAO/Screenspace shadows resolve resolution", &ScreenspaceOcclusionRes, 0.1f, 1.0f);
+		ImGui::Checkbox("Do Screenspace RTAO?", &DoScreenspaceAO);
+		ImGui::Checkbox("Do Screenspace Direct Shadows?", &DoScreenspaceShadow);
+
+		if (DoScreenspaceAO)
+			ImGui::SliderFloat("Screenspace RTAO Strength", &ScreenspaceAOStrength, 0.1f, 2.0f);
 
 		ImGui::NewLine();
 		ImGui::NewLine();
@@ -137,7 +156,7 @@ public:
 
 		if (e.type == Lumen::EventTypes::KeyPress && e.key == GLFW_KEY_V && this->GetCurrentFrame() > 5)
 		{
-			vsync = !vsync;
+			VSync = !VSync;
 		}
 	}
 
@@ -250,10 +269,13 @@ void RenderProbeAllFaces(Lumen::ProbeMap& probe, const glm::vec3& center, const 
 
 
 // Geometry buffer (For deferred shading)
-GLClasses::Framebuffer GBuffers[2] = { GLClasses::Framebuffer(16, 16, { {GL_RGB16F, GL_RGB, GL_FLOAT, true, true}, {GL_RGB16F, GL_RGB, GL_FLOAT, true, true}, {GL_RGB, GL_RGB, GL_UNSIGNED_BYTE, false, false}, {GL_RGB16F, GL_RGB, GL_FLOAT, true, true} }, false, true), GLClasses::Framebuffer(16, 16, { {GL_RGB16F, GL_RGB, GL_FLOAT, true, true}, {GL_RGB16F, GL_RGB, GL_FLOAT, true, true}, {GL_RGB, GL_RGB, GL_UNSIGNED_BYTE, false, false}, {GL_RGB16F, GL_RGB, GL_FLOAT, true, true} }, false, true) };
+GLClasses::Framebuffer GBuffers[2] = { GLClasses::Framebuffer(16, 16, { {GL_RGB16F, GL_RGB, GL_FLOAT, true, true}, {GL_RGB16F, GL_RGB, GL_FLOAT, true, true}, {GL_RGBA, GL_RGBA, GL_UNSIGNED_BYTE, false, false}, {GL_RGB16F, GL_RGB, GL_FLOAT, true, true} }, false, true), GLClasses::Framebuffer(16, 16, { {GL_RGB16F, GL_RGB, GL_FLOAT, true, true}, {GL_RGB16F, GL_RGB, GL_FLOAT, true, true}, {GL_RGBA, GL_RGBA, GL_UNSIGNED_BYTE, false, false}, {GL_RGB16F, GL_RGB, GL_FLOAT, true, true} }, false, true) };
 
 // Lighting 
 GLClasses::Framebuffer LightingPass(16, 16, {GL_RGB16F, GL_RGB, GL_FLOAT, true, true}, false, true);
+
+// AO, Screenspace shadows 
+GLClasses::Framebuffer ScreenspaceOcclusion(16, 16, { { GL_RED, GL_RED, GL_UNSIGNED_BYTE, true, true } , { GL_RED, GL_RED, GL_UNSIGNED_BYTE, true, true }}, false, true);
 
 // Specular Indirect 
 GLClasses::Framebuffer SpecularIndirectBuffers[2]{ GLClasses::Framebuffer(16, 16, { {GL_RGB16F, GL_RGB, GL_FLOAT, true, true}, {GL_R16F, GL_RED, GL_FLOAT, true, true} }, false, true), GLClasses::Framebuffer(16, 16, { {GL_RGB16F, GL_RGB, GL_FLOAT, true, true}, {GL_R16F, GL_RED, GL_FLOAT, true, true} }, false, true) };
@@ -317,6 +339,10 @@ void Lumen::StartPipeline()
 	GLClasses::Texture BlueNoise;
 	GLClasses::CubeTextureMap Skymap;
 
+
+	glm::vec3 PreviousSunDirection = SunDirection;
+
+
 	Skymap.CreateCubeTextureMap(
 		{
 		"Res/Skymap/right.bmp",
@@ -362,6 +388,7 @@ void Lumen::StartPipeline()
 	GLClasses::Shader& SpecularCheckerboarder = ShaderManager::GetShader("SPECULAR_CHECKER");
 
 	GLClasses::Shader& TAAShader = ShaderManager::GetShader("TAA");
+	GLClasses::Shader& SSOcclusionTraceShader = ShaderManager::GetShader("SCREENSPACE_OCCLUSION_RT");
 
 	GLClasses::Shader& BasicBlitShader = ShaderManager::GetShader("BLIT");
 	GLClasses::Shader& RedOutputShader = ShaderManager::GetShader("RED");
@@ -390,6 +417,7 @@ void Lumen::StartPipeline()
 	glDrawBuffers(1, Buffers);
 	glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
+
 	while (!glfwWindowShouldClose(app.GetWindow()))
 	{
 		// Matrices 
@@ -397,6 +425,7 @@ void Lumen::StartPipeline()
 		PreviousView = Camera.GetViewMatrix();
 
 		// App update 
+		PreviousSunDirection = SunDirection;
 		app.OnUpdate();
 
 		// Update current matrices 
@@ -431,7 +460,8 @@ void Lumen::StartPipeline()
 		SpecularIndirectConeTraceInput.SetSize(app.GetWidth() * SpecularIndirectUpsampleRes, app.GetHeight() * SpecularIndirectUpsampleRes);
 		SpecularIndirectConeTraceInputAlternate.SetSize(app.GetWidth() * SpecularIndirectUpsampleRes, app.GetHeight() * SpecularIndirectUpsampleRes);
 
-
+		// RTAO
+		ScreenspaceOcclusion.SetSize(app.GetWidth() * ScreenspaceOcclusionRes, app.GetHeight()* ScreenspaceOcclusionRes);
 
 		// Generate mipmaps 
 		if (app.GetCurrentFrame() % 8 == 0) {
@@ -451,7 +481,7 @@ void Lumen::StartPipeline()
 
 
 		// Shadowmap update 
-		if (app.GetCurrentFrame() % 8 == 0)
+		if (app.GetCurrentFrame() % 12 == 0 || PreviousSunDirection != SunDirection)
 		{
 			// Shadow pass 
 			RenderShadowMap(Shadowmap, SunDirection, EntityRenderList, Camera.GetViewProjection());
@@ -459,7 +489,6 @@ void Lumen::StartPipeline()
 
 		// Probe update 
 		PlayerProbeCapturePoint = Camera.GetPosition();
-
 		RenderProbe(PlayerProbe, ((app.GetCurrentFrame() % 3) * 2) + 0, PlayerProbeCapturePoint, EntityList, ProbeForwardShader, Skymap.GetID(), ScreenQuadVAO);
 		RenderProbe(PlayerProbe, ((app.GetCurrentFrame() % 3) * 2) + 1, PlayerProbeCapturePoint, EntityList, ProbeForwardShader, Skymap.GetID(), ScreenQuadVAO);
 
@@ -736,6 +765,37 @@ void Lumen::StartPipeline()
 			ScreenQuadVAO.Unbind();
 		}
 
+		// Screenspace raytracing ->
+
+		// Screenspace RTAO / Screenspace direct shadows 
+
+		ScreenspaceOcclusion.Bind();
+		SSOcclusionTraceShader.Use();
+
+		SSOcclusionTraceShader.SetInteger("u_Depth", 0);
+		SSOcclusionTraceShader.SetInteger("u_Normals", 1);
+		SSOcclusionTraceShader.SetInteger("u_PBR", 2);
+		SSOcclusionTraceShader.SetBool("u_Shadow", DoScreenspaceShadow);
+		SSOcclusionTraceShader.SetBool("u_AO", DoScreenspaceAO);
+		SetCommonUniforms(SSOcclusionTraceShader, UniformBuffer);
+
+		glActiveTexture(GL_TEXTURE0);
+		glBindTexture(GL_TEXTURE_2D, GBuffer.GetDepthBuffer());
+
+		glActiveTexture(GL_TEXTURE1);
+		glBindTexture(GL_TEXTURE_2D, GBuffer.GetTexture(3));
+
+		glActiveTexture(GL_TEXTURE2);
+		glBindTexture(GL_TEXTURE_2D, GBuffer.GetTexture(2));
+
+
+		ScreenQuadVAO.Bind();
+		glDrawArrays(GL_TRIANGLES, 0, 6);
+		ScreenQuadVAO.Unbind();
+
+		ScreenspaceOcclusion.Unbind();
+
+
 		// Lighting combine pass : 
 
 		LightingShader.Use();
@@ -750,6 +810,9 @@ void Lumen::StartPipeline()
 		LightingShader.SetInteger("u_Skymap", 6);
 		LightingShader.SetInteger("u_Probe", 7);
 		LightingShader.SetInteger("u_ResolvedSpecular", 8);
+		LightingShader.SetInteger("u_RTAO", 9);
+		LightingShader.SetInteger("u_ScreenspaceShadows", 10);
+		LightingShader.SetFloat("u_RTAOStrength", ScreenspaceAOStrength);
 
 		LightingShader.SetMatrix4("u_LightVP", GetLightViewProjection(SunDirection));
 		LightingShader.SetVector2f("u_Dims", glm::vec2(app.GetWidth(), app.GetHeight()));
@@ -785,6 +848,12 @@ void Lumen::StartPipeline()
 		
 		glActiveTexture(GL_TEXTURE8);
 		glBindTexture(GL_TEXTURE_2D, SSCT ? SpecularIndirectConeTraced.GetTexture() : SpecularTemporal.GetTexture());
+		
+		glActiveTexture(GL_TEXTURE9);
+		glBindTexture(GL_TEXTURE_2D, ScreenspaceOcclusion.GetTexture());
+		
+		glActiveTexture(GL_TEXTURE10);
+		glBindTexture(GL_TEXTURE_2D, ScreenspaceOcclusion.GetTexture(1));
 
 		ScreenQuadVAO.Bind();
 		glDrawArrays(GL_TRIANGLES, 0, 6);

@@ -110,7 +110,7 @@ vec3 GGX_VNDF(vec3 N, float roughness, vec2 Xi)
 
 vec3 SampleMicrofacet(vec3 N, float R) {
 
-    R *= 0.64f;
+    R *= 0.75f;
     R = max(R, 0.05f);
 	float NearestDot = -100.0f;
 	vec3 BestDirection = N;
