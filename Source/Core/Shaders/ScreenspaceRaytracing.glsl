@@ -157,15 +157,17 @@ vec2 Raytrace(vec3 Origin, vec3 Direction, float RayDistance, int Steps, float T
 					
 					vec3 Projected = ProjectToClipSpace(RayPosition); 
 					Projected = Projected * 0.5f + 0.5f;
-					float BinaryDepthAt = (texture(u_Depth, Projected.xy).x); 
+					float BinaryDepthAt = LinearizeDepth(texture(u_Depth, Projected.xy).x); 
 					float BinaryRayDepth = LinearizeDepth(Projected.z); 
 
 					if (BinaryDepthAt < BinaryRayDepth) {
 						RayPosition -= BinaryStepVector;
+
 					}
 
 					else {
 						RayPosition += BinaryStepVector;
+
 					}
 
 					BinaryStepVector /= 2.0f;
