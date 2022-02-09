@@ -1,5 +1,7 @@
 #include "Texture.h"
 
+#include <fstream>
+
 namespace GLClasses
 {
 	struct TextureMapData
@@ -16,6 +18,20 @@ namespace GLClasses
 
 	std::unordered_map<std::string, TextureMapData> CreatedTextures;
 
+	static bool FileExists(const std::string& str) {
+		std::ifstream file(str);
+
+		if (file.is_open() && file.good())
+		{
+			file.close();
+			return true;
+		}
+
+		return false;
+
+	}
+
+
 	void Texture::CreateTexture(const string& path, bool hdr, bool mipmap, bool flip, GLenum type, GLenum min_filter, GLenum mag_filter, GLenum texwrap_s, GLenum texwrap_t, bool clean_up)
 	{
 		/*
@@ -25,6 +41,10 @@ namespace GLClasses
 
 		if (exists == CreatedTextures.end())
 		{
+			if (!FileExists(path)) {
+				return;
+			}
+
 			if (flip)
 				stbi_set_flip_vertically_on_load(true);
 			else

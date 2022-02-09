@@ -76,6 +76,13 @@ vec2 hash2()
 	return fract(sin(vec2(HASH2SEED += 0.1, HASH2SEED += 0.1)) * vec2(43758.5453123, 22578.1459123));
 }
 
+vec3 Saturation(vec3 Color, float Adjustment)
+{
+    const vec3 LuminosityCoefficients = vec3(0.2125f, 0.7154f, 0.0721f);
+    vec3 Luminosity = vec3(dot(Color, LuminosityCoefficients));
+    return mix(Luminosity, Color, Adjustment);
+}
+
 vec3 WorldPosFromDepth(float depth, vec2 txc)
 {
     float z = depth * 2.0 - 1.0;
@@ -110,7 +117,7 @@ vec3 GGX_VNDF(vec3 N, float roughness, vec2 Xi)
 
 vec3 SampleMicrofacet(vec3 N, float R) {
 
-    R *= 0.825f;
+    R *= 0.9f;
     R = max(R, 0.05f);
 	float NearestDot = -100.0f;
 	vec3 BestDirection = N;
@@ -189,6 +196,8 @@ GBufferData Raytrace(vec3 WorldPosition, vec3 Normal, vec3 LFNormal, float Depth
     // If enabled, the raytracer returns the nearest hit which is approximated using a weighting factor 
     const bool FALLBACK_ON_BEST_STEP = true;
 
+    const float EmissiveDesat = 0.15f;
+
     // Bias 
     WorldPosition = (WorldPosition + LFNormal * 2.0f);
 
@@ -196,7 +205,7 @@ GBufferData Raytrace(vec3 WorldPosition, vec3 Normal, vec3 LFNormal, float Depth
     const float Distance = 512.0f;
     const int Steps = 192;
     const int BinarySteps = 8;
-    const float EmissionStrength = 40.0f;
+    const float EmissionStrength = 96.0f;
 
     float StepSize = Distance / float(Steps);
     float UnditheredStepSize = StepSize;
@@ -306,7 +315,7 @@ GBufferData Raytrace(vec3 WorldPosition, vec3 Normal, vec3 LFNormal, float Depth
         ReturnValue.Data = vec3(AlbedoFetch.w, 0.0f, 1.0f);
 
         // Emission
-        ReturnValue.Albedo += ReturnValue.Albedo * NormalFetch.w * EmissionStrength;
+        ReturnValue.Albedo += Saturation(ReturnValue.Albedo, EmissiveDesat) * NormalFetch.w * EmissionStrength;
 
         ReturnValue.ValidMask = true;
         ReturnValue.Approximated = false;
@@ -331,7 +340,7 @@ GBufferData Raytrace(vec3 WorldPosition, vec3 Normal, vec3 LFNormal, float Depth
         ReturnValue.Data = vec3(AlbedoFetch.w, 0.0f, 1.0f);
 
         // Emission
-        ReturnValue.Albedo += ReturnValue.Albedo * NormalFetch.w * EmissionStrength;
+        ReturnValue.Albedo += Saturation(ReturnValue.Albedo, EmissiveDesat) * NormalFetch.w * EmissionStrength;
         ReturnValue.ValidMask = true;
         ReturnValue.Approximated = true;
 
@@ -395,17 +404,35 @@ vec3 IntegrateLighting(GBufferData Hit, vec3 Direction) {
     }
 
     float Lambertian = max(0.0f, dot(Hit.Normal, -u_SunDirection));
-    vec3 Direct = Lambertian * SUN_COLOR * 0.0475f * Shadow * Hit.Albedo;
+    vec3 Direct = Lambertian * SUN_COLOR * 0.07f * Shadow * Hit.Albedo;
     vec3 Ambient = texture(u_EnvironmentMap, vec3(0.0f, 1.0f, 0.0f)).xyz * 0.2f * Hit.Albedo;
     return Direct + Ambient;
 }
 
-ivec2 UpscaleOffsets[] = ivec2[](
+ivec2 UpscaleOffsets2x2[] = ivec2[](
 	ivec2(1, 1),
 	ivec2(0, 1),
 	ivec2(0, 0),
 	ivec2(1, 0));
 
+const ivec2[16] UpscaleOffsets4x4 = ivec2[16](
+    ivec2(0, 0),
+    ivec2(2, 0),
+    ivec2(0, 2),
+    ivec2(2, 2),
+    ivec2(1, 1),
+    ivec2(3, 1),
+    ivec2(1, 3),
+    ivec2(3, 3),
+    ivec2(1, 0),
+    ivec2(3, 0),
+    ivec2(1, 2),
+    ivec2(3, 2),
+    ivec2(0, 1),
+    ivec2(2, 1),
+    ivec2(0, 3),
+    ivec2(2, 3)
+);
 
 void main() {
     
@@ -426,7 +453,7 @@ void main() {
         Pixel.x += int(IsCheckerStep);
     }
 
-    Pixel += UpscaleOffsets[u_Frame % 4];
+    Pixel += UpscaleOffsets4x4[u_Frame % 16];
 
     ivec2 HighResPixel = Pixel * 2;
     vec2 HighResUV = vec2(HighResPixel) / textureSize(u_Depth, 0).xy;

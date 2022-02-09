@@ -48,6 +48,9 @@ static bool DoScreenspaceAO = true;
 static bool DoScreenspaceShadow = true;
 static float ScreenspaceAOStrength = 0.75f;
 
+// Probe update rate 
+static int ProbeUpdateRate = 1;
+
 // Application 
 class RayTracerApp : public Lumen::Application
 {
@@ -101,8 +104,12 @@ public:
 		ImGui::SliderFloat3("Sun Dir : ", &SunDirection[0], -1.0f, 1.0f);
 
 		ImGui::NewLine();
-		ImGui::NewLine();
+		
+		ImGui::SliderInt("Probe Update Rate", &ProbeUpdateRate, 1, 6);
 
+		ImGui::NewLine();
+		ImGui::NewLine();
+		
 		ImGui::Text("Specular Resolution : %f on each axis", SpecularIndirectRes);
 		ImGui::Text("Specular Upsample Resolution : %f on each axis", SpecularIndirectUpsampleRes);
 		ImGui::NewLine();
@@ -302,30 +309,40 @@ void Lumen::StartPipeline()
 	MainModel.m_Model = glm::scale(glm::mat4(1.0f), glm::vec3(0.2f));
 	MainModel.m_Model = glm::translate(MainModel.m_Model, glm::vec3(0.0f));
 
+	const glm::mat4 ZOrientMatrix = glm::mat4(glm::vec4(1.0f, 0.0f, 0.0f, 0.0f), glm::vec4(0.0f, 0.0f, 1.0f, 0.0f), glm::vec4(0.0f, 1.0f, 0.0f, 0.0f), glm::vec4(1.0f));
+
+	Object SecondaryLargeModel;
+	FileLoader::LoadModelFile(&SecondaryLargeModel, "Models/Lucy/LucyModel.obj");
+
 	Object SecondaryModel;
-	FileLoader::LoadModelFile(&SecondaryModel, "Models/teapot/teapot.obj");
-	Entity SecondaryEntity(&SecondaryModel);
-	SecondaryEntity.m_Model = glm::scale(glm::mat4(1.0f), glm::vec3(0.15f));
-	SecondaryEntity.m_Model = glm::translate(SecondaryEntity.m_Model, glm::vec3(0.0f, 128.0f, 0.0f));
+	FileLoader::LoadModelFile(&SecondaryModel, "Models/dragon/dragon.obj");
+	
+	Entity SecondaryEntity(&SecondaryLargeModel);
+	SecondaryEntity.m_Model = glm::scale(glm::mat4(1.0f), glm::vec3(0.6f));
+	SecondaryEntity.m_Model = glm::translate(SecondaryEntity.m_Model, glm::vec3(0.0f, 0.8f, 0.0f));
+	SecondaryEntity.m_EntityRoughness = 0.2f;
+	SecondaryEntity.m_EntityMetalness = 1.0f;
 
+	float EntityScale = 3.5f;
+	
 	Entity SecondaryEntity0(&SecondaryModel);
-	SecondaryEntity0.m_Model = glm::scale(glm::mat4(1.0f), glm::vec3(0.3f));
-	SecondaryEntity0.m_Model = glm::translate(SecondaryEntity0.m_Model, glm::vec3(0.0f, 25.0f, -90.0f) * (1.0f / 0.3f));
+	SecondaryEntity0.m_Model = glm::scale(glm::mat4(1.0f), glm::vec3(EntityScale));
+	SecondaryEntity0.m_Model = glm::translate(SecondaryEntity0.m_Model, glm::vec3(0.0f, 2.0f, -90.0f) * (1.0f / EntityScale));
 	SecondaryEntity0.m_EmissiveAmount = 10.0f;
-
+	
 	Entity SecondaryEntity1(&SecondaryModel);
-	SecondaryEntity1.m_Model = glm::scale(glm::mat4(1.0f), glm::vec3(0.3f));
-	SecondaryEntity1.m_Model = glm::translate(SecondaryEntity1.m_Model, glm::vec3(0.0f, 25.0f, 90.0f) * (1.0f / 0.3f));
+	SecondaryEntity1.m_Model = glm::scale(glm::mat4(1.0f), glm::vec3(EntityScale));
+	SecondaryEntity1.m_Model = glm::translate(SecondaryEntity1.m_Model, glm::vec3(0.0f, 2.0f, 90.0f) * (1.0f / EntityScale));
 	SecondaryEntity1.m_EmissiveAmount = 10.0f;
-
+	
 	Entity SecondaryEntity2(&SecondaryModel);
-	SecondaryEntity2.m_Model = glm::scale(glm::mat4(1.0f), glm::vec3(0.3f));
-	SecondaryEntity2.m_Model = glm::translate(SecondaryEntity2.m_Model, glm::vec3(220.0f, 25.0f, 0.0f) * (1.0f / 0.3f));
+	SecondaryEntity2.m_Model = glm::scale(glm::mat4(1.0f), glm::vec3(EntityScale));
+	SecondaryEntity2.m_Model = glm::translate(SecondaryEntity2.m_Model, glm::vec3(220.0f, 2.0f, 0.0f) * (1.0f / EntityScale));
 	SecondaryEntity2.m_EmissiveAmount = 10.0f;
-
+	
 	Entity SecondaryEntity3(&SecondaryModel);
-	SecondaryEntity3.m_Model = glm::scale(glm::mat4(1.0f), glm::vec3(0.3f));
-	SecondaryEntity3.m_Model = glm::translate(SecondaryEntity3.m_Model, glm::vec3(-220.0f, 25.0f, 0.0f) * (1.0f / 0.3f));
+	SecondaryEntity3.m_Model = glm::scale(glm::mat4(1.0f), glm::vec3(EntityScale));
+	SecondaryEntity3.m_Model = glm::translate(SecondaryEntity3.m_Model, glm::vec3(-220.0f, 2.0f, 0.0f) * (1.0f / EntityScale));
 	SecondaryEntity3.m_EmissiveAmount = 10.0f;
 
 
@@ -449,19 +466,19 @@ void Lumen::StartPipeline()
 		TAABuffers[1].SetSize(app.GetWidth(), app.GetHeight());
 
 		// Specular 
-		SpecularIndirectBuffers[0].SetSize(app.GetWidth() * SpecularIndirectRes * (SpecularCheckerboard ? 0.5f : 1.0f), app.GetHeight()* SpecularIndirectRes);
-		SpecularIndirectBuffers[1].SetSize(app.GetWidth()* SpecularIndirectRes * (SpecularCheckerboard ? 0.5f : 1.0f), app.GetHeight() * SpecularIndirectRes);
+		SpecularIndirectBuffers[0].SetSize(app.GetWidth() * SpecularIndirectRes * (SpecularCheckerboard ? 0.5f : 1.0f), app.GetHeight() * SpecularIndirectRes);
+		SpecularIndirectBuffers[1].SetSize(app.GetWidth() * SpecularIndirectRes * (SpecularCheckerboard ? 0.5f : 1.0f), app.GetHeight() * SpecularIndirectRes);
 		SpecularIndirectCheckerUpscaled.SetSize(app.GetWidth() * SpecularIndirectUpsampleRes, app.GetHeight() * SpecularIndirectUpsampleRes);
 		SpecularIndirectTemporalBuffers[0].SetSize(app.GetWidth() * SpecularIndirectUpsampleRes, app.GetHeight() * SpecularIndirectUpsampleRes);
 		SpecularIndirectTemporalBuffers[1].SetSize(app.GetWidth() * SpecularIndirectUpsampleRes, app.GetHeight() * SpecularIndirectUpsampleRes);
-		
+
 		// Buffers for SSCT 
 		SpecularIndirectConeTraced.SetSize(app.GetWidth() * SpecularIndirectUpsampleRes, app.GetHeight() * SpecularIndirectUpsampleRes);
 		SpecularIndirectConeTraceInput.SetSize(app.GetWidth() * SpecularIndirectUpsampleRes, app.GetHeight() * SpecularIndirectUpsampleRes);
 		SpecularIndirectConeTraceInputAlternate.SetSize(app.GetWidth() * SpecularIndirectUpsampleRes, app.GetHeight() * SpecularIndirectUpsampleRes);
 
 		// RTAO
-		ScreenspaceOcclusion.SetSize(app.GetWidth() * ScreenspaceOcclusionRes, app.GetHeight()* ScreenspaceOcclusionRes);
+		ScreenspaceOcclusion.SetSize(app.GetWidth() * ScreenspaceOcclusionRes, app.GetHeight() * ScreenspaceOcclusionRes);
 
 		// Generate mipmaps 
 		if (app.GetCurrentFrame() % 8 == 0) {
@@ -489,8 +506,13 @@ void Lumen::StartPipeline()
 
 		// Probe update 
 		PlayerProbeCapturePoint = Camera.GetPosition();
-		RenderProbe(PlayerProbe, ((app.GetCurrentFrame() % 3) * 2) + 0, PlayerProbeCapturePoint, EntityList, ProbeForwardShader, Skymap.GetID(), ScreenQuadVAO);
-		RenderProbe(PlayerProbe, ((app.GetCurrentFrame() % 3) * 2) + 1, PlayerProbeCapturePoint, EntityList, ProbeForwardShader, Skymap.GetID(), ScreenQuadVAO);
+
+		for (int i = 0; i < ProbeUpdateRate; i++)
+		{
+			int RenderFace = ((app.GetCurrentFrame() % (6 / ProbeUpdateRate)) * ProbeUpdateRate) + i;
+			RenderProbe(PlayerProbe, RenderFace, PlayerProbeCapturePoint, EntityList, ProbeForwardShader, Skymap.GetID(), ScreenQuadVAO);
+			//std::cout << "Rendered Face : " << RenderFace << " \n";
+		}
 
 		// Ping pong framebuffers
 		bool FrameCheckerStep = app.GetCurrentFrame() % 2 == 0;

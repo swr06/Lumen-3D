@@ -85,7 +85,7 @@ void main() {
         vec2 Dimensions = textureSize(u_HistorySpecular, 0).xy;
 		vec2 Velocity = (v_TexCoords - Reprojected.xy) * Dimensions;
 
-        float TemporalBlur = clamp(exp(-length(Velocity)) * 0.95f + 0.88f, 0.0f, 0.97f);
+        float TemporalBlur =  clamp(exp(-length(Velocity)) * 0.95f + 0.86f, 0.0f, 0.975f);
 
         vec3 History = texture(u_HistorySpecular, Reprojected.xy).xyz;
 

@@ -4,6 +4,8 @@
 
 void Lumen::RenderEntity(Entity& entity, GLClasses::Shader& shader)
 {
+	const glm::mat4 ZOrientMatrix = glm::mat4(glm::vec4(1.0f, 0.0f, 0.0f, 0.0f), glm::vec4(0.0f, 0.0f, 1.0f, 0.0f), glm::vec4(0.0f, 1.0f, 0.0f, 0.0f), glm::vec4(1.0f));
+
 	Object* object = entity.m_Object;
 
 	shader.SetMatrix4("u_ModelMatrix", entity.m_Model);
@@ -27,10 +29,6 @@ void Lumen::RenderEntity(Entity& entity, GLClasses::Shader& shader)
 			mesh->m_NormalMap.Bind(1);
 		}
 
-		else {
-			std::cout << "knife";
-		}
-
 		if (mesh->m_RoughnessMap.GetID() != 0)
 		{
 			mesh->m_RoughnessMap.Bind(2);
@@ -47,8 +45,15 @@ void Lumen::RenderEntity(Entity& entity, GLClasses::Shader& shader)
 		}
 
 		shader.SetBool("u_UsesGLTFPBR", false);
+		shader.SetBool("u_UsesAlbedoTexture", mesh->m_AlbedoMap.GetID() > 0);
+		shader.SetBool("u_UsesRoughnessMap", mesh->m_RoughnessMap.GetID() > 0);
+		shader.SetBool("u_UsesMetalnessMap", mesh->m_MetalnessMap.GetID() > 0);
+		shader.SetBool("u_UsesNormalMap", mesh->m_NormalMap.GetID() > 0);
 		shader.SetVector3f("u_EmissiveColor", mesh->m_EmissivityColor);
+		shader.SetVector3f("u_ModelColor", mesh->m_Color);
 		shader.SetFloat("u_ModelEmission", entity.m_EmissiveAmount);
+		shader.SetFloat("u_EntityRoughness", entity.m_EntityRoughness);
+		shader.SetFloat("u_EntityMetalness", entity.m_EntityMetalness);
 
 		if (mesh->TexturePaths[5].size() > 0 && mesh->m_MetalnessRoughnessMap.GetID() > 0) {
 

@@ -84,6 +84,18 @@ vec3 GetRayDirectionAt(vec2 screenspace)
 	return vec3(u_InverseView * eye);
 }
 
+vec2 KarisEnvBRDFApprox(float NdotV, float roughness)
+{
+	vec4 c0 = vec4(-1., -0.0275, -0.572, 0.022);
+	vec4 c1 = vec4(1., 0.0425, 1.040, -0.040);
+	vec4 r = roughness * c0 + c1;
+	float a004 = min(r.x * r.x, exp2(-9.28 * NdotV)) * r.x + r.y;
+	return vec2(-1.04, 1.04) * a004 + r.zw;
+}
+
+vec3 fresnelSchlickRoughness(float cosTheta, vec3 F0, float roughness){
+    return F0 + (max(vec3(1.0-roughness), F0) - F0) * pow(1.0 - cosTheta, 5.0);
+}
 
 void main() 
 {	
@@ -107,7 +119,7 @@ void main()
 	vec4 PBR = texture(u_PBRTexture, v_TexCoords).xyzw;
 
 	// Model emission
-	vec3 Emission = PBR.w * 0.7f * Albedo;
+	vec3 Emission = PBR.w * 1.5f * Albedo;
 
 	// View vector 
     vec3 Lo = normalize(u_ViewerPosition - WorldPosition);
@@ -123,9 +135,43 @@ void main()
 	vec3 SpecularIndirect = texture(u_ResolvedSpecular, v_TexCoords).xyz;
 	vec3 AmbientTerm = (texture(u_Skymap, vec3(0.0f, 1.0f, 0.0f)).xyz * 0.18f) * Albedo;
 
-	// Combine (Temporarily done in a non-accurate way)
-	// Todo : Use fresnel and DFG BRDF to combine indirect diffuse and specular lighting (Account for metallic tining as well)
-	o_Color = DirectLighting + (AmbientTerm * clamp(pow(AO, u_RTAOStrength * 4.0f), 0.05f, 1.0f)) + Emission + SpecularIndirect * 0.1f;
+	// Combine indirect diffuse and specular using environment BRDF
+	
+	const float TEXTURE_AO_STRENGTH = 48.0f;
+	float TextureAO = pow(1.0f - PBR.z, TEXTURE_AO_STRENGTH);
+
+	vec3 IndirectDiffuse = (AmbientTerm * clamp(pow(AO, u_RTAOStrength * 4.0f), 0.05f, 1.0f) * TextureAO);
+	vec3 IndirectSpecular = SpecularIndirect * 3.0f;
+
+	float Roughness = PBR.x;
+	
+	// Metalness is binary, so use a simple thresholding function
+	float Metalness = PBR.y > 0.04f ? 1.0f : 0.0f;
+
+	// F0 
+	vec3 F0 = mix(vec3(0.04f), Albedo, Metalness);
+
+	// Fresnel roughness 
+	vec3 FresnelTerm = fresnelSchlickRoughness(max(dot(Lo, Normal.xyz), 0.000001f), vec3(F0), Roughness); 
+    FresnelTerm = clamp(FresnelTerm, 0.0f, 1.0f);
+
+    vec3 kS = FresnelTerm;
+    vec3 kD = 1.0f - kS;
+    kD *= 1.0f - Metalness;
+				
+	// Samples Karis environment brdf 
+    vec2 EnvironmentBRDFSampleLocation = vec2(max(dot(Lo, Normal.xyz), 0.000001f), Roughness);
+    EnvironmentBRDFSampleLocation = clamp(EnvironmentBRDFSampleLocation, 0.0f, 1.0f);
+    vec2 EnvironmentBRDF = KarisEnvBRDFApprox(EnvironmentBRDFSampleLocation.x, EnvironmentBRDFSampleLocation.y);
+
+	// Integrate indirect specular lighting 
+	vec3 IndirectSpecularFinal = SpecularIndirect * (FresnelTerm * EnvironmentBRDF.x + EnvironmentBRDF.y);
+
+	// Combine indirect diffuse and indirect specular 
+    vec3 IndirectLighting = (kD * IndirectDiffuse) + IndirectSpecularFinal;
+
+	o_Color = DirectLighting + Emission + IndirectLighting;
+
 
 	// Nan/inf check
 	if (isnan(o_Color.x) || isnan(o_Color.y) || isnan(o_Color.z) || isinf(o_Color.x) || isinf(o_Color.y) || isinf(o_Color.z)) {
@@ -210,6 +256,7 @@ vec3 fresnelroughness(vec3 Eye, vec3 norm, vec3 F0, float roughness)
 
 vec3 CalculateDirectionalLight(vec3 world_pos, vec3 light_dir, vec3 radiance, vec3 albedo, vec3 N, vec2 rm, float shadow)
 {
+	// Cook torrance BRDF
     const float Epsilon = 0.00001;
     vec3 Lo = normalize(u_ViewerPosition - world_pos);
 	vec3 Li = -light_dir;

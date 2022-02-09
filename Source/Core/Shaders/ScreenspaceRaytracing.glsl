@@ -114,10 +114,9 @@ vec3 CosWeightedHemisphere(const vec3 n)
     return normalize(rr);
 }
 
-float Raytrace(vec3 Origin, vec3 Direction, float RayDistance, int Steps, float Threshold, float Hash)
+// x, y = transversal, occlusion amount 
+vec2 Raytrace(vec3 Origin, vec3 Direction, float RayDistance, int Steps, float Threshold, float Hash)
 {
-	Origin += Direction * 0.05f;
-
 	vec3 StepVector = (Direction * RayDistance) / float(Steps); 
 	vec3 RayPosition = Origin + StepVector * Hash; 
 	vec2 FinalUV = vec2(-1.0f);
@@ -128,14 +127,14 @@ float Raytrace(vec3 Origin, vec3 Direction, float RayDistance, int Steps, float 
 		
 		if(abs(ProjectedRayScreenspace.x) > 1.0f || abs(ProjectedRayScreenspace.y) > 1.0f || abs(ProjectedRayScreenspace.z) > 1.0f) 
 		{
-			return 1.0f; 
+			return vec2(-1.0f, 1.0f); 
 		}
 		
 		ProjectedRayScreenspace.xyz = ProjectedRayScreenspace.xyz * 0.5f + 0.5f; 
 
 		if (ProjectedRayScreenspace.xy != clamp(ProjectedRayScreenspace.xy, 0.0f, 1.0f))
 		{
-			return 1.0f;
+			return vec2(-1.0f, 1.0f);
 		}
 		
 		float DepthAt = texture(u_Depth, ProjectedRayScreenspace.xy).x; 
@@ -173,12 +172,17 @@ float Raytrace(vec3 Origin, vec3 Direction, float RayDistance, int Steps, float 
 				}
 			}
 
-			// Calculate occlusion 
-
+			// Calculate world space transversal  
 			vec2 FinalPosition = ProjectToClipSpace(RayPosition).xy * 0.5f + 0.5f;
-			float Occlusion = distance(WorldPosFromDepth(texture(u_Depth, FinalPosition).x, FinalPosition), Origin.xyz);
-			Occlusion = clamp(Occlusion, 0.0f, RayDistance) / RayDistance;
-			return Occlusion ;
+			float Transversal = distance(WorldPosFromDepth(texture(u_Depth, FinalPosition).x, FinalPosition), Origin.xyz);
+
+			// Invalid hit
+			if (Transversal > RayDistance) {
+				return vec2(-1.0f, 1.0f);
+			}
+
+			float Occlusion = Transversal / RayDistance;
+			return vec2(Transversal, Occlusion);
 		}
 
 
@@ -186,7 +190,7 @@ float Raytrace(vec3 Origin, vec3 Direction, float RayDistance, int Steps, float 
 
 	}
 
-	return 1.0f;
+	return vec2(-1.0f, 1.0f);
 
 }
 
@@ -203,11 +207,9 @@ void main() {
 	vec3 WorldPosition = WorldPosFromDepth(Depth, v_TexCoords).xyz;
 	vec3 Normal = texture(u_Normals, v_TexCoords).xyz;
 
-	WorldPosition.xyz += Normal * 0.5f;
-
 	vec3 ViewDirection = normalize(WorldPosition - u_InverseView[3].xyz);
 
-    float BayerHash = fract(fract(mod(float(u_Frame) + float(0.0f) * 2., 384.0f) * (1.0 / PHI)) + Bayer32(gl_FragCoord.xy));
+    float BayerHash = fract(fract(mod(float(u_Frame), 384.0f) * (1.0 / PHI)) + Bayer32(gl_FragCoord.xy));
 
 	const float AOScale = 0.8f;
 
@@ -218,8 +220,8 @@ void main() {
 	vec3 ContactShadowDirection = -u_SunDirection;
 	ContactShadowDirection = normalize(ContactShadowDirection);
 
-	float IndirectAO = u_AO ? Raytrace(WorldPosition, AODirection, 22.0f, 48, 0.02f, BayerHash) : 1.0f;
-	float DirectContactShadow = u_Shadow ? Raytrace(WorldPosition, ContactShadowDirection, 16.0f, 72, 0.01f, BayerHash) : 1.0f;
+	float IndirectAO = u_AO ? Raytrace(WorldPosition + Normal * 0.5001f, AODirection, 22.0f, 48, 0.024f, BayerHash).y : 1.0f;
+	float DirectContactShadow = u_Shadow ? Raytrace(WorldPosition + Normal * 0.5001f, ContactShadowDirection, 20.0f, 96, 0.01f, BayerHash).y : 1.0f;
 	
 	o_AO = IndirectAO;
 	o_Direct = DirectContactShadow;

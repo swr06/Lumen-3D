@@ -18,6 +18,9 @@ namespace Lumen
 
 		Object* const m_Object;
 		glm::mat4 m_Model;
+
 		float m_EmissiveAmount = 0.0f;
+		float m_EntityRoughness = 0.75f;
+		float m_EntityMetalness = 0.0f;
 	};
 }

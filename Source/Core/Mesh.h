@@ -29,6 +29,7 @@ namespace Lumen
 		glm::vec3 m_EmissivityColor;
 
 		std::string TexturePaths[6];
+		std::string RawTexturePaths[6];
 
 		GLClasses::Texture m_AlbedoMap;
 		GLClasses::Texture m_NormalMap;
