@@ -411,9 +411,9 @@ vec3 IntegrateLighting(GBufferData Hit, vec3 Direction) {
 
 ivec2 UpscaleOffsets2x2[] = ivec2[](
 	ivec2(1, 1),
-	ivec2(0, 1),
+	ivec2(1, 0),
 	ivec2(0, 0),
-	ivec2(1, 0));
+	ivec2(0, 1));
 
 const ivec2[16] UpscaleOffsets4x4 = ivec2[16](
     ivec2(0, 0),
@@ -434,6 +434,14 @@ const ivec2[16] UpscaleOffsets4x4 = ivec2[16](
     ivec2(2, 3)
 );
 
+bool IsSky(float NonLinearDepth) {
+    if (NonLinearDepth > 0.99998f) {
+        return true;
+	}
+
+    return false;
+}
+
 void main() {
     
     // For temporal super sampling 
@@ -444,6 +452,7 @@ void main() {
 
     // Animate noise for temporal integration
 	HASH2SEED += fract(u_Time) * 64.0f;
+
 
     ivec2 Pixel = ivec2(gl_FragCoord.xy);
 
@@ -460,6 +469,14 @@ void main() {
 
     // GBuffer fetches 
     float Depth = texelFetch(u_Depth, HighResPixel, 0).x;
+
+	// Sky check
+    if (IsSky(Depth)) {
+        o_Color = vec3(0.0f);
+        o_Transversal = 32.0f;
+        return;
+    }
+
 	vec3 WorldPosition = WorldPosFromDepth(Depth, HighResUV);
     vec3 Normal = texelFetch(u_Normals, HighResPixel, 0).xyz; 
     vec3 LFNormal = texelFetch(u_LFNormals, HighResPixel, 0).xyz; 

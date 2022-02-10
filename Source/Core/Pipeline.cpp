@@ -46,10 +46,11 @@ static bool RoughSpecular = true;
 static bool SpecularCheckerboard = true;
 
 // AO 
-static float ScreenspaceOcclusionRes = 0.5f;
+const float ScreenspaceOcclusionRes = 0.5f;
 static bool DoScreenspaceAO = true;
 static bool DoScreenspaceShadow = true;
 static float ScreenspaceAOStrength = 0.75f;
+static bool ScreenspaceOcclusionCheckerboard = true;
 
 // Probe update rate 
 static int ProbeUpdateRate = 1;
@@ -130,9 +131,10 @@ public:
 		ImGui::NewLine();
 		ImGui::NewLine();
 
-		ImGui::SliderFloat("RTAO/Screenspace shadows resolve resolution", &ScreenspaceOcclusionRes, 0.1f, 1.0f);
+		ImGui::Text("RTAO/Screenspace shadows resolve resolution : %f on each axis", ScreenspaceOcclusionRes);
 		ImGui::Checkbox("Do Screenspace RTAO?", &DoScreenspaceAO);
 		ImGui::Checkbox("Do Screenspace Direct Shadows?", &DoScreenspaceShadow);
+		ImGui::Checkbox("Checkerboard render?", &ScreenspaceOcclusionCheckerboard);
 
 		if (DoScreenspaceAO)
 			ImGui::SliderFloat("Screenspace RTAO Strength", &ScreenspaceAOStrength, 0.1f, 2.0f);
@@ -289,23 +291,23 @@ void RenderProbeAllFaces(Lumen::ProbeMap& probe, const glm::vec3& center, const 
 GLClasses::Framebuffer GBuffers[2] = { GLClasses::Framebuffer(16, 16, { {GL_RGB16F, GL_RGB, GL_FLOAT, true, true}, {GL_RGB16F, GL_RGB, GL_FLOAT, true, true}, {GL_RGBA, GL_RGBA, GL_UNSIGNED_BYTE, false, false}, {GL_RGB16F, GL_RGB, GL_FLOAT, true, true} }, false, true), GLClasses::Framebuffer(16, 16, { {GL_RGB16F, GL_RGB, GL_FLOAT, true, true}, {GL_RGB16F, GL_RGB, GL_FLOAT, true, true}, {GL_RGBA, GL_RGBA, GL_UNSIGNED_BYTE, false, false}, {GL_RGB16F, GL_RGB, GL_FLOAT, true, true} }, false, true) };
 
 // Lighting 
-GLClasses::Framebuffer LightingPass(16, 16, {GL_RGB16F, GL_RGB, GL_FLOAT, true, true}, false, true);
+GLClasses::Framebuffer LightingPass(16, 16, {GL_RGB16F, GL_RGB, GL_FLOAT, true, true}, false, false);
 
 // AO, Screenspace shadows 
-GLClasses::Framebuffer ScreenspaceOcclusion(16, 16, { { GL_RED, GL_RED, GL_UNSIGNED_BYTE, true, true } , { GL_RED, GL_RED, GL_UNSIGNED_BYTE, true, true }}, false, true);
-GLClasses::Framebuffer ScreenspaceOcclusionSpatial(16, 16, { { GL_RED, GL_RED, GL_UNSIGNED_BYTE, true, true } , { GL_RED, GL_RED, GL_UNSIGNED_BYTE, true, true }}, false, true);
-GLClasses::Framebuffer ScreenspaceOcclusionTemporalBuffers[2] = { GLClasses::Framebuffer(16, 16, { { GL_RED, GL_RED, GL_UNSIGNED_BYTE, true, true } , { GL_RED, GL_RED, GL_UNSIGNED_BYTE, true, true }}, false, true), GLClasses::Framebuffer(16, 16, { { GL_RED, GL_RED, GL_UNSIGNED_BYTE, true, true } , { GL_RED, GL_RED, GL_UNSIGNED_BYTE, true, true } }, false, true) };
+GLClasses::Framebuffer ScreenspaceOcclusion(16, 16, { { GL_RED, GL_RED, GL_UNSIGNED_BYTE, true, true } , { GL_RED, GL_RED, GL_UNSIGNED_BYTE, true, true }}, false, false);
+GLClasses::Framebuffer ScreenspaceOcclusionCheckerboardConstruct(16, 16, { { GL_RED, GL_RED, GL_UNSIGNED_BYTE, true, true } , { GL_RED, GL_RED, GL_UNSIGNED_BYTE, true, true }}, false, false);
+GLClasses::Framebuffer ScreenspaceOcclusionTemporalBuffers[2] = { GLClasses::Framebuffer(16, 16, { { GL_RED, GL_RED, GL_UNSIGNED_BYTE, true, true } , { GL_RED, GL_RED, GL_UNSIGNED_BYTE, true, true }}, false, false), GLClasses::Framebuffer(16, 16, { { GL_RED, GL_RED, GL_UNSIGNED_BYTE, true, true } , { GL_RED, GL_RED, GL_UNSIGNED_BYTE, true, true } }, false, false) };
 
 // Specular Indirect 
-GLClasses::Framebuffer SpecularIndirectBuffers[2]{ GLClasses::Framebuffer(16, 16, { {GL_RGB16F, GL_RGB, GL_FLOAT, true, true}, {GL_R16F, GL_RED, GL_FLOAT, true, true} }, false, true), GLClasses::Framebuffer(16, 16, { {GL_RGB16F, GL_RGB, GL_FLOAT, true, true}, {GL_R16F, GL_RED, GL_FLOAT, true, true} }, false, true) };
-GLClasses::Framebuffer SpecularIndirectCheckerUpscaled(16, 16, { {GL_RGB16F, GL_RGB, GL_FLOAT, true, true}, {GL_R16F, GL_RED, GL_FLOAT, true, true} }, false, true);
-GLClasses::Framebuffer SpecularIndirectTemporalBuffers[2] = { GLClasses::Framebuffer(16, 16, {GL_RGB16F, GL_RGB, GL_FLOAT, true, true}, false, true), GLClasses::Framebuffer(16, 16, {GL_RGB16F, GL_RGB, GL_FLOAT, true, true}, false, true) };
-GLClasses::Framebuffer SpecularIndirectConeTraceInput(16, 16, { GL_RGB16F, GL_RGB, GL_FLOAT, true, true }, false, true);
-GLClasses::Framebuffer SpecularIndirectConeTraceInputAlternate(16, 16, { GL_RGB16F, GL_RGB, GL_FLOAT, true, true }, false, true);
-GLClasses::Framebuffer SpecularIndirectConeTraced(16, 16, { GL_RGB16F, GL_RGB, GL_FLOAT, true, true }, false, true);
+GLClasses::Framebuffer SpecularIndirectBuffers[2]{ GLClasses::Framebuffer(16, 16, { {GL_RGB16F, GL_RGB, GL_FLOAT, true, true}, {GL_R16F, GL_RED, GL_FLOAT, true, true} }, false, false), GLClasses::Framebuffer(16, 16, { {GL_RGB16F, GL_RGB, GL_FLOAT, true, true}, {GL_R16F, GL_RED, GL_FLOAT, true, true} }, false, false) };
+GLClasses::Framebuffer SpecularIndirectCheckerUpscaled(16, 16, { {GL_RGB16F, GL_RGB, GL_FLOAT, true, true}, {GL_R16F, GL_RED, GL_FLOAT, true, true} }, false, false);
+GLClasses::Framebuffer SpecularIndirectTemporalBuffers[2] = { GLClasses::Framebuffer(16, 16, {GL_RGB16F, GL_RGB, GL_FLOAT, true, true}, false, false), GLClasses::Framebuffer(16, 16, {GL_RGB16F, GL_RGB, GL_FLOAT, true, true}, false, false) };
+GLClasses::Framebuffer SpecularIndirectConeTraceInput(16, 16, { GL_RGB16F, GL_RGB, GL_FLOAT, true, true }, false, false);
+GLClasses::Framebuffer SpecularIndirectConeTraceInputAlternate(16, 16, { GL_RGB16F, GL_RGB, GL_FLOAT, true, true }, false, false);
+GLClasses::Framebuffer SpecularIndirectConeTraced(16, 16, { GL_RGB16F, GL_RGB, GL_FLOAT, true, true }, false, false);
 
 // TAA Buffers
-GLClasses::Framebuffer TAABuffers[2] = { GLClasses::Framebuffer(16, 16, {GL_RGB16F, GL_RGB, GL_FLOAT, true, true}, false, true), GLClasses::Framebuffer(16, 16, {GL_RGB16F, GL_RGB, GL_FLOAT, true, true}, false, true) };
+GLClasses::Framebuffer TAABuffers[2] = { GLClasses::Framebuffer(16, 16, {GL_RGB16F, GL_RGB, GL_FLOAT, true, true}, false, false), GLClasses::Framebuffer(16, 16, {GL_RGB16F, GL_RGB, GL_FLOAT, true, true}, false, false) };
 
 // Main pipeline
 void Lumen::StartPipeline()
@@ -431,6 +433,7 @@ void Lumen::StartPipeline()
 	GLClasses::Shader& TAAShader = ShaderManager::GetShader("TAA");
 	GLClasses::Shader& SSOcclusionTraceShader = ShaderManager::GetShader("SCREENSPACE_OCCLUSION_RT");
 	GLClasses::Shader& SSOcclusionTemporalShader = ShaderManager::GetShader("SCREENSPACE_OCCLUSION_TEMPORAL");
+	GLClasses::Shader& SSOcclusionCheckerboardShader = ShaderManager::GetShader("SCREENSPACE_OCCLUSION_CHECKERBOARD");
 
 	GLClasses::Shader& BasicBlitShader = ShaderManager::GetShader("BLIT");
 	GLClasses::Shader& RedOutputShader = ShaderManager::GetShader("RED");
@@ -503,10 +506,10 @@ void Lumen::StartPipeline()
 		SpecularIndirectConeTraceInputAlternate.SetSize(app.GetWidth() * SpecularIndirectUpsampleRes, app.GetHeight() * SpecularIndirectUpsampleRes);
 
 		// RTAO
-		ScreenspaceOcclusion.SetSize(app.GetWidth() * ScreenspaceOcclusionRes, app.GetHeight() * ScreenspaceOcclusionRes);
+		ScreenspaceOcclusion.SetSize(app.GetWidth() * ScreenspaceOcclusionRes * (ScreenspaceOcclusionCheckerboard ? 0.5f : 1.0f), app.GetHeight() * ScreenspaceOcclusionRes);
 		ScreenspaceOcclusionTemporalBuffers[0].SetSize(app.GetWidth() * ScreenspaceOcclusionRes, app.GetHeight() * ScreenspaceOcclusionRes);
 		ScreenspaceOcclusionTemporalBuffers[1].SetSize(app.GetWidth() * ScreenspaceOcclusionRes, app.GetHeight() * ScreenspaceOcclusionRes);
-		ScreenspaceOcclusionSpatial.SetSize(app.GetWidth() * ScreenspaceOcclusionRes, app.GetHeight() * ScreenspaceOcclusionRes);
+		ScreenspaceOcclusionCheckerboardConstruct.SetSize(app.GetWidth() * ScreenspaceOcclusionRes, app.GetHeight() * ScreenspaceOcclusionRes);
 
 		// Generate mipmaps 
 		if (app.GetCurrentFrame() % 8 == 0) {
@@ -838,6 +841,7 @@ void Lumen::StartPipeline()
 		SSOcclusionTraceShader.SetInteger("u_PBR", 2);
 		SSOcclusionTraceShader.SetBool("u_Shadow", DoScreenspaceShadow);
 		SSOcclusionTraceShader.SetBool("u_AO", DoScreenspaceAO);
+		SSOcclusionTraceShader.SetBool("u_Checkerboard", ScreenspaceOcclusionCheckerboard);
 		SSOcclusionTraceShader.SetVector2f("u_Jitter", GetTAAJitterSecondary(app.GetCurrentFrame()));
 		SSOcclusionTraceShader.SetVector2f("u_Dimensions", ScreenspaceOcclusion.GetDimensions());
 		SetCommonUniforms(SSOcclusionTraceShader, UniformBuffer);
@@ -859,6 +863,35 @@ void Lumen::StartPipeline()
 		ScreenspaceOcclusion.Unbind();
 
 
+		if (ScreenspaceOcclusionCheckerboard) {
+
+			ScreenspaceOcclusionCheckerboardConstruct.Bind();
+			SSOcclusionCheckerboardShader.Use();
+
+			SSOcclusionCheckerboardShader.SetInteger("u_Input", 0);
+			SSOcclusionCheckerboardShader.SetInteger("u_InputDirect", 1);
+			SSOcclusionCheckerboardShader.SetInteger("u_Depth", 2);
+			SSOcclusionCheckerboardShader.SetInteger("u_Normals", 3);
+			SetCommonUniforms(SSOcclusionCheckerboardShader, UniformBuffer);
+
+			glActiveTexture(GL_TEXTURE0);
+			glBindTexture(GL_TEXTURE_2D, ScreenspaceOcclusion.GetTexture());
+
+			glActiveTexture(GL_TEXTURE1);
+			glBindTexture(GL_TEXTURE_2D, ScreenspaceOcclusion.GetTexture(1));
+
+			glActiveTexture(GL_TEXTURE2);
+			glBindTexture(GL_TEXTURE_2D, GBuffer.GetDepthBuffer());
+
+			glActiveTexture(GL_TEXTURE3);
+			glBindTexture(GL_TEXTURE_2D, GBuffer.GetTexture(3));
+
+			ScreenQuadVAO.Bind();
+			glDrawArrays(GL_TRIANGLES, 0, 6);
+			ScreenQuadVAO.Unbind();
+		}
+
+
 		// Temporal resolve : 
 
 		SSRTTemporal.Bind();
@@ -873,7 +906,7 @@ void Lumen::StartPipeline()
 		SetCommonUniforms(SSOcclusionTemporalShader, UniformBuffer);
 
 		glActiveTexture(GL_TEXTURE0);
-		glBindTexture(GL_TEXTURE_2D, ScreenspaceOcclusion.GetTexture(0));
+		glBindTexture(GL_TEXTURE_2D, ScreenspaceOcclusionCheckerboard ? ScreenspaceOcclusionCheckerboardConstruct.GetTexture() : ScreenspaceOcclusion.GetTexture(0));
 
 		glActiveTexture(GL_TEXTURE1);
 		glBindTexture(GL_TEXTURE_2D, PrevSSRTTemporal.GetTexture(0));
@@ -888,7 +921,7 @@ void Lumen::StartPipeline()
 		glBindTexture(GL_TEXTURE_2D, GBuffer.GetTexture(3));
 
 		glActiveTexture(GL_TEXTURE5);
-		glBindTexture(GL_TEXTURE_2D, ScreenspaceOcclusion.GetTexture(1));
+		glBindTexture(GL_TEXTURE_2D, ScreenspaceOcclusionCheckerboard ? ScreenspaceOcclusionCheckerboardConstruct.GetTexture(1) : ScreenspaceOcclusion.GetTexture(1));
 
 		glActiveTexture(GL_TEXTURE6);
 		glBindTexture(GL_TEXTURE_2D, PrevSSRTTemporal.GetTexture(1));

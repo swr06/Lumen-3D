@@ -252,6 +252,7 @@
     <None Include="Core\Shaders\ScreenspaceConeTracing.glsl" />
     <None Include="Core\Shaders\SpecularTemporal.glsl" />
     <None Include="Core\Shaders\ScreenspaceRaytracing.glsl" />
+    <None Include="Core\Shaders\SSRTCheckerboarder.glsl" />
     <None Include="Core\Shaders\SSRTTemporal.glsl" />
     <None Include="Core\Shaders\TemporalAA.glsl" />
   </ItemGroup>

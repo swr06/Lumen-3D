@@ -23,6 +23,7 @@ void Lumen::ShaderManager::CreateShaders()
 	AddShader("SPECULAR_CHECKER", "Core/Shaders/FBOVert.glsl", "Core/Shaders/SpecularCheckerboarder.glsl");
 	AddShader("SCREENSPACE_OCCLUSION_RT", "Core/Shaders/FBOVert.glsl", "Core/Shaders/ScreenspaceRaytracing.glsl");
 	AddShader("SCREENSPACE_OCCLUSION_TEMPORAL", "Core/Shaders/FBOVert.glsl", "Core/Shaders/SSRTTemporal.glsl");
+	AddShader("SCREENSPACE_OCCLUSION_CHECKERBOARD", "Core/Shaders/FBOVert.glsl", "Core/Shaders/SSRTCheckerboarder.glsl");
 }
 
 void Lumen::ShaderManager::AddShader(const std::string& name, const std::string& vert, const std::string& frag, const std::string& geo)

@@ -121,13 +121,13 @@ void main() {
         vec2 Dimensions = textureSize(u_History, 0).xy;
 		vec2 Velocity = (v_TexCoords - Reprojected.xy) * Dimensions;
 
-        float TemporalBlur = MovedCamera ? clamp(exp(-length(Velocity)) * 0.95f + 0.69f, 0.0f, 0.95f) : 0.95f;
+        float TemporalBlur = MovedCamera ? clamp(exp(-length(Velocity)) * 0.95f + 0.7325f, 0.0f, 0.95f) : 0.95f;
 
         float History = texture(u_History, Reprojected.xy).x;
         float HistoryDirect = texture(u_HistoryDirect, Reprojected.xy).x;
 
-        TemporalBlur *= pow(exp(-Error), 42.0f * 1.0f);
-        TemporalBlur = clamp(TemporalBlur, 0.0f, 0.925f);
+        TemporalBlur *= pow(exp(-Error), 32.0f * 1.0f);
+        TemporalBlur = clamp(TemporalBlur, 0.0f, 0.95f);
         o_AO = mix(Current, History, TemporalBlur);
         o_DirectShadows = mix(CurrentDirect, HistoryDirect, TemporalBlur);
     }

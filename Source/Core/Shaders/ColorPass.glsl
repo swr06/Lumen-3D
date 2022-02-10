@@ -127,7 +127,7 @@ void main()
 	// Direct lighting ->
 	float ScreenspaceShadow = texture(u_ScreenspaceShadows, v_TexCoords).x;
 	float Shadowmap = CalculateSunShadow(WorldPosition, Normal);
-	float DirectionalShadow = clamp(max(Shadowmap, 1.-clamp(pow(ScreenspaceShadow, 16.0f),0.0f,1.0f)), 0.0f, 1.0f);
+	float DirectionalShadow = clamp(max(Shadowmap, 1.-clamp(pow(ScreenspaceShadow, 24.0f),0.0f,1.0f)), 0.0f, 1.0f);
 	vec3 DirectLighting = CookTorranceBRDF(WorldPosition, normalize(u_LightDirection), SUN_COLOR * 0.15f, Albedo, Normal, PBR.xy, DirectionalShadow).xyz;
 	
 	// Indirect lighting ->

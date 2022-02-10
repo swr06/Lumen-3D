@@ -1,17 +1,15 @@
 #version 330 core 
 
-layout (location = 0) out vec4 o_Data;
-layout (location = 1) out float o_Transversal;
+layout (location = 0) out float o_AO;
+layout (location = 1) out float o_Direct;
 
 uniform sampler2D u_Input;
-uniform sampler2D u_InputTransversal;
-
+uniform sampler2D u_InputDirect;
 uniform sampler2D u_Depth;
 uniform sampler2D u_Normals;
 
 uniform float u_zNear;
 uniform float u_zFar;
-
 uniform int u_Frame;
 
 const ivec2 UpscaleOffsets[4] = ivec2[](ivec2(1, 0), ivec2(-1, 0), ivec2(0, 1), ivec2(0, -1)); 
@@ -35,12 +33,14 @@ void main() {
 		ivec2 PixelHalvedX = Pixel;
 		PixelHalvedX.x /= 2;
 
+		// Spatial upscale 
+
 		float BaseDepth = linearizeDepth(texelFetch(u_Depth, HighResPixel, 0).x);
 		vec3 BaseNormal = texelFetch(u_Normals, HighResPixel, 0).xyz;
 
 		float TotalWeight = 0.0f;
-		vec4 Total = vec4(0.0f);
-		float TotalTraversal = 0.0f;
+		float TotalAO = 0.0f;
+		float TotalDirect = 0.0f;
 
 		for (int i = 0 ; i < 4 ; i++) {
 			
@@ -51,28 +51,28 @@ void main() {
 			float SampleDepth = linearizeDepth(texelFetch(u_Depth, HighResCoord, 0).x);
 			vec3 SampleNormal = texelFetch(u_Normals, HighResCoord, 0).xyz;
 
-			vec4 SampleData = texelFetch(u_Input, Coord, 0).xyzw;
-			float SampleTransversal = texelFetch(u_InputTransversal, Coord, 0).x;
+			float SampleAO = texelFetch(u_Input, Coord, 0).x;
+			float SampleDirect = texelFetch(u_InputDirect, Coord, 0).x;
 
-			float CurrentWeight = pow(exp(-(abs(SampleDepth - BaseDepth))), 54.0f) * pow(max(dot(SampleNormal, BaseNormal), 0.0f), 12.0f);
+			float CurrentWeight = pow(exp(-(abs(SampleDepth - BaseDepth))), 52.0f) * pow(max(dot(SampleNormal, BaseNormal), 0.0f), 12.0f);
 			CurrentWeight = clamp(CurrentWeight, 0.0000000001f, 1.0f);
 
-			Total += SampleData * CurrentWeight;
-			TotalTraversal += SampleTransversal * CurrentWeight;
+			TotalAO += SampleAO * CurrentWeight;
+			TotalDirect += SampleDirect * CurrentWeight;
 			TotalWeight += CurrentWeight;
 		}
 
-		Total /= max(TotalWeight, 0.000001f);
-		TotalTraversal /= max(TotalWeight, 0.000001f);
-		o_Data = Total;
-		o_Transversal = TotalTraversal;
+		TotalAO /= max(TotalWeight, 0.000001f);
+		TotalDirect /= max(TotalWeight, 0.000001f);
+		o_AO = TotalAO;
+		o_Direct = TotalDirect;
 	}
 
 	else {
 		ivec2 PixelHalvedX = Pixel;
 		PixelHalvedX.x /= 2;
-		o_Data = texelFetch(u_Input, PixelHalvedX, 0).xyzw;
-		o_Transversal = texelFetch(u_InputTransversal, PixelHalvedX, 0).x;
+		o_AO = texelFetch(u_Input, PixelHalvedX, 0).x;
+		o_Direct = texelFetch(u_InputDirect, PixelHalvedX, 0).x;
 	}
 
 }

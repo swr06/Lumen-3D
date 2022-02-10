@@ -50,6 +50,8 @@ uniform bool u_AO;
 uniform vec2 u_Jitter;
 uniform vec2 u_Dimensions;
 
+uniform bool u_Checkerboard;
+
 
 float HASH2SEED = 0.0f;
 vec2 hash2() 
@@ -199,7 +201,39 @@ vec2 Raytrace(vec3 Origin, vec3 Direction, float RayDistance, int Steps, float T
 
 }
 
+const ivec2[16] UpscaleOffsets4x4 = ivec2[16](
+    ivec2(0, 0),
+    ivec2(2, 0),
+    ivec2(0, 2),
+    ivec2(2, 2),
+    ivec2(1, 1),
+    ivec2(3, 1),
+    ivec2(1, 3),
+    ivec2(3, 3),
+    ivec2(1, 0),
+    ivec2(3, 0),
+    ivec2(1, 2),
+    ivec2(3, 2),
+    ivec2(0, 1),
+    ivec2(2, 1),
+    ivec2(0, 3),
+    ivec2(2, 3)
+);
 
+ivec2 UpscaleOffsets2x2[4] = ivec2[](
+	ivec2(1, 1),
+	ivec2(1, 0),
+	ivec2(0, 0),
+	ivec2(0, 1));
+
+
+bool IsSky(float NonLinearDepth) {
+    if (NonLinearDepth > 0.99998f) {
+        return true;
+	}
+
+    return false;
+}
 
 void main() {
 
@@ -209,11 +243,33 @@ void main() {
     HASH2SEED = (JitteredTexCoords.x * JitteredTexCoords.y) * 64.0;
 	HASH2SEED += fract(u_Time) * 64.0f;
 
-	float Depth = texture(u_Depth, JitteredTexCoords).x;
-	float LinearizedDepth = LinearizeDepth(Depth);
+	ivec2 Pixel = ivec2(gl_FragCoord.xy);
 
-	vec3 WorldPosition = WorldPosFromDepth(Depth, JitteredTexCoords).xyz;
-	vec3 Normal = texture(u_Normals, JitteredTexCoords).xyz;
+    if (u_Checkerboard) {
+        Pixel.x *= 2;
+	    bool IsCheckerStep = Pixel.x % 2 == int(Pixel.y % 2 == (u_Frame % 2));
+        Pixel.x += int(IsCheckerStep);
+    }
+
+	// Temporal upscale
+    Pixel += UpscaleOffsets2x2[u_Frame % 4];
+
+    ivec2 HighResPixel = Pixel * 2;
+    vec2 HighResUV = vec2(HighResPixel) / textureSize(u_Depth, 0).xy;
+
+    // GBuffer fetches 
+    float Depth = texelFetch(u_Depth, HighResPixel, 0).x;
+
+	// Sky check
+	if (IsSky(Depth)) {
+		o_AO = 1.0f;
+		o_Direct = 1.0f;
+		return;
+	}
+
+	vec3 WorldPosition = WorldPosFromDepth(Depth, HighResUV);
+    vec3 Normal = texelFetch(u_Normals, HighResPixel, 0).xyz; 
+	float LinearizedDepth = LinearizeDepth(Depth);
 
 	vec3 ViewDirection = normalize(WorldPosition - u_InverseView[3].xyz);
 
@@ -228,8 +284,10 @@ void main() {
 	vec3 ContactShadowDirection = -u_SunDirection;
 	ContactShadowDirection = normalize(ContactShadowDirection);
 
-	float IndirectAO = u_AO ? Raytrace(WorldPosition + Normal * 0.55f, AODirection, 22.0f, 48, 0.024f, BayerHash).y : 1.0f;
-	float DirectContactShadow = u_Shadow ? Raytrace(WorldPosition + Normal * 0.5001f, ContactShadowDirection, 20.0f, 96, 0.01f, BayerHash).y : 1.0f;
+	float BiasDirect = mix(0.375f, 0.505f, float(LinearizedDepth > 32.0f));
+	float BiasAO = mix(0.38f, 0.505f, float(LinearizedDepth > 24.0f));
+	float IndirectAO = u_AO ? Raytrace(WorldPosition + Normal * BiasAO, AODirection, 20.0f, 52, 0.02f, BayerHash).y : 1.0f;
+	float DirectContactShadow = u_Shadow ? Raytrace(WorldPosition + Normal * BiasDirect, ContactShadowDirection, 18.0f, 128, 0.0025f, BayerHash).y : 1.0f;
 	
 	o_AO = IndirectAO;
 	o_Direct = DirectContactShadow;

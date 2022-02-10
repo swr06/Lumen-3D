@@ -51,7 +51,7 @@ void main()
 
 		o_PBR.xyz = vec3(u_UsesRoughnessMap ? texture(u_RoughnessMap, v_TexCoords).r : u_EntityRoughness, 
 						u_UsesMetalnessMap ? texture(u_MetalnessMap, v_TexCoords).r : u_EntityMetalness, 
-						1.0f);
+						0.0f);
 
 	}
 
