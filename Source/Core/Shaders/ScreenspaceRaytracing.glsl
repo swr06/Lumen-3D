@@ -97,7 +97,8 @@ vec3 ProjectToViewSpace(vec3 WorldPos)
 
 
 bool RayValid(vec2 x) {
-	if (x == clamp(x, 0.0003f, 0.9997)) {
+	float bias = 0.0001f;
+	if (x.x > bias && x.x < 1.0f - bias && x.y > bias && x.y < 1.0f - bias) {
 		return true;
 	}
 
@@ -120,7 +121,7 @@ vec3 CosWeightedHemisphere(const vec3 n)
 }
 
 // x, y = transversal, occlusion amount 
-vec2 Raytrace(vec3 Origin, vec3 Direction, float RayDistance, int Steps, float Threshold, float Hash)
+vec2 Raytrace(vec3 Origin, vec3 Direction, float RayDistance, int Steps, float ThresholdMultiplier, float Hash)
 {
 	vec3 StepVector = (Direction * RayDistance) / float(Steps); 
 	vec3 RayPosition = Origin + StepVector * Hash; 
@@ -128,6 +129,8 @@ vec2 Raytrace(vec3 Origin, vec3 Direction, float RayDistance, int Steps, float T
 
 	for(int CurrentStep = 0; CurrentStep < Steps; CurrentStep++) 
 	{
+		float Threshold = length(StepVector) * ThresholdMultiplier;
+		
 		vec3 ProjectedRayScreenspace = ProjectToClipSpace(RayPosition); 
 		
 		if(abs(ProjectedRayScreenspace.x) > 1.0f || abs(ProjectedRayScreenspace.y) > 1.0f || abs(ProjectedRayScreenspace.z) > 1.0f) 
@@ -137,7 +140,7 @@ vec2 Raytrace(vec3 Origin, vec3 Direction, float RayDistance, int Steps, float T
 		
 		ProjectedRayScreenspace.xyz = ProjectedRayScreenspace.xyz * 0.5f + 0.5f; 
 
-		if (ProjectedRayScreenspace.xy != clamp(ProjectedRayScreenspace.xy, 0.0f, 1.0f))
+		if (!RayValid(ProjectedRayScreenspace.xy))
 		{
 			return vec2(-1.0f, 1.0f);
 		}
@@ -152,7 +155,7 @@ vec2 Raytrace(vec3 Origin, vec3 Direction, float RayDistance, int Steps, float T
 
 			// Binary refinement : 
 
-			bool DoBinaryRefinement = true;
+			bool DoBinaryRefinement = false;
 
 			if (DoBinaryRefinement) {
 
@@ -195,6 +198,9 @@ vec2 Raytrace(vec3 Origin, vec3 Direction, float RayDistance, int Steps, float T
 
 		RayPosition += StepVector; 
 
+		if (CurrentStep > Steps / 2) {
+			StepVector *= 1.05f;
+		}
 	}
 
 	return vec2(-1.0f, 1.0f);
@@ -284,10 +290,14 @@ void main() {
 	vec3 ContactShadowDirection = -u_SunDirection;
 	ContactShadowDirection = normalize(ContactShadowDirection);
 
-	float BiasDirect = mix(0.375f, 0.505f, float(LinearizedDepth > 32.0f));
-	float BiasAO = mix(0.38f, 0.505f, float(LinearizedDepth > 24.0f));
+    vec3 Lo = normalize(u_InverseView[3].xyz - WorldPosition);
+	float NDotV = clamp(dot(Lo, Normal), 0.0f, 1.0f);
+
+	float Distance = distance(WorldPosition.xyz, u_InverseView[3].xyz);
+	float BiasAO = mix(0.75f, 0.3f, sqrt(NDotV));
+	float BiasDirect = mix(0.75f, 0.25f, sqrt(NDotV));
 	float IndirectAO = u_AO ? Raytrace(WorldPosition + Normal * BiasAO, AODirection, 20.0f, 52, 0.02f, BayerHash).y : 1.0f;
-	float DirectContactShadow = u_Shadow ? Raytrace(WorldPosition + Normal * BiasDirect, ContactShadowDirection, 18.0f, 128, 0.0025f, BayerHash).y : 1.0f;
+	float DirectContactShadow = u_Shadow ? Raytrace(WorldPosition + Normal * BiasDirect, ContactShadowDirection, 24.0f, 96, 0.007f, BayerHash).y : 1.0f;
 	
 	o_AO = IndirectAO;
 	o_Direct = DirectContactShadow;
