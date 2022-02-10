@@ -31,7 +31,7 @@ vec3 Reprojection(vec3 WorldPos)
 {
 	vec4 ProjectedPosition = u_PrevProjection * u_PrevView * vec4(WorldPos, 1.0f);
 	ProjectedPosition.xyz /= ProjectedPosition.w;
-	ProjectedPosition.xy = ProjectedPosition.xy * 0.5f + 0.5f;
+	ProjectedPosition.xyz = ProjectedPosition.xyz * 0.5f + 0.5f;
 	return ProjectedPosition.xyz;
 }
 
@@ -122,7 +122,8 @@ void main()
 		float BlendFactor = exp(-length(velocity)) * 0.9f + 0.6f;
 		BlendFactor = clamp(BlendFactor, 0.0f, 0.95f);
 
-		//BlendFactor *= pow(exp(-abs(LinearExpectedDepth-LinearPrevDepth)), 128.0f);
+		const float DepthRejectionStrength = 0.0f; // 4.0f
+		BlendFactor *= pow(exp(-abs(LinearExpectedDepth-LinearPrevDepth)), 32.0f * DepthRejectionStrength);
 		o_Color = mix(CurrentColor.xyz, PrevColor.xyz, clamp(BlendFactor, 0.01f, 0.95f));
 	}
 

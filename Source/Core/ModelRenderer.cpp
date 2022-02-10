@@ -2,6 +2,8 @@
 
 #include <glm/glm.hpp>
 
+static uint64_t PolygonsRendered = 0;
+
 void Lumen::RenderEntity(Entity& entity, GLClasses::Shader& shader)
 {
 	const glm::mat4 ZOrientMatrix = glm::mat4(glm::vec4(1.0f, 0.0f, 0.0f, 0.0f), glm::vec4(0.0f, 0.0f, 1.0f, 0.0f), glm::vec4(0.0f, 1.0f, 0.0f, 0.0f), glm::vec4(1.0f));
@@ -64,17 +66,20 @@ void Lumen::RenderEntity(Entity& entity, GLClasses::Shader& shader)
 		const GLClasses::VertexArray& VAO = mesh->m_VertexArray;
 		VAO.Bind();
 
+		DrawCalls++;
+
 		if (mesh->m_Indexed)
 		{
-			DrawCalls++;
 			glDrawElements(GL_TRIANGLES, mesh->m_IndicesCount, GL_UNSIGNED_INT, 0);
+			PolygonsRendered += mesh->m_IndicesCount / 3;
 		}
 
 		else
 		{
-			DrawCalls++;
 			glDrawArrays(GL_TRIANGLES, 0, mesh->m_VertexCount);
+			PolygonsRendered += mesh->m_VertexCount / 3;
 		}
+
 
 		VAO.Unbind();
 	}
@@ -84,4 +89,14 @@ void Lumen::RenderEntity(Entity& entity, GLClasses::Shader& shader)
 	{
 		std::cout << "\nDRAW CALLS : " << DrawCalls;
 	}
+}
+
+uint64_t Lumen::QueryPolygonCount()
+{
+	return PolygonsRendered;
+}
+
+void Lumen::ResetPolygonCount()
+{
+	PolygonsRendered = 0;
 }

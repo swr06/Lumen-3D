@@ -47,6 +47,9 @@ uniform float u_zFar;
 uniform bool u_Shadow;
 uniform bool u_AO;
 
+uniform vec2 u_Jitter;
+uniform vec2 u_Dimensions;
+
 
 float HASH2SEED = 0.0f;
 vec2 hash2() 
@@ -200,14 +203,17 @@ vec2 Raytrace(vec3 Origin, vec3 Direction, float RayDistance, int Steps, float T
 
 void main() {
 
-    HASH2SEED = (v_TexCoords.x * v_TexCoords.y) * 64.0;
+	vec2 JitteredTexCoords = v_TexCoords;
+	JitteredTexCoords += u_Jitter * (1.0f / u_Dimensions);
+
+    HASH2SEED = (JitteredTexCoords.x * JitteredTexCoords.y) * 64.0;
 	HASH2SEED += fract(u_Time) * 64.0f;
 
-	float Depth = texture(u_Depth, v_TexCoords).x;
+	float Depth = texture(u_Depth, JitteredTexCoords).x;
 	float LinearizedDepth = LinearizeDepth(Depth);
 
-	vec3 WorldPosition = WorldPosFromDepth(Depth, v_TexCoords).xyz;
-	vec3 Normal = texture(u_Normals, v_TexCoords).xyz;
+	vec3 WorldPosition = WorldPosFromDepth(Depth, JitteredTexCoords).xyz;
+	vec3 Normal = texture(u_Normals, JitteredTexCoords).xyz;
 
 	vec3 ViewDirection = normalize(WorldPosition - u_InverseView[3].xyz);
 
@@ -222,7 +228,7 @@ void main() {
 	vec3 ContactShadowDirection = -u_SunDirection;
 	ContactShadowDirection = normalize(ContactShadowDirection);
 
-	float IndirectAO = u_AO ? Raytrace(WorldPosition + Normal * 0.5001f, AODirection, 22.0f, 48, 0.024f, BayerHash).y : 1.0f;
+	float IndirectAO = u_AO ? Raytrace(WorldPosition + Normal * 0.55f, AODirection, 22.0f, 48, 0.024f, BayerHash).y : 1.0f;
 	float DirectContactShadow = u_Shadow ? Raytrace(WorldPosition + Normal * 0.5001f, ContactShadowDirection, 20.0f, 96, 0.01f, BayerHash).y : 1.0f;
 	
 	o_AO = IndirectAO;

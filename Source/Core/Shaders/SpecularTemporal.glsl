@@ -43,12 +43,12 @@ vec3 WorldPosFromDepth(float depth, vec2 txc)
     return WorldPos.xyz;
 }
 
-vec2 Reprojection(vec3 WorldPosition) 
+vec3 Reprojection(vec3 WorldPosition) 
 {
 	vec4 ProjectedPosition = u_PrevProjection * u_PrevView * vec4(WorldPosition, 1.0f);
 	ProjectedPosition.xyz /= ProjectedPosition.w;
-	ProjectedPosition.xy = ProjectedPosition.xy * 0.5f + 0.5f;
-	return ProjectedPosition.xy;
+	ProjectedPosition.xyz = ProjectedPosition.xyz * 0.5f + 0.5f;
+	return ProjectedPosition.xyz;
 }
 
 float DistanceSqr(vec3 A, vec3 B)
@@ -59,6 +59,8 @@ float DistanceSqr(vec3 A, vec3 B)
 
 void main() {
 
+    const bool BE_USELESS = false;
+
     float Depth = texture(u_Depth, v_TexCoords).x;
     float LinearizedDepth = linearizeDepth(Depth);
 
@@ -68,29 +70,28 @@ void main() {
     float Transversal = texture(u_Transversals, v_TexCoords).x * 64.0f;
     vec3 I = normalize((u_ViewerPosition) - WorldPosition.xyz);
 	vec3 ReflectedPosition = (WorldPosition.xyz) - I * Transversal;
-    vec2 Reprojected = Reprojection(ReflectedPosition);
-    vec2 ReprojectedSurface = Reprojection(WorldPosition);
+    vec2 Reprojected = Reprojection(ReflectedPosition).xy;
+    vec3 ReprojectedSurface = Reprojection(WorldPosition);
 
     vec3 Current = texture(u_Specular, v_TexCoords).xyz;
 
-    if (Reprojected == clamp(Reprojected, 0.002f, 0.998f) && ReprojectedSurface == clamp(ReprojectedSurface, 0.002f, 0.998f)) {
+    float Cutoff = 0.002f;
+    if (Reprojected.x > Cutoff && Reprojected.x < 1.0f - Cutoff && Reprojected.y > Cutoff && Reprojected.y < 1.0f - Cutoff &&
+        ReprojectedSurface.x > Cutoff && ReprojectedSurface.x < 1.0f - Cutoff && ReprojectedSurface.y > Cutoff && ReprojectedSurface.y < 1.0f - Cutoff && (!BE_USELESS)) 
+    {
 
-        float ReprojectedDepth = linearizeDepth(texture(u_PreviousDepth, Reprojected.xy).x);
         float ReprojectedSurfaceDepth = linearizeDepth(texture(u_PreviousDepth, ReprojectedSurface.xy).x);
-        float Error = abs(ReprojectedDepth - LinearizedDepth);
-        float ErrorSurface = abs(ReprojectedSurfaceDepth - LinearizedDepth);
-
-        float PreviousT = texture(u_PrevTransversals, Reprojected).x * 64.0f;
+        float Error = abs(ReprojectedSurfaceDepth - linearizeDepth(ReprojectedSurface.z));
 
         vec2 Dimensions = textureSize(u_HistorySpecular, 0).xy;
 		vec2 Velocity = (v_TexCoords - Reprojected.xy) * Dimensions;
 
-        float TemporalBlur =  clamp(exp(-length(Velocity)) * 0.95f + 0.86f, 0.0f, 0.975f);
+        float TemporalBlur = clamp(exp(-length(Velocity)) * 0.95f + 0.86f, 0.0f, 0.975f);
 
         vec3 History = texture(u_HistorySpecular, Reprojected.xy).xyz;
 
         const float DepthWeightStrength = 1.6f;
-        TemporalBlur *= pow(exp(-Error), 24.0f * DepthWeightStrength) * pow(exp(-ErrorSurface), 32.0f * DepthWeightStrength);
+        TemporalBlur *= pow(exp(-Error), 96.0f);
 
         TemporalBlur = clamp(TemporalBlur, 0.0f, 0.96f);
         o_Color = mix(Current, History, TemporalBlur);

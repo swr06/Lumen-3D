@@ -11,4 +11,6 @@
 namespace Lumen {
 
 	void RenderEntity(Entity& entity, GLClasses::Shader& shader);
+	uint64_t QueryPolygonCount();
+	void ResetPolygonCount();
 }

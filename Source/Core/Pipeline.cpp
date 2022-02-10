@@ -24,6 +24,9 @@
 // Camera
 Lumen::FPSCamera Camera(90.0f, 800.0f / 600.0f);
 
+static uint32_t ProbePolygons;
+static uint32_t MainRenderPolygons;
+
 // Vertical Sync (FPS Cap)
 static bool VSync = false;
 
@@ -98,10 +101,17 @@ public:
 
 	void OnImguiRender(double ts) override
 	{
+		ImGui::Text("-- Info --");
 		ImGui::Text("Position : %f,  %f,  %f", Camera.GetPosition().x, Camera.GetPosition().y, Camera.GetPosition().z);
 		ImGui::Text("Front : %f,  %f,  %f", Camera.GetFront().x, Camera.GetFront().y, Camera.GetFront().z);
-		ImGui::Text("VSync : %d", &VSync);
-		ImGui::SliderFloat3("Sun Dir : ", &SunDirection[0], -1.0f, 1.0f);
+		ImGui::Text("VSync : %d", VSync);
+		ImGui::Text("Main Polygons Rendered : %d", MainRenderPolygons);
+		ImGui::Text("Probe Polygons Rendered : %d", ProbePolygons);
+
+		ImGui::NewLine();
+		ImGui::NewLine();
+
+		ImGui::SliderFloat3("Sun Direction (X, Y, Z) : ", &SunDirection[0], -1.0f, 1.0f);
 
 		ImGui::NewLine();
 		
@@ -283,6 +293,8 @@ GLClasses::Framebuffer LightingPass(16, 16, {GL_RGB16F, GL_RGB, GL_FLOAT, true, 
 
 // AO, Screenspace shadows 
 GLClasses::Framebuffer ScreenspaceOcclusion(16, 16, { { GL_RED, GL_RED, GL_UNSIGNED_BYTE, true, true } , { GL_RED, GL_RED, GL_UNSIGNED_BYTE, true, true }}, false, true);
+GLClasses::Framebuffer ScreenspaceOcclusionSpatial(16, 16, { { GL_RED, GL_RED, GL_UNSIGNED_BYTE, true, true } , { GL_RED, GL_RED, GL_UNSIGNED_BYTE, true, true }}, false, true);
+GLClasses::Framebuffer ScreenspaceOcclusionTemporalBuffers[2] = { GLClasses::Framebuffer(16, 16, { { GL_RED, GL_RED, GL_UNSIGNED_BYTE, true, true } , { GL_RED, GL_RED, GL_UNSIGNED_BYTE, true, true }}, false, true), GLClasses::Framebuffer(16, 16, { { GL_RED, GL_RED, GL_UNSIGNED_BYTE, true, true } , { GL_RED, GL_RED, GL_UNSIGNED_BYTE, true, true } }, false, true) };
 
 // Specular Indirect 
 GLClasses::Framebuffer SpecularIndirectBuffers[2]{ GLClasses::Framebuffer(16, 16, { {GL_RGB16F, GL_RGB, GL_FLOAT, true, true}, {GL_R16F, GL_RED, GL_FLOAT, true, true} }, false, true), GLClasses::Framebuffer(16, 16, { {GL_RGB16F, GL_RGB, GL_FLOAT, true, true}, {GL_R16F, GL_RED, GL_FLOAT, true, true} }, false, true) };
@@ -320,7 +332,7 @@ void Lumen::StartPipeline()
 	Entity SecondaryEntity(&SecondaryLargeModel);
 	SecondaryEntity.m_Model = glm::scale(glm::mat4(1.0f), glm::vec3(0.6f));
 	SecondaryEntity.m_Model = glm::translate(SecondaryEntity.m_Model, glm::vec3(0.0f, 0.8f, 0.0f));
-	SecondaryEntity.m_EntityRoughness = 0.2f;
+	SecondaryEntity.m_EntityRoughness = 0.05f;
 	SecondaryEntity.m_EntityMetalness = 1.0f;
 
 	float EntityScale = 3.5f;
@@ -345,8 +357,20 @@ void Lumen::StartPipeline()
 	SecondaryEntity3.m_Model = glm::translate(SecondaryEntity3.m_Model, glm::vec3(-220.0f, 2.0f, 0.0f) * (1.0f / EntityScale));
 	SecondaryEntity3.m_EmissiveAmount = 10.0f;
 
+	Entity SecondaryEntity4(&SecondaryModel);
+	SecondaryEntity4.m_Model = glm::scale(glm::mat4(1.0f), glm::vec3(EntityScale * 0.5));
+	SecondaryEntity4.m_Model = glm::translate(SecondaryEntity4.m_Model, glm::vec3(50.0f, 3.0f, 0.0f) * (1.0f / (EntityScale * 0.5f)));
+	SecondaryEntity4.m_EmissiveAmount = 10.0f;
 
-	std::vector<Entity*> EntityRenderList = { &MainModel, &SecondaryEntity, &SecondaryEntity0, &SecondaryEntity1, &SecondaryEntity2, &SecondaryEntity3 };
+	Entity SecondaryEntity5(&SecondaryModel);
+	SecondaryEntity5.m_Model = glm::scale(glm::mat4(1.0f), glm::vec3(EntityScale * 0.5f));
+	SecondaryEntity5.m_Model = glm::translate(SecondaryEntity5.m_Model, glm::vec3(-50, 3.0f, 0.0f) * (1.0f / (EntityScale * 0.5f)));
+	SecondaryEntity5.m_EmissiveAmount = 10.0f;
+
+
+
+
+	std::vector<Entity*> EntityRenderList = { &MainModel, &SecondaryEntity, &SecondaryEntity0, &SecondaryEntity1, &SecondaryEntity2, &SecondaryEntity3, &SecondaryEntity4, &SecondaryEntity5 };
 	auto& EntityList = EntityRenderList;
 
 	// Data object initialization 
@@ -406,6 +430,7 @@ void Lumen::StartPipeline()
 
 	GLClasses::Shader& TAAShader = ShaderManager::GetShader("TAA");
 	GLClasses::Shader& SSOcclusionTraceShader = ShaderManager::GetShader("SCREENSPACE_OCCLUSION_RT");
+	GLClasses::Shader& SSOcclusionTemporalShader = ShaderManager::GetShader("SCREENSPACE_OCCLUSION_TEMPORAL");
 
 	GLClasses::Shader& BasicBlitShader = ShaderManager::GetShader("BLIT");
 	GLClasses::Shader& RedOutputShader = ShaderManager::GetShader("RED");
@@ -479,6 +504,9 @@ void Lumen::StartPipeline()
 
 		// RTAO
 		ScreenspaceOcclusion.SetSize(app.GetWidth() * ScreenspaceOcclusionRes, app.GetHeight() * ScreenspaceOcclusionRes);
+		ScreenspaceOcclusionTemporalBuffers[0].SetSize(app.GetWidth() * ScreenspaceOcclusionRes, app.GetHeight() * ScreenspaceOcclusionRes);
+		ScreenspaceOcclusionTemporalBuffers[1].SetSize(app.GetWidth() * ScreenspaceOcclusionRes, app.GetHeight() * ScreenspaceOcclusionRes);
+		ScreenspaceOcclusionSpatial.SetSize(app.GetWidth() * ScreenspaceOcclusionRes, app.GetHeight() * ScreenspaceOcclusionRes);
 
 		// Generate mipmaps 
 		if (app.GetCurrentFrame() % 8 == 0) {
@@ -507,12 +535,15 @@ void Lumen::StartPipeline()
 		// Probe update 
 		PlayerProbeCapturePoint = Camera.GetPosition();
 
+		Lumen::ResetPolygonCount();
+
 		for (int i = 0; i < ProbeUpdateRate; i++)
 		{
 			int RenderFace = ((app.GetCurrentFrame() % (6 / ProbeUpdateRate)) * ProbeUpdateRate) + i;
 			RenderProbe(PlayerProbe, RenderFace, PlayerProbeCapturePoint, EntityList, ProbeForwardShader, Skymap.GetID(), ScreenQuadVAO);
-			//std::cout << "Rendered Face : " << RenderFace << " \n";
 		}
+
+		ProbePolygons = static_cast<uint32_t>(Lumen::QueryPolygonCount());
 
 		// Ping pong framebuffers
 		bool FrameCheckerStep = app.GetCurrentFrame() % 2 == 0;
@@ -531,10 +562,16 @@ void Lumen::StartPipeline()
 		auto& TAATemporal = FrameCheckerStep ? TAABuffers[0] : TAABuffers[1];
 		auto& PrevTAATemporal = FrameCheckerStep ? TAABuffers[1] : TAABuffers[0];
 
+		// Screenspace AO + Direct shadows
+		auto& SSRTTemporal = FrameCheckerStep ? ScreenspaceOcclusionTemporalBuffers[0] : ScreenspaceOcclusionTemporalBuffers[1];
+		auto& PrevSSRTTemporal = FrameCheckerStep ? ScreenspaceOcclusionTemporalBuffers[1] : ScreenspaceOcclusionTemporalBuffers[0];
+
 
 		// Render GBuffer
 		glEnable(GL_CULL_FACE);
 		glEnable(GL_DEPTH_TEST);
+
+		Lumen::ResetPolygonCount();
 
 		GBuffer.Bind();
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
@@ -549,6 +586,8 @@ void Lumen::StartPipeline()
 
 		RenderEntityList(EntityRenderList, GBufferShader);
 		UnbindEverything();
+
+		MainRenderPolygons = static_cast<uint32_t>(Lumen::QueryPolygonCount());
 
 		// Post processing passes here : 
 
@@ -799,6 +838,8 @@ void Lumen::StartPipeline()
 		SSOcclusionTraceShader.SetInteger("u_PBR", 2);
 		SSOcclusionTraceShader.SetBool("u_Shadow", DoScreenspaceShadow);
 		SSOcclusionTraceShader.SetBool("u_AO", DoScreenspaceAO);
+		SSOcclusionTraceShader.SetVector2f("u_Jitter", GetTAAJitterSecondary(app.GetCurrentFrame()));
+		SSOcclusionTraceShader.SetVector2f("u_Dimensions", ScreenspaceOcclusion.GetDimensions());
 		SetCommonUniforms(SSOcclusionTraceShader, UniformBuffer);
 
 		glActiveTexture(GL_TEXTURE0);
@@ -816,6 +857,47 @@ void Lumen::StartPipeline()
 		ScreenQuadVAO.Unbind();
 
 		ScreenspaceOcclusion.Unbind();
+
+
+		// Temporal resolve : 
+
+		SSRTTemporal.Bind();
+		SSOcclusionTemporalShader.Use();
+		SSOcclusionTemporalShader.SetInteger("u_Current", 0);
+		SSOcclusionTemporalShader.SetInteger("u_History", 1);
+		SSOcclusionTemporalShader.SetInteger("u_Depth", 2);
+		SSOcclusionTemporalShader.SetInteger("u_PreviousDepth", 3);
+		SSOcclusionTemporalShader.SetInteger("u_Normals", 4);
+		SSOcclusionTemporalShader.SetInteger("u_CurrentDirect", 5);
+		SSOcclusionTemporalShader.SetInteger("u_HistoryDirect", 6);
+		SetCommonUniforms(SSOcclusionTemporalShader, UniformBuffer);
+
+		glActiveTexture(GL_TEXTURE0);
+		glBindTexture(GL_TEXTURE_2D, ScreenspaceOcclusion.GetTexture(0));
+
+		glActiveTexture(GL_TEXTURE1);
+		glBindTexture(GL_TEXTURE_2D, PrevSSRTTemporal.GetTexture(0));
+
+		glActiveTexture(GL_TEXTURE2);
+		glBindTexture(GL_TEXTURE_2D, GBuffer.GetDepthBuffer());
+
+		glActiveTexture(GL_TEXTURE3);
+		glBindTexture(GL_TEXTURE_2D, PrevGBuffer.GetDepthBuffer());
+
+		glActiveTexture(GL_TEXTURE4);
+		glBindTexture(GL_TEXTURE_2D, GBuffer.GetTexture(3));
+
+		glActiveTexture(GL_TEXTURE5);
+		glBindTexture(GL_TEXTURE_2D, ScreenspaceOcclusion.GetTexture(1));
+
+		glActiveTexture(GL_TEXTURE6);
+		glBindTexture(GL_TEXTURE_2D, PrevSSRTTemporal.GetTexture(1));
+
+		ScreenQuadVAO.Bind();
+		glDrawArrays(GL_TRIANGLES, 0, 6);
+		ScreenQuadVAO.Unbind();
+
+		SSRTTemporal.Unbind();
 
 
 		// Lighting combine pass : 
@@ -872,10 +954,10 @@ void Lumen::StartPipeline()
 		glBindTexture(GL_TEXTURE_2D, SSCT ? SpecularIndirectConeTraced.GetTexture() : SpecularTemporal.GetTexture());
 		
 		glActiveTexture(GL_TEXTURE9);
-		glBindTexture(GL_TEXTURE_2D, ScreenspaceOcclusion.GetTexture());
+		glBindTexture(GL_TEXTURE_2D, SSRTTemporal.GetTexture());
 		
 		glActiveTexture(GL_TEXTURE10);
-		glBindTexture(GL_TEXTURE_2D, ScreenspaceOcclusion.GetTexture(1));
+		glBindTexture(GL_TEXTURE_2D, SSRTTemporal.GetTexture(1));
 
 		ScreenQuadVAO.Bind();
 		glDrawArrays(GL_TRIANGLES, 0, 6);

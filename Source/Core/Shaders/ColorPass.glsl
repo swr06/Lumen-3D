@@ -53,7 +53,7 @@ const vec2 PoissonDisk[32] = vec2[]
     vec2(0.039766, -0.396100),  vec2(0.034211, 0.979980)
 );
 
-vec3 CalculateDirectionalLight(vec3 world_pos, vec3 light_dir, vec3 radiance, vec3 albedo, vec3 normal, vec2 rm, float shadow);
+vec3 CookTorranceBRDF(vec3 world_pos, vec3 light_dir, vec3 radiance, vec3 albedo, vec3 normal, vec2 rm, float shadow);
 float CalculateSunShadow(vec3 WorldPosition, vec3 N);
 
 vec3 WorldPosFromCoord(vec2 txc)
@@ -84,10 +84,10 @@ vec3 GetRayDirectionAt(vec2 screenspace)
 	return vec3(u_InverseView * eye);
 }
 
-vec2 KarisEnvBRDFApprox(float NdotV, float roughness)
+vec2 KarisEnvironmentBRDF(float NdotV, float roughness)
 {
-	vec4 c0 = vec4(-1., -0.0275, -0.572, 0.022);
-	vec4 c1 = vec4(1., 0.0425, 1.040, -0.040);
+	vec4 c0 = vec4(-1.0, -0.0275, -0.572, 0.022);
+	vec4 c1 = vec4(1.0, 0.0425, 1.040, -0.040);
 	vec4 r = roughness * c0 + c1;
 	float a004 = min(r.x * r.x, exp2(-9.28 * NdotV)) * r.x + r.y;
 	return vec2(-1.04, 1.04) * a004 + r.zw;
@@ -103,7 +103,7 @@ void main()
 	vec3 rD = GetRayDirectionAt(v_TexCoords).xyz;
 
 	// Sky check
-	if (Depth > 0.99995f) {
+	if (Depth > 0.99998f) {
 		vec3 Sample = texture(u_Skymap, normalize(rD)).xyz;
 		o_Color = Sample*Sample;
 		return;
@@ -128,7 +128,7 @@ void main()
 	float ScreenspaceShadow = texture(u_ScreenspaceShadows, v_TexCoords).x;
 	float Shadowmap = CalculateSunShadow(WorldPosition, Normal);
 	float DirectionalShadow = clamp(max(Shadowmap, 1.-clamp(pow(ScreenspaceShadow, 16.0f),0.0f,1.0f)), 0.0f, 1.0f);
-	vec3 DirectLighting = CalculateDirectionalLight(WorldPosition, normalize(u_LightDirection), SUN_COLOR * 0.15f, Albedo, Normal, PBR.xy, DirectionalShadow).xyz;
+	vec3 DirectLighting = CookTorranceBRDF(WorldPosition, normalize(u_LightDirection), SUN_COLOR * 0.15f, Albedo, Normal, PBR.xy, DirectionalShadow).xyz;
 	
 	// Indirect lighting ->
 	float AO = texture(u_RTAO, v_TexCoords).x;
@@ -137,10 +137,11 @@ void main()
 
 	// Combine indirect diffuse and specular using environment BRDF
 	
-	const float TEXTURE_AO_STRENGTH = 48.0f;
+	const float TEXTURE_AO_STRENGTH = 24.0f;
 	float TextureAO = pow(1.0f - PBR.z, TEXTURE_AO_STRENGTH);
 
-	vec3 IndirectDiffuse = (AmbientTerm * clamp(pow(AO, u_RTAOStrength * 4.0f), 0.05f, 1.0f) * TextureAO);
+	AO =  clamp(pow(AO, u_RTAOStrength * 4.0f), 0.001f, 1.0f);
+	vec3 IndirectDiffuse = (AmbientTerm * AO * TextureAO);
 	vec3 IndirectSpecular = SpecularIndirect * 3.0f;
 
 	float Roughness = PBR.x;
@@ -162,7 +163,7 @@ void main()
 	// Samples Karis environment brdf 
     vec2 EnvironmentBRDFSampleLocation = vec2(max(dot(Lo, Normal.xyz), 0.000001f), Roughness);
     EnvironmentBRDFSampleLocation = clamp(EnvironmentBRDFSampleLocation, 0.0f, 1.0f);
-    vec2 EnvironmentBRDF = KarisEnvBRDFApprox(EnvironmentBRDFSampleLocation.x, EnvironmentBRDFSampleLocation.y);
+    vec2 EnvironmentBRDF = KarisEnvironmentBRDF(EnvironmentBRDFSampleLocation.x, EnvironmentBRDFSampleLocation.y);
 
 	// Integrate indirect specular lighting 
 	vec3 IndirectSpecularFinal = SpecularIndirect * (FresnelTerm * EnvironmentBRDF.x + EnvironmentBRDF.y);
@@ -171,7 +172,6 @@ void main()
     vec3 IndirectLighting = (kD * IndirectDiffuse) + IndirectSpecularFinal;
 
 	o_Color = DirectLighting + Emission + IndirectLighting;
-
 
 	// Nan/inf check
 	if (isnan(o_Color.x) || isnan(o_Color.y) || isnan(o_Color.z) || isinf(o_Color.x) || isinf(o_Color.y) || isinf(o_Color.z)) {
@@ -254,26 +254,38 @@ vec3 fresnelroughness(vec3 Eye, vec3 norm, vec3 F0, float roughness)
 	return F0 + (max(vec3(pow(1.0f - roughness, 3.0f)) - F0, vec3(0.0f))) * pow(max(1.0 - clamp(dot(Eye, norm), 0.0f, 1.0f), 0.0f), 5.0f);
 }
 
-vec3 CalculateDirectionalLight(vec3 world_pos, vec3 light_dir, vec3 radiance, vec3 albedo, vec3 N, vec2 rm, float shadow)
+vec3 CookTorranceBRDF(vec3 world_pos, vec3 light_dir, vec3 radiance, vec3 albedo, vec3 N, vec2 rm, float shadow)
 {
-	// Cook torrance BRDF
     const float Epsilon = 0.00001;
+
+	float roughness = rm.x;
+	float metalness = rm.y;
+
     vec3 Lo = normalize(u_ViewerPosition - world_pos);
 	vec3 Li = -light_dir;
 	vec3 Lradiance = radiance;
 	vec3 Lh = normalize(Li + Lo);
+
 	float cosLo = max(0.0, dot(N, Lo));
 	float cosLi = max(0.0, dot(N, Li));
 	float cosLh = max(0.0, dot(N, Lh));
-	float roughness = rm.x;
-	float metalness = rm.y;
+
+	// Fresnel 
 	vec3 F0 = mix(vec3(0.04), albedo, metalness);
 	vec3 F  = fresnelSchlick(F0, max(0.0, dot(Lh, Lo)));
+	
+	// Distribution 
 	float D = ndfGGX(cosLh, roughness);
+
+	// Geometry 
 	float G = gaSchlickGGX(cosLi, cosLo, roughness);
+
 	vec3 kd = mix(vec3(1.0) - F, vec3(0.0), metalness);
+
 	vec3 diffuseBRDF = kd * albedo;
 	vec3 specularBRDF = (F * D * G) / max(Epsilon, 4.0 * cosLi * cosLo);
+
 	vec3 final = (diffuseBRDF + specularBRDF) * Lradiance * cosLi;
-	return final * (1.0f-shadow);
+
+	return final * (1.0f - shadow);
 }
