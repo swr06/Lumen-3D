@@ -29,10 +29,12 @@ namespace Lumen
 			PrintVec3("Light Position : ", LightPosition);
 		}
 
+		float dot = glm::dot(sun_dir, glm::vec3(0.0f, 1.0f, 0.0f));
+
 		LightProjectionMatrix = glm::ortho(-SHADOW_DISTANCE_X, SHADOW_DISTANCE_X,
 			-SHADOW_DISTANCE_Y, SHADOW_DISTANCE_Y,
 			0.1f, SHADOW_DISTANCE_Z);
-		LightViewMatrix = glm::lookAt(LightPosition, LightPosition + (sun_dir), glm::vec3(0.0f, 1.0f, 0.0f));
+		LightViewMatrix = glm::lookAt(LightPosition, LightPosition + (sun_dir), (1.f - fabs(dot)) < 0.01f ? glm::vec3(0.0f, 0.0f, 1.0f) : glm::vec3(0.0f, 1.0f, 0.0f));
 
 		GLClasses::Shader& shader = ShaderManager::GetShader("DEPTH");
 

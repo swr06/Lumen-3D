@@ -70,28 +70,33 @@ void main() {
     float Transversal = texture(u_Transversals, v_TexCoords).x * 64.0f;
     vec3 I = normalize((u_ViewerPosition) - WorldPosition.xyz);
 	vec3 ReflectedPosition = (WorldPosition.xyz) - I * Transversal;
-    vec2 Reprojected = Reprojection(ReflectedPosition).xy;
+    vec3 Reprojected = Reprojection(ReflectedPosition).xyz;
     vec3 ReprojectedSurface = Reprojection(WorldPosition);
 
     vec3 Current = texture(u_Specular, v_TexCoords).xyz;
 
-    float Cutoff = 0.002f;
+    float Cutoff = 0.009f;
     if (Reprojected.x > Cutoff && Reprojected.x < 1.0f - Cutoff && Reprojected.y > Cutoff && Reprojected.y < 1.0f - Cutoff &&
         ReprojectedSurface.x > Cutoff && ReprojectedSurface.x < 1.0f - Cutoff && ReprojectedSurface.y > Cutoff && ReprojectedSurface.y < 1.0f - Cutoff && (!BE_USELESS)) 
     {
 
+        float ReprojectedDepth = linearizeDepth(texture(u_PreviousDepth, Reprojected.xy).x);
         float ReprojectedSurfaceDepth = linearizeDepth(texture(u_PreviousDepth, ReprojectedSurface.xy).x);
-        float Error = abs(ReprojectedSurfaceDepth - linearizeDepth(ReprojectedSurface.z));
+
+        float Error = abs(ReprojectedDepth - linearizeDepth(Reprojected.z));
+        float ErrorSurface = abs(ReprojectedSurfaceDepth - linearizeDepth(ReprojectedSurface.z));
 
         vec2 Dimensions = textureSize(u_HistorySpecular, 0).xy;
 		vec2 Velocity = (v_TexCoords - Reprojected.xy) * Dimensions;
 
-        float TemporalBlur = clamp(exp(-length(Velocity)) * 0.95f + 0.86f, 0.0f, 0.975f);
+        bool MovedCamera = distance(u_InverseView[3].xyz, u_PrevInverseView[3].xyz) > 0.003f;
+
+        float TemporalBlur = MovedCamera ? clamp(exp(-length(Velocity)) * 0.825f + 0.75f, 0.0f, 0.975f) : 0.975f;
 
         vec3 History = texture(u_HistorySpecular, Reprojected.xy).xyz;
 
         const float DepthWeightStrength = 1.6f;
-        TemporalBlur *= pow(exp(-Error), 96.0f);
+        TemporalBlur *= pow(exp(-ErrorSurface), 128.0f);
 
         TemporalBlur = clamp(TemporalBlur, 0.0f, 0.96f);
         o_Color = mix(Current, History, TemporalBlur);

@@ -108,7 +108,7 @@ void main() {
     float Current = WaveletFilter(LinearizedDepth, Normal); //texture(u_Current, v_TexCoords).x;
     float CurrentDirect = texture(u_CurrentDirect, v_TexCoords).x;
 
-    float Cutoff = 0.002f;
+    float Cutoff = 0.01f;
 
     bool MovedCamera = distance(u_InverseView[3].xyz, u_PrevInverseView[3].xyz) > 0.003f;
 
@@ -126,10 +126,11 @@ void main() {
         float History = texture(u_History, Reprojected.xy).x;
         float HistoryDirect = texture(u_HistoryDirect, Reprojected.xy).x;
 
-        TemporalBlur *= pow(exp(-Error), 32.0f * 1.0f);
+        TemporalBlur *= pow(exp(-Error), 72.0f * 1.0f);
         TemporalBlur = clamp(TemporalBlur, 0.0f, 0.95f);
+
         o_AO = mix(Current, History, TemporalBlur);
-        o_DirectShadows = mix(CurrentDirect, HistoryDirect, TemporalBlur);
+        o_DirectShadows = mix(CurrentDirect, HistoryDirect, clamp(TemporalBlur, 0.0f, 0.875f));
     }
 
     else {

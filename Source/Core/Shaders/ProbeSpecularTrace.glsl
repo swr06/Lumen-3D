@@ -205,7 +205,7 @@ GBufferData Raytrace(vec3 WorldPosition, vec3 Normal, vec3 LFNormal, float Depth
     const float Distance = 512.0f;
     const int Steps = 192;
     const int BinarySteps = 8;
-    const float EmissionStrength = 96.0f;
+    const float EmissionStrength = 128.0f;
 
     float StepSize = Distance / float(Steps);
     float UnditheredStepSize = StepSize;

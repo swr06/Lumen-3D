@@ -121,6 +121,8 @@ vec3 CosWeightedHemisphere(const vec3 n)
 }
 
 // x, y = transversal, occlusion amount 
+// Raytraces in world space 
+
 vec2 Raytrace(vec3 Origin, vec3 Direction, float RayDistance, int Steps, float ThresholdMultiplier, float Hash)
 {
 	vec3 StepVector = (Direction * RayDistance) / float(Steps); 
@@ -187,9 +189,6 @@ vec2 Raytrace(vec3 Origin, vec3 Direction, float RayDistance, int Steps, float T
 			float Transversal = distance(WorldPosFromDepth(texture(u_Depth, FinalPosition).x, FinalPosition), Origin.xyz);
 
 			// Invalid hit
-			if (Transversal > RayDistance) {
-				return vec2(-1.0f, 1.0f);
-			}
 
 			float Occlusion = Transversal / RayDistance;
 			return vec2(Transversal, Occlusion);
@@ -205,6 +204,91 @@ vec2 Raytrace(vec3 Origin, vec3 Direction, float RayDistance, int Steps, float T
 
 	return vec2(-1.0f, 1.0f);
 
+}
+
+// Raytraces in clip space, which avoids a matrix multiplication in the raymarch loop
+vec2 RaytraceClip(vec3 Origin, vec3 Direction, const float RayDistance, const int Steps, const float ThresholdMultiplier, const float Hash)
+{
+	vec3 ScreenspaceOrigin = ProjectToScreenSpace(Origin);
+
+	const float StepSize = 0.04f * 1.0f;
+
+	vec3 Point = Origin + Direction * 10.0f;
+	vec3 ProjectedDirection = ProjectToScreenSpace(Point);
+
+	vec3 ScreenspaceDirection = normalize(ProjectedDirection - ScreenspaceOrigin); 
+
+	vec3 RayPosition = ScreenspaceOrigin;
+
+	bool IntersectionFound = false;
+
+	//const float Bias = -0.000075f;
+
+	// Previous step positions 
+	vec3 MinRay = vec3(0.0f);  
+	vec3 MaxRay = vec3(0.0f);
+
+	for (int Step = 0 ; Step < Steps ; Step++) {
+
+		RayPosition += ScreenspaceDirection * StepSize; 
+
+		if (RayPosition.z >= 0.9999998f) {
+			IntersectionFound = false;
+			break;
+		}
+
+		if (!RayValid(RayPosition.xy)) {
+			IntersectionFound = false;
+			break;
+		}
+
+		float Depth = texture(u_Depth, RayPosition.xy).x;
+
+		MaxRay = RayPosition;
+
+		// Position is behind depth buffer 
+		if (RayPosition.z > Depth + mix(0.001f, 0.0f, float(Step > 0))) {
+			IntersectionFound = true;
+			break;
+		}
+
+		MinRay = RayPosition;
+
+	}
+
+	// Binary refine! 
+
+	if (IntersectionFound) {
+
+		vec3 BestRay = vec3(0.0f);
+
+		for (int Step = 0 ; Step < 8; Step++) {
+
+			// Midpoint on step 
+
+			BestRay = mix(MinRay, MaxRay, 0.5f);
+
+			float Depth = texture(u_Depth, BestRay.xy).x;
+
+			if (BestRay.z > Depth) {
+				MaxRay = BestRay;
+			}
+
+			else {
+				MinRay = BestRay;
+			}
+
+		}
+
+		// Find occlusion factor 
+		vec2 FinalPosition = BestRay.xy;
+		float Transversal = distance(WorldPosFromDepth(texture(u_Depth, FinalPosition).x, FinalPosition), Origin.xyz);
+		float Occlusion = Transversal / RayDistance;
+		return vec2(Transversal, Occlusion);
+	}
+
+	// No hit
+	return vec2(-1.0f, 1.0f);
 }
 
 const ivec2[16] UpscaleOffsets4x4 = ivec2[16](
@@ -294,9 +378,13 @@ void main() {
 	float NDotV = clamp(dot(Lo, Normal), 0.0f, 1.0f);
 
 	float Distance = distance(WorldPosition.xyz, u_InverseView[3].xyz);
-	float BiasAO = mix(0.75f, 0.3f, sqrt(NDotV));
-	float BiasDirect = mix(0.75f, 0.25f, sqrt(NDotV));
-	float IndirectAO = u_AO ? Raytrace(WorldPosition + Normal * BiasAO, AODirection, 20.0f, 52, 0.02f, BayerHash).y : 1.0f;
+
+	float SqrtNDotV = sqrt(NDotV);
+
+	float BiasAO = mix(0.75f, 0.3f, SqrtNDotV);
+	float BiasDirect = mix(0.75f, 0.25f, SqrtNDotV);
+
+	float IndirectAO = u_AO ? Raytrace(WorldPosition + Normal * BiasAO, AODirection, 24.0f, 52, 0.02f, BayerHash).y : 1.0f;
 	float DirectContactShadow = u_Shadow ? Raytrace(WorldPosition + Normal * BiasDirect, ContactShadowDirection, 24.0f, 96, 0.007f, BayerHash).y : 1.0f;
 	
 	o_AO = IndirectAO;
