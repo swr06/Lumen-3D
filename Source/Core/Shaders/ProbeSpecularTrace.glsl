@@ -545,7 +545,7 @@ GBufferData ScreenspaceRaytrace(vec3 Incident, vec3 Origin, vec3 Normal, vec3 LF
 
 const vec3 SUN_COLOR = vec3(6.9f, 6.9f, 10.0f);
 
-vec3 IntegrateLighting(GBufferData Hit, vec3 Direction) {
+vec3 IntegrateLighting(GBufferData Hit, vec3 Direction, const bool FilterShadow) {
     
     if (!Hit.ValidMask) {
         return vec3(0.0f);
@@ -563,22 +563,34 @@ vec3 IntegrateLighting(GBufferData Hit, vec3 Direction) {
                                         vec2(0.170019, -0.040254),  vec2(0.078707, -0.715323),
                                         vec2(-0.299417, 0.791925),  vec2(-0.075838, -0.529344));
         
-        vec4 ProjectionCoordinates = u_SunShadowMatrix * vec4(Hit.Position + Hit.Normal * 0.0f, 1.0f);
+        vec4 ProjectionCoordinates = u_SunShadowMatrix * vec4(Hit.Position + Hit.Normal * 0.5f, 1.0f);
 	    ProjectionCoordinates.xyz = ProjectionCoordinates.xyz / ProjectionCoordinates.w;
         ProjectionCoordinates.xyz = ProjectionCoordinates.xyz * 0.5f + 0.5f;
-        float Depth = ProjectionCoordinates.z;
-	    float Bias = 0.004f;  
-        float Fetch = texture(u_Shadowmap, ProjectionCoordinates.xy).x;
         
-        vec2 TexelSize = 1.0f / textureSize(u_Shadowmap, 0).xy;
+        float Depth = ProjectionCoordinates.z;
+	    float Bias = 0.0045f;  
 
-        // pcf 
-        for (int i = 0 ; i < 6 ; i++) {
-            float Fetch = texture(u_Shadowmap, ProjectionCoordinates.xy + Poisson[i] * TexelSize * 2.0f).x;
-            Shadow += float(ProjectionCoordinates.z - Bias > Fetch);
+        if (FilterShadow) {
+           
+            
+            vec2 TexelSize = 1.0f / textureSize(u_Shadowmap, 0).xy;
+
+            // pcf 
+            for (int i = 0 ; i < 4 ; i++) {
+                float Fetch = texture(u_Shadowmap, ProjectionCoordinates.xy + Poisson[i] * TexelSize * 2.4f).x;
+                Shadow += float(ProjectionCoordinates.z - Bias > Fetch);
+            }
+
+            Shadow /= 4.0f;
+
         }
 
-        Shadow /= 6.0f;
+        else {
+
+            float SimpleFetch = texture(u_Shadowmap, ProjectionCoordinates.xy).x;
+            Shadow = float(ProjectionCoordinates.z - Bias > SimpleFetch);
+        }
+
         Shadow = 1.0f - Shadow;
     }
 
@@ -586,8 +598,8 @@ vec3 IntegrateLighting(GBufferData Hit, vec3 Direction) {
     // Todo : Switch to hammon diffuse brdf (ignore specular brdf to reduce variance)
     float Lambertian = max(0.0f, dot(Hit.Normal, -u_SunDirection));
     vec3 Direct = Lambertian * SUN_COLOR * 0.07f * Shadow * Hit.Albedo * mix(1.0f, 3.0f, float(Hit.SSR));
-    vec3 Ambient = texture(u_EnvironmentMap, vec3(0.0f, 1.0f, 0.0f)).xyz * 0.2f * Hit.Albedo;
-    return Direct + Ambient;
+    vec3 FakeIndirect = texture(u_EnvironmentMap, vec3(0.0f, 1.0f, 0.0f)).xyz * 0.2f * Hit.Albedo;
+    return Direct + FakeIndirect;
 }
 
 // Temporal upscale offsets 
@@ -627,7 +639,6 @@ bool IsSky(float NonLinearDepth) {
 
 void main() {
     
-    // For temporal super sampling 
     vec2 TexCoordJittered = v_TexCoords;
 
     HASH2SEED = (TexCoordJittered.x * TexCoordJittered.y) * 64.0;
@@ -644,7 +655,9 @@ void main() {
         Pixel.x += int(IsCheckerStep);
     }
 
-    Pixel += UpscaleOffsets4x4[u_Frame % 16];
+    // Jitter for temporal super sampling 
+    //Pixel += ivec2(UpscaleOffsets4x4[u_Frame % 16]);
+    Pixel += ivec2(u_Jitter * 3);
 
     // Constant resolution (0.5x)
     ivec2 HighResPixel = Pixel * 2;
@@ -666,11 +679,13 @@ void main() {
     vec3 Normal = texelFetch(u_Normals, HighResPixel, 0).xyz; 
     vec3 LFNormal = texelFetch(u_LFNormals, HighResPixel, 0).xyz; 
     vec3 PBR = texelFetch(u_PBR, HighResPixel, 0).xyz;
-    float Roughness = PBR.x;
+    vec3 Incident = normalize(WorldPosition - u_Incident);
+
+    float Roughness = u_RoughSpecular ? PBR.x : 0.0f;
 
     // Intersection tolerance 
-    float Tolerance = mix(1.0, 2.5f, !u_RoughSpecular ? 0.0f : pow(PBR.x, 1.5f));
-    float ToleranceSS = mix(0.00175, 0.005f, !u_RoughSpecular ? 0.0f : pow(PBR.x, 1.5f));
+    float Tolerance = mix(1.0, 2.5f, pow(Roughness, 1.5f));
+    float ToleranceSS = mix(0.00175, 0.0055f, pow(Roughness, 1.7f));
 
     // Sample integration
     vec3 TotalRadiance = vec3(0.0f);
@@ -679,13 +694,13 @@ void main() {
 
     // Bias roughness (to reduce noise)
     const float RoughnessBias = 0.9f;
-    float BiasedRoughness = pow(Roughness, 1.2f) * RoughnessBias; 
-   
     // Epic remapping -> //float BiasedRoughness = clamp(pow((Roughness * RoughnessBias) + 1.0f, 2.0f) / 8.0f, 0.0f, 1.0f); 
-
-    vec3 Incident = normalize(WorldPosition - u_Incident);
+    float BiasedRoughness = pow(Roughness, 1.25f) * RoughnessBias; 
+   
+    bool FilterShadowMap = Roughness <= 0.5 + 0.01f;
 
     bool DoScreenspaceTrace = true;
+
 
     for (int Sample ; Sample < SAMPLES ; Sample++) {
 
@@ -723,7 +738,7 @@ void main() {
         }
 
         // Integrate lighting 
-        vec3 CurrentRadiance = IntegrateLighting(Intersection, ReflectedDirection);
+        vec3 CurrentRadiance = IntegrateLighting(Intersection, ReflectedDirection, FilterShadowMap);
 
         // Sum up radiance 
         TotalRadiance += CurrentRadiance;

@@ -25,6 +25,9 @@ uniform mat4 u_Projection;
 uniform mat4 u_View;
 uniform mat4 u_LightVP;
 
+uniform float u_zNear;
+uniform float u_zFar;
+
 uniform int u_CurrentFrame;
 
 uniform float u_RTAOStrength;
@@ -32,31 +35,65 @@ uniform float u_RTAOStrength;
 uniform vec2 u_Dims;
 
 const vec3 SUN_COLOR = vec3(6.9f, 6.9f, 10.0f);
-
-const vec2 PoissonDisk[32] = vec2[]
-(
-    vec2(-0.613392, 0.617481),  vec2(0.751946, 0.453352),
-    vec2(0.170019, -0.040254),  vec2(0.078707, -0.715323),
-    vec2(-0.299417, 0.791925),  vec2(-0.075838, -0.529344),
-    vec2(0.645680, 0.493210),   vec2(0.724479, -0.580798),
-    vec2(-0.651784, 0.717887),  vec2(0.222999, -0.215125),
-    vec2(0.421003, 0.027070),   vec2(-0.467574, -0.405438),
-    vec2(-0.817194, -0.271096), vec2(-0.248268, -0.814753),
-    vec2(-0.705374, -0.668203), vec2(0.354411, -0.887570),
-    vec2(0.977050, -0.108615),  vec2(0.175817, 0.382366),
-    vec2(0.063326, 0.142369),   vec2(0.487472, -0.063082),
-    vec2(0.203528, 0.214331),   vec2(-0.084078, 0.898312),
-    vec2(-0.667531, 0.326090),  vec2(0.488876, -0.783441),
-    vec2(-0.098422, -0.295755), vec2(0.470016, 0.217933),
-    vec2(-0.885922, 0.215369),  vec2(-0.696890, -0.549791),
-    vec2(0.566637, 0.605213),   vec2(-0.149693, 0.605762),
-    vec2(0.039766, -0.396100),  vec2(0.034211, 0.979980)
-);
-
 vec3 CookTorranceBRDF(vec3 world_pos, vec3 light_dir, vec3 radiance, vec3 albedo, vec3 normal, vec2 rm, float shadow);
-float CalculateSunShadow(vec3 WorldPosition, vec3 N);
+float FilterShadows(vec3 WorldPosition, vec3 N);
 vec3 FresnelSchlickRoughness(float cosTheta, vec3 F0, float roughness);
 
+// Spherical gaussian
+struct SG {
+	vec3 Axis;
+	float Sharpness;
+	float Amplitude;
+};
+
+// Returns a spherical gaussian approximation of the specular lobe 
+// Based on the Blinn-Phong BRDF (Good enough for filtering) 
+// https://www.desmos.com/calculator/rvtqpze0g7
+SG RoughnessLobe(float Roughness, vec3 Normal, vec3 Incident) {
+	
+	Roughness = max(Roughness, 0.001f);
+	float a = Roughness * Roughness;
+	float a2 = a * a;
+
+	float NDotV = clamp(abs(dot(Incident, Normal)) + 0.00001f, 0.0f, 1.0f);
+	vec3 SGAxis = 2.0f * NDotV * Normal - Incident;
+
+	SG ReturnValue;
+	ReturnValue.Axis = SGAxis;
+	ReturnValue.Sharpness = 0.5f / (a2 * max(NDotV, 0.1f));
+	ReturnValue.Amplitude = 1.0f / (PI * a2);
+
+	return ReturnValue;
+}
+
+float GetLobeWeight(float CenterRoughness, float SampleRoughness, vec3 CenterNormal, vec3 SampleNormal, const vec3 Incident) {
+	
+	// Lobe similarity weight strength
+	const float Beta = 32.0f;
+
+	float LobeSimilarity = 1.0f;
+	float AxisSimilarity = 1.0f;
+
+	SG CenterLobe = RoughnessLobe(CenterRoughness, CenterNormal, Incident);
+	SG SampleLobe = RoughnessLobe(SampleRoughness, SampleNormal, Incident);
+
+	float OneOverSharpnessSum = 1.0f / (CenterLobe.Sharpness + SampleLobe.Sharpness);
+
+	LobeSimilarity = pow(2.0f * sqrt(CenterLobe.Sharpness * SampleLobe.Sharpness) * OneOverSharpnessSum, Beta);
+	AxisSimilarity = exp(-(Beta * (CenterLobe.Sharpness * SampleLobe.Sharpness) * OneOverSharpnessSum) * clamp(1.0f - dot(CenterLobe.Axis, SampleLobe.Axis), 0.0f, 1.0f));
+
+	return LobeSimilarity * AxisSimilarity;
+}
+
+float SpecularWeight(float CenterDepth, float SampleDepth, float CenterTransversal, float SampleTransversal, float CenterRoughness, float SampleRoughness, vec3 CenterNormal, vec3 SampleNormal, const vec3 Incident) {
+
+	float DepthWeight = pow(exp(-abs(CenterDepth - SampleDepth)), 128.0f);
+	float LobeWeight = GetLobeWeight(CenterRoughness, SampleRoughness, CenterNormal, SampleNormal, Incident);
+	float TransversalWeight = pow(abs(CenterTransversal - SampleTransversal), 16.0f);
+	return TransversalWeight * LobeWeight * DepthWeight;
+}
+
+// Gets world position from screenspace texcoord 
 vec3 WorldPosFromCoord(vec2 txc)
 {
 	float depth = texture(u_DepthTexture, txc).r;
@@ -78,13 +115,19 @@ vec3 WorldPosFromDepth(float depth, vec2 txc)
     return WorldPos.xyz;
 }
 
-vec3 GetRayDirectionAt(vec2 screenspace)
+vec3 SampleIncidentRayDirection(vec2 screenspace)
 {
 	vec4 clip = vec4(screenspace * 2.0f - 1.0f, -1.0, 1.0);
 	vec4 eye = vec4(vec2(u_InverseProjection * clip), -1.0, 0.0);
 	return vec3(u_InverseView * eye);
 }
 
+float LinearizeDepth(float depth)
+{
+	return (2.0 * u_zNear) / (u_zFar + u_zNear - depth * (u_zFar - u_zNear));
+}
+
+// Environment BRDF 
 vec2 KarisEnvironmentBRDF(float NdotV, float roughness)
 {
 	vec4 c0 = vec4(-1.0, -0.0275, -0.572, 0.022);
@@ -94,15 +137,70 @@ vec2 KarisEnvironmentBRDF(float NdotV, float roughness)
 	return vec2(-1.04, 1.04) * a004 + r.zw;
 }
 
+// Spatial upscaler 
+void SpatialUpscale(float Depth, vec3 Normal, float Roughness, out float AO, out float ContactShadow, out vec3 Specular) {
+
+	const float Atrous[3] = float[3]( 1.0f, 2.0f / 3.0f, 1.0f / 6.0f );
+
+	const bool DoSpatialUpscaling = true;
+
+	if (!DoSpatialUpscaling) {
+
+		Specular = texture(u_ResolvedSpecular, v_TexCoords).xyz;
+		AO = texture(u_RTAO, v_TexCoords).x;
+		ContactShadow = texture(u_ScreenspaceShadows, v_TexCoords).x;
+
+		return;
+	}
+
+	vec2 TexelSize = 1.0f / (u_Dims * 0.5f);
+
+	float TotalWeight = 0.0f;
+
+	Specular = vec3(0.0f);
+	AO = 0.0f;
+	ContactShadow = 0.0f;
+
+	for (int x = -1 ; x <= 1 ; x++) {
+
+		for (int y = -1 ; y <= 1 ; y++) {
+			
+			float KernelWeight = Atrous[abs(x)] * Atrous[abs(y)];
+			
+			vec2 SampleCoord = v_TexCoords + vec2(x, y) * TexelSize;
+
+			float SampleDepth = LinearizeDepth(texture(u_DepthTexture, SampleCoord).x);
+			vec3 SampleNormal = texture(u_NormalTexture, SampleCoord).xyz;
+
+			float DepthWeight = pow(exp(-abs(Depth - SampleDepth)), 150.0f);
+			float NormalWeight = pow(max(dot(SampleNormal, Normal), 0.0f), 16.0f);
+
+			float Weight = DepthWeight * NormalWeight * KernelWeight;
+
+			Specular += texture(u_ResolvedSpecular, SampleCoord).xyz * Weight;
+			AO += texture(u_RTAO, SampleCoord).x * Weight;
+			ContactShadow += texture(u_ScreenspaceShadows, SampleCoord).x * Weight;
+
+			TotalWeight += Weight;
+		}
+
+	}
+
+	TotalWeight = max(TotalWeight, 0.00001f);
+
+	Specular /= TotalWeight;
+	AO /= TotalWeight;
+	ContactShadow /= TotalWeight;
+}
 
 void main() 
 {	
 	float Depth = texture(u_DepthTexture, v_TexCoords).r;
-	vec3 rD = GetRayDirectionAt(v_TexCoords).xyz;
+	vec3 rD = normalize(SampleIncidentRayDirection(v_TexCoords).xyz);
 
 	// Sky check
 	if (Depth > 0.99998f) {
-		vec3 Sample = texture(u_Skymap, normalize(rD)).xyz;
+		vec3 Sample = texture(u_Skymap, rD).xyz;
 		o_Color = Sample*Sample;
 		return;
 	}
@@ -122,15 +220,19 @@ void main()
 	// View vector 
     vec3 Lo = normalize(u_ViewerPosition - WorldPosition);
 
+	// Spatial upscale ->
+	float AO;
+	float ScreenspaceShadow;
+	vec3 SpecularIndirect;
+
+	SpatialUpscale(LinearizeDepth(Depth), Normal, PBR.x, AO, ScreenspaceShadow, SpecularIndirect);
+
 	// Direct lighting ->
-	float ScreenspaceShadow = texture(u_ScreenspaceShadows, v_TexCoords).x;
-	float Shadowmap = CalculateSunShadow(WorldPosition, Normal);
+	float Shadowmap = FilterShadows(WorldPosition, Normal);
 	float DirectionalShadow = clamp(max(Shadowmap, 1.-clamp(pow(clamp(ScreenspaceShadow + 0.05f, 0.0f, 1.0f), 42.0f),0.0f,1.0f)), 0.0f, 1.0f);
 	vec3 DirectLighting = CookTorranceBRDF(WorldPosition, normalize(u_LightDirection), SUN_COLOR * 0.15f, Albedo, Normal, PBR.xy, DirectionalShadow).xyz;
 	
 	// Indirect lighting ->
-	float AO = texture(u_RTAO, v_TexCoords).x;
-	vec3 SpecularIndirect = texture(u_ResolvedSpecular, v_TexCoords).xyz;
 	vec3 AmbientTerm = (texture(u_Skymap, vec3(0.0f, 1.0f, 0.0f)).xyz * 0.18f) * Albedo;
 
 	// Combine indirect diffuse and specular using environment BRDF
@@ -177,9 +279,11 @@ void main()
     }
 }
 
-
-float CalculateSunShadow(vec3 WorldPosition, vec3 N)
+// Percentage closer filtering 
+// Todo : Implement PCSS for contact hardening shadows 
+float FilterShadows(vec3 WorldPosition, vec3 N)
 {
+	const vec2 PoissonDisk[32] = vec2[] ( vec2(-0.613392, 0.617481), vec2(0.751946, 0.453352), vec2(0.170019, -0.040254), vec2(0.078707, -0.715323), vec2(-0.299417, 0.791925), vec2(-0.075838, -0.529344), vec2(0.645680, 0.493210), vec2(0.724479, -0.580798), vec2(-0.651784, 0.717887), vec2(0.222999, -0.215125), vec2(0.421003, 0.027070), vec2(-0.467574, -0.405438), vec2(-0.817194, -0.271096), vec2(-0.248268, -0.814753), vec2(-0.705374, -0.668203), vec2(0.354411, -0.887570), vec2(0.977050, -0.108615), vec2(0.175817, 0.382366), vec2(0.063326, 0.142369), vec2(0.487472, -0.063082), vec2(0.203528, 0.214331), vec2(-0.084078, 0.898312), vec2(-0.667531, 0.326090), vec2(0.488876, -0.783441), vec2(-0.098422, -0.295755), vec2(0.470016, 0.217933), vec2(-0.885922, 0.215369), vec2(-0.696890, -0.549791), vec2(0.566637, 0.605213), vec2(-0.149693, 0.605762), vec2(0.039766, -0.396100), vec2(0.034211, 0.979980) );
 	vec4 ProjectionCoordinates = u_LightVP * vec4(WorldPosition, 1.0f);
 	ProjectionCoordinates.xyz = ProjectionCoordinates.xyz / ProjectionCoordinates.w; // Perspective division is not really needed for orthagonal projection but whatever
     ProjectionCoordinates.xyz = ProjectionCoordinates.xyz * 0.5f + 0.5f;
@@ -218,7 +322,11 @@ float CalculateSunShadow(vec3 WorldPosition, vec3 N)
     return shadow;
 }
 
-// -- // 
+
+
+
+
+// Analytical direct lighting BRDF
 
 float NDF(float cosLh, float roughness)
 {
@@ -266,36 +374,36 @@ vec3 CookTorranceBRDF(vec3 world_pos, vec3 light_dir, vec3 radiance, vec3 albedo
 
     vec3 Lo = normalize(u_ViewerPosition - world_pos);
 	vec3 Li = -light_dir;
-	vec3 Lradiance = radiance;
+	vec3 Radiance = radiance;
 
 	// Half vector 
 	vec3 Lh = normalize(Li + Lo);
 
-	// Compute dots (Since they are used multiple times)
-	float cosLo = max(0.0, dot(N, Lo));
-	float cosLi = max(0.0, dot(N, Li));
-	float cosLh = max(0.0, dot(N, Lh));
+	// Compute cosines 
+	float CosLo = max(0.0, dot(N, Lo));
+	float CosLi = max(0.0, dot(N, Li));
+	float CosLh = max(0.0, dot(N, Lh));
 
 	// Fresnel 
 	vec3 F0 = mix(vec3(0.04), albedo, metalness);
 	vec3 F  = FresnelSchlick(F0, max(0.0, dot(Lh, Lo)));
 	
 	// Distribution 
-	float D = NDF(cosLh, roughness);
+	float D = NDF(CosLh, roughness);
 
 	// Geometry 
-	float G = GGX(cosLi, cosLo, roughness);
+	float G = GGX(CosLi, CosLo, roughness);
 
 	// Direct diffuse 
 	vec3 kd = mix(vec3(1.0) - F, vec3(0.0), metalness);
-	vec3 diffuseBRDF = kd * albedo;
+	vec3 DiffuseBRDF = kd * albedo;
 
 	// Direct specular 
-	vec3 specularBRDF = (F * D * G) / max(Epsilon, 4.0 * cosLi * cosLo);
+	vec3 SpecularBRDF = (F * D * G) / max(Epsilon, 4.0 * CosLi * CosLo);
 
 	// Combine 
-	vec3 final = (diffuseBRDF + specularBRDF) * Lradiance * cosLi;
+	vec3 Combined = (DiffuseBRDF + SpecularBRDF) * Radiance * CosLi;
 
 	// Multiply by visibility and return
-	return final * (1.0f - shadow);
+	return Combined * (1.0f - shadow);
 }
