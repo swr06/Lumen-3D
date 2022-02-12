@@ -29,7 +29,7 @@ void main()
 	Normal = v_Normal;
 
 	if (u_UsesGLTFPBR) {
-		PBR = vec3(texture(u_MetalnessRoughnessMap, v_TexCoords).yx, 1.0f);
+		PBR = vec3(texture(u_MetalnessRoughnessMap, v_TexCoords).yz, 1.0f);
 	}
 
 	else {

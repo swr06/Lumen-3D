@@ -52,13 +52,14 @@ uniform vec2 u_Dimensions;
 
 uniform bool u_Checkerboard;
 
-
+// Hash function 
 float HASH2SEED = 0.0f;
 vec2 hash2() 
 {
 	return fract(sin(vec2(HASH2SEED += 0.1, HASH2SEED += 0.1)) * vec2(43758.5453123, 22578.1459123));
 }
 
+// Projection functions 
 float LinearizeDepth(float depth)
 {
 	return (2.0 * u_zNear) / (u_zFar + u_zNear - depth * (u_zFar - u_zNear));
@@ -82,6 +83,14 @@ vec3 ProjectToScreenSpace(vec3 WorldPos)
 	return ProjectedPosition.xyz;
 }
 
+vec3 ProjectViewToScreenSpace(vec3 ViewPos) 
+{
+	vec4 ProjectedPosition = u_Projection * vec4(ViewPos, 1.0f);
+	ProjectedPosition.xyz /= ProjectedPosition.w;
+	ProjectedPosition.xyz = ProjectedPosition.xyz * 0.5f + 0.5f;
+	return ProjectedPosition.xyz;
+}
+
 vec3 ProjectToClipSpace(vec3 WorldPos) 
 {
 	vec4 ProjectedPosition = u_ViewProjection * vec4(WorldPos, 1.0f);
@@ -95,7 +104,7 @@ vec3 ProjectToViewSpace(vec3 WorldPos)
 	return ProjectedPosition.xyz;
 }
 
-
+// Screenspace test 
 bool RayValid(vec2 x) {
 	float bias = 0.0001f;
 	if (x.x > bias && x.x < 1.0f - bias && x.y > bias && x.y < 1.0f - bias) {

@@ -23,6 +23,9 @@ float Bayer2(vec2 a)
 }
 
 layout (location = 0) out vec3 o_Color;
+
+// Intersection transversal, used as an input to the temporal denoiser 
+// Can also be used to aid the spatial denoiser
 layout (location = 1) out float o_Transversal;
 
 in vec2 v_TexCoords;
@@ -55,12 +58,17 @@ uniform sampler2D u_Depth;
 uniform sampler2D u_Normals;
 uniform sampler2D u_LFNormals;
 uniform sampler2D u_PBR;
+uniform sampler2D u_Albedos;
+
+uniform float u_zNear;
+uniform float u_zFar;
 
 uniform sampler2D u_Shadowmap;
 uniform mat4 u_SunShadowMatrix;
-
+uniform mat4 u_ViewProjection;
 uniform bool u_Checker;
 
+// Contains all data necessary to integrate lighting for a point 
 struct GBufferData {
    vec3 Position;
    vec3 Normal;
@@ -83,6 +91,27 @@ vec3 Saturation(vec3 Color, float Adjustment)
     return mix(Luminosity, Color, Adjustment);
 }
 
+
+float LinearizeDepth(float depth)
+{
+	return (2.0 * u_zNear) / (u_zFar + u_zNear - depth * (u_zFar - u_zNear));
+}
+
+vec3 ProjectToScreenSpace(vec3 WorldPos) 
+{
+	vec4 ProjectedPosition = u_ViewProjection * vec4(WorldPos, 1.0f);
+	ProjectedPosition.xyz /= ProjectedPosition.w;
+	ProjectedPosition.xyz = ProjectedPosition.xyz * 0.5f + 0.5f;
+	return ProjectedPosition.xyz;
+}
+
+vec3 ProjectToClipSpace(vec3 WorldPos) 
+{
+	vec4 ProjectedPosition = u_ViewProjection * vec4(WorldPos, 1.0f);
+	ProjectedPosition.xyz /= ProjectedPosition.w;
+	return ProjectedPosition.xyz;
+}
+
 vec3 WorldPosFromDepth(float depth, vec2 txc)
 {
     float z = depth * 2.0 - 1.0;
@@ -91,6 +120,15 @@ vec3 WorldPosFromDepth(float depth, vec2 txc)
     ViewSpacePosition /= ViewSpacePosition.w;
     vec4 WorldPos = u_InverseView * ViewSpacePosition;
     return WorldPos.xyz;
+}
+
+bool SSRayValid(vec2 x) {
+	float bias = 0.0001f;
+	if (x.x > bias && x.x < 1.0f - bias && x.y > bias && x.y < 1.0f - bias) {
+		return true;
+	}
+
+	return false;
 }
 
 vec3 GGX_VNDF(vec3 N, float roughness, vec2 Xi)
@@ -117,8 +155,7 @@ vec3 GGX_VNDF(vec3 N, float roughness, vec2 Xi)
 
 vec3 SampleMicrofacet(vec3 N, float R) {
 
-    R *= 0.9f;
-    R = max(R, 0.02f);
+    R = max(R, 0.01f);
 	float NearestDot = -100.0f;
 	vec3 BestDirection = N;
 
@@ -144,8 +181,8 @@ vec3 SampleMicrofacet(vec3 N, float R) {
 
 vec3 SampleMicrofacetBayer(vec3 N, float R, vec2 Xi) {
 
-    R *= 0.9f;
-    R = max(R, 0.05f);
+    R = max(R, 0.01f);
+
     Xi *= vec2(0.7f, 0.5f);
 
     vec3 ImportanceSampled = GGX_VNDF(N, R, Xi);
@@ -191,29 +228,46 @@ float DistanceSqr(vec3 A, vec3 B)
     return dot(C, C);
 }
 
-GBufferData Raytrace(vec3 WorldPosition, vec3 Normal, vec3 LFNormal, float Depth, float Hash, out vec3 MicrofacetReflected) {
+vec3 CosWeightedHemisphere(const vec3 n) 
+{
+  	vec2 r = vec2(0.0f);
+	r = vec2(hash2());
+	float PI2 = 2.0f * PI;
+	vec3  uu = normalize(cross(n, vec3(0.0,1.0,1.0)));
+	vec3  vv = cross(uu, n);
+	float ra = sqrt(r.y);
+	float rx = ra * cos(PI2 * r.x); 
+	float ry = ra * sin(PI2 * r.x);
+	float rz = sqrt(1.0 - r.y);
+	vec3  rr = vec3(rx * uu + ry * vv + rz * n );
+    return normalize(rr);
+}
+
+
+const float EmissiveDesat = 0.15f;
+const float EmissionStrength = 96.0f;
+
+GBufferData Raytrace(vec3 Incident, vec3 WorldPosition, vec3 Normal, vec3 LFNormal, float ErrorTolerance, float Hash, out vec3 MicrofacetReflected) {
    
     // If enabled, the raytracer returns the nearest hit which is approximated using a weighting factor 
     const bool FALLBACK_ON_BEST_STEP = true;
 
-    const float EmissiveDesat = 0.15f;
 
     // Bias 
     WorldPosition = (WorldPosition + LFNormal * 2.0f);
 
     // Settings 
     const float Distance = 512.0f;
-    const int Steps = 192;
-    const int BinarySteps = 8;
-    const float EmissionStrength = 128.0f;
+    const int Steps = 160;
+    const int BinarySteps = 20;
+
 
     float StepSize = Distance / float(Steps);
     float UnditheredStepSize = StepSize;
     StepSize *= mix(Hash * 1.0f, 1.0f, 0.75f);
 
-    vec3 ViewDirection = normalize(WorldPosition - u_Incident);
-    vec3 ReflectionVector = normalize(reflect(ViewDirection, Normal)); 
-    vec3 ReflectionVectorLF = normalize(reflect(ViewDirection, LFNormal));
+    vec3 ReflectionVector = normalize(reflect(Incident, Normal)); //CosWeightedHemisphere(LFNormal); 
+    vec3 ReflectionVectorLF = normalize(reflect(Incident, LFNormal));
     
     MicrofacetReflected = ReflectionVector;
 
@@ -251,15 +305,15 @@ GBufferData Raytrace(vec3 WorldPosition, vec3 Normal, vec3 LFNormal, float Depth
         vec3 SampleWorldPosition = SamplePosition + CapturePoint;
         float Error = DistanceSqr(SampleWorldPosition, RayPosition); 
 
-        float IntersectionThresh = mix(StepSize * 0.8f, StepSize * 2.75f, clamp(float(CurrentStep) * (1.0f / 8.0f), 0.0f, 1.0f));
+        float IntersectionThresh = StepSize * 1.5f;//mix(StepSize * 0.6f, StepSize * 1.5f, clamp(float(CurrentStep) * (1.0f / 12.0f), 0.0f, 1.0f));
 
-        if (Error < IntersectionThresh) {
+        if (Error < IntersectionThresh * ErrorTolerance) {
              FoundHit = true;
              break;
         }
 
         // Compute ray weighting factor 
-        float RayWeight = pow(1.0f / float(CurrentStep + 1.0f), 3.25f) * pow(1.0f / max(Error, 0.00000001f), 6.725f);
+        float RayWeight = pow(1.0f / float(CurrentStep + 1.0f), 6.0f) * pow(1.0f / max(Error, 0.00000001f), 8.725f);
 
         // Weight rays
         if (RayWeight > BestRayWeight) {
@@ -272,32 +326,41 @@ GBufferData Raytrace(vec3 WorldPosition, vec3 Normal, vec3 LFNormal, float Depth
     }
 
 
-    // Binary refine intersection
+    // Binary refine intersection point 
 
     if (FoundHit) 
     {
-        float BR_StepSize = UnditheredStepSize / 2.0f;
+        const bool DoBinaryRefinement = true;
+
         vec3 FinalBinaryRefinePos = RayPosition;
 
-        for (int BinaryRefine = 0 ; BinaryRefine < BinarySteps; BinaryRefine++) 
-        {
-            vec3 CapturePoint = GetCapturePoint(PreviousSampleDirection);
-            vec3 BR_SampleDirection = normalize(FinalBinaryRefinePos - CapturePoint);
-            PreviousSampleDirection = BR_SampleDirection;
-            vec3 BR_SamplePosition = BR_SampleDirection * (texture(u_ProbeDepth, BR_SampleDirection).x * 128.0f);
-            vec3 BR_SampleWorldPosition = BR_SamplePosition + CapturePoint;
+        if (DoBinaryRefinement) {
 
-            if (DistanceSqr(FinalBinaryRefinePos, BR_SampleWorldPosition) < StepSize * 1.65f) 
+            float BR_StepSize = UnditheredStepSize / 2.0f;
+            FinalBinaryRefinePos = FinalBinaryRefinePos - ReflectionVector * BR_StepSize;
+
+            for (int BinaryRefine = 0 ; BinaryRefine < BinarySteps; BinaryRefine++) 
             {
-                FinalBinaryRefinePos -= ReflectionVector * BR_StepSize;
-            }
+                BR_StepSize /= 2.0f;
 
-            else 
-            {
-                FinalBinaryRefinePos += ReflectionVector * BR_StepSize;
-            }
+                vec3 CapturePoint = GetCapturePoint(PreviousSampleDirection);
+                vec3 Diff = FinalBinaryRefinePos - CapturePoint;
+                float L = length(Diff);
+                vec3 BR_SampleDirection = Diff / L;
+                PreviousSampleDirection = BR_SampleDirection;
 
-            BR_StepSize /= 2.0f;
+                float Depth = (texture(u_ProbeDepth, BR_SampleDirection).x * 128.0f);
+
+                if (Depth < L) 
+                {
+                    FinalBinaryRefinePos -= ReflectionVector * BR_StepSize;
+                }
+
+                else 
+                {
+                    FinalBinaryRefinePos += ReflectionVector * BR_StepSize;
+                }
+            }
         }
 
         vec3 CapturePoint = GetCapturePoint(PreviousSampleDirection);
@@ -363,6 +426,115 @@ GBufferData Raytrace(vec3 WorldPosition, vec3 Normal, vec3 LFNormal, float Depth
     return ReturnValue;
 }
 
+GBufferData ScreenspaceRaytrace(vec3 Incident, vec3 Origin, vec3 Normal, vec3 LFNormal, float ThresholdMultiplier, float Hash, out vec3 MicrofacetReflected)
+{
+    const float RayDistance = 38.0f;
+    const int Steps = 16;
+
+    GBufferData ReturnValue;
+    ReturnValue.Position = Origin;
+    ReturnValue.Normal = vec3(0.0f);
+    ReturnValue.Albedo = vec3(0.0f);
+    ReturnValue.Data = vec3(0.0f, 0.0f, 1.0f);
+    ReturnValue.ValidMask = false;
+    ReturnValue.Approximated = true;
+
+    vec3 Direction = normalize(reflect(Incident, Normal));
+    MicrofacetReflected = Direction;
+	vec3 StepVector = (Direction * RayDistance) / float(Steps); 
+	vec3 RayPosition = Origin + StepVector * Hash; 
+	vec2 FinalUV = vec2(-1.0f);
+
+	for(int CurrentStep = 0; CurrentStep < Steps; CurrentStep++) 
+	{
+		float Threshold = length(StepVector) * ThresholdMultiplier;
+		
+		vec3 ProjectedRayScreenspace = ProjectToClipSpace(RayPosition); 
+		
+		if(abs(ProjectedRayScreenspace.x) > 1.0f || abs(ProjectedRayScreenspace.y) > 1.0f || abs(ProjectedRayScreenspace.z) > 1.0f) 
+		{
+			return ReturnValue;
+		}
+		
+		ProjectedRayScreenspace.xyz = ProjectedRayScreenspace.xyz * 0.5f + 0.5f; 
+
+		if (!SSRayValid(ProjectedRayScreenspace.xy))
+		{
+			return ReturnValue;
+		}
+		
+		float DepthAt = texture(u_Depth, ProjectedRayScreenspace.xy).x; 
+		float CurrentRayDepth = LinearizeDepth(ProjectedRayScreenspace.z); 
+		float Error = abs(LinearizeDepth(DepthAt) - CurrentRayDepth);
+		
+        // Intersected!
+		if (Error < Threshold && ProjectedRayScreenspace.z > DepthAt) 
+		{
+			// Basic Binary refinement : 
+
+            bool DoBinaryRefinement = true;
+
+            vec3 FinalProjected = vec3(0.0f);
+            float FinalDepth = 0.0f;
+
+            if (DoBinaryRefinement) {
+			    vec3 BinaryStepVector = StepVector / 2.0f;
+
+                RayPosition -= BinaryStepVector;
+
+			    for (int BinaryStep = 0 ; BinaryStep < 7 ; BinaryStep++) {
+			    		
+			    	BinaryStepVector /= 2.0f;
+
+			    	vec3 Projected = ProjectToClipSpace(RayPosition); 
+			    	Projected = Projected * 0.5f + 0.5f;
+                    FinalProjected = Projected;
+                    float Fetch = texture(u_Depth, Projected.xy).x;
+                    FinalDepth = Fetch;
+			    	float BinaryDepthAt = LinearizeDepth(Fetch); 
+			    	float BinaryRayDepth = LinearizeDepth(Projected.z); 
+
+			    	if (BinaryDepthAt < BinaryRayDepth) {
+			    		RayPosition -= BinaryStepVector;
+
+			    	}
+
+			    	else {
+			    		RayPosition += BinaryStepVector;
+
+			    	}
+
+			    }
+            }
+
+            else {
+                
+                FinalProjected = ProjectToScreenSpace(RayPosition);
+                FinalDepth = texture(u_Depth, FinalProjected.xy).x;
+            }
+
+
+            // Generate gbuffer data and return 
+            ReturnValue.Position = WorldPosFromDepth(FinalDepth, FinalProjected.xy);
+            ReturnValue.Normal = texture(u_Normals, FinalProjected.xy).xyz;
+            ReturnValue.Albedo = texture(u_Albedos, FinalProjected.xy).xyz * 1.0f;
+            vec4 PBR = texture(u_PBR, FinalProjected.xy).xyzw;
+            ReturnValue.Data = vec3(PBR.x, 0.0f, 1.0f);
+            ReturnValue.Albedo += Saturation(ReturnValue.Albedo, EmissiveDesat) * PBR.w * EmissionStrength;
+            ReturnValue.ValidMask = true;
+            ReturnValue.Approximated = false;
+
+            return ReturnValue;
+		}
+
+        // Step 
+		RayPosition += StepVector; 
+
+	}
+
+	return ReturnValue;
+
+}
 
 const vec3 SUN_COLOR = vec3(6.9f, 6.9f, 10.0f);
 
@@ -403,11 +575,15 @@ vec3 IntegrateLighting(GBufferData Hit, vec3 Direction) {
         Shadow = 1.0f - Shadow;
     }
 
+    // Lambert BRDF  
+    // Todo : Switch to hammon diffuse brdf (ignore specular brdf to reduce variance)
     float Lambertian = max(0.0f, dot(Hit.Normal, -u_SunDirection));
     vec3 Direct = Lambertian * SUN_COLOR * 0.07f * Shadow * Hit.Albedo;
     vec3 Ambient = texture(u_EnvironmentMap, vec3(0.0f, 1.0f, 0.0f)).xyz * 0.2f * Hit.Albedo;
     return Direct + Ambient;
 }
+
+
 
 ivec2 UpscaleOffsets2x2[] = ivec2[](
 	ivec2(1, 1),
@@ -447,13 +623,12 @@ void main() {
     // For temporal super sampling 
     vec2 TexCoordJittered = v_TexCoords;
 
-
     HASH2SEED = (TexCoordJittered.x * TexCoordJittered.y) * 64.0;
 
     // Animate noise for temporal integration
 	HASH2SEED += fract(u_Time) * 64.0f;
 
-
+    // Calculate pixel 
     ivec2 Pixel = ivec2(gl_FragCoord.xy);
 
     if (u_Checker) {
@@ -464,7 +639,9 @@ void main() {
 
     Pixel += UpscaleOffsets4x4[u_Frame % 16];
 
+    // Constant resolution (0.5x)
     ivec2 HighResPixel = Pixel * 2;
+
     vec2 HighResUV = vec2(HighResPixel) / textureSize(u_Depth, 0).xy;
 
     // GBuffer fetches 
@@ -482,10 +659,22 @@ void main() {
     vec3 LFNormal = texelFetch(u_LFNormals, HighResPixel, 0).xyz; 
     vec3 PBR = texelFetch(u_PBR, HighResPixel, 0).xyz;
 
+    float Roughness = PBR.x;
+
+    float Tolerance = mix(1.0, 2.5f, !u_RoughSpecular ? 0.0f : pow(PBR.x, 1.5f));
+    float ToleranceSS = mix(0.00175, 0.005f, !u_RoughSpecular ? 0.0f : pow(PBR.x, 1.5f));
+
     // Sample integration
     vec3 TotalRadiance = vec3(0.0f);
     float AverageTransversal = 0.0f;
     float TotalWeight = 0.0f;
+
+    const float RoughnessBias = 0.85f;
+
+    vec3 Incident = normalize(WorldPosition - u_Incident);
+
+    bool DoScreenspaceTrace = true;
+
 
     for (int Sample ; Sample < SAMPLES ; Sample++) {
 
@@ -493,9 +682,9 @@ void main() {
 
         // Sample microfacet normal from VNDF
         vec3 Microfacet;
-        
+
         if (u_RoughSpecular) {
-            Microfacet = SampleMicrofacet(Normal, PBR.x);
+            Microfacet = SampleMicrofacet(Normal, PBR.x * RoughnessBias);
         }
             
         else {
@@ -505,9 +694,27 @@ void main() {
         vec3 ReflectedDirection = vec3(0.0f);
         
         // Raytrace!
-        GBufferData Intersection = Raytrace(WorldPosition, Microfacet, LFNormal, Depth, BayerHash, ReflectedDirection);
+
+        GBufferData Intersection;
+
+        if (DoScreenspaceTrace) {
+            // Trace in screen space 
+            Intersection = ScreenspaceRaytrace(Incident, WorldPosition + LFNormal * 0.8f, Microfacet, LFNormal, ToleranceSS, BayerHash, ReflectedDirection);
+            
+            // If that fails, trace in probe space  
+            if (!Intersection.ValidMask) {
+                Intersection = Raytrace(Incident, WorldPosition, Microfacet, LFNormal, Tolerance, BayerHash, ReflectedDirection);
+            }
+        }
+
+        else {
+            Intersection = Raytrace(Incident, WorldPosition, Microfacet, LFNormal, Tolerance, BayerHash, ReflectedDirection);
+        }
+
+        // Integrate lighting 
         vec3 CurrentRadiance = IntegrateLighting(Intersection, ReflectedDirection);
 
+        // Sum up radiance 
         TotalRadiance += CurrentRadiance;
 
         // Store transversal for filtering/reprojection
@@ -515,6 +722,7 @@ void main() {
         CurrentTransversal /= 64.0f;
         AverageTransversal += CurrentTransversal;
 
+        // Add weight 
         TotalWeight += 1.0f;
     }
 

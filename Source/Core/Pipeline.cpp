@@ -612,6 +612,7 @@ void Lumen::StartPipeline()
 		ProbeSpecularShader.SetInteger("u_EnvironmentMap", 7);
 		ProbeSpecularShader.SetInteger("u_Shadowmap", 8);
 		ProbeSpecularShader.SetInteger("u_LFNormals", 9);
+		ProbeSpecularShader.SetInteger("u_Albedos", 11);
 		ProbeSpecularShader.SetInteger("u_Frame", app.GetCurrentFrame());
 		ProbeSpecularShader.SetBool("u_RoughSpecular", RoughSpecular);
 		ProbeSpecularShader.SetBool("u_Checker", SpecularCheckerboard);
@@ -653,6 +654,9 @@ void Lumen::StartPipeline()
 
 		glActiveTexture(GL_TEXTURE9);
 		glBindTexture(GL_TEXTURE_2D, GBuffer.GetTexture(3));
+
+		glActiveTexture(GL_TEXTURE11);
+		glBindTexture(GL_TEXTURE_2D, GBuffer.GetTexture(0));
 
 		ScreenQuadVAO.Bind();
 		glDrawArrays(GL_TRIANGLES, 0, 6);
