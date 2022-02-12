@@ -55,6 +55,7 @@ const vec2 PoissonDisk[32] = vec2[]
 
 vec3 CookTorranceBRDF(vec3 world_pos, vec3 light_dir, vec3 radiance, vec3 albedo, vec3 normal, vec2 rm, float shadow);
 float CalculateSunShadow(vec3 WorldPosition, vec3 N);
+vec3 FresnelSchlickRoughness(float cosTheta, vec3 F0, float roughness);
 
 vec3 WorldPosFromCoord(vec2 txc)
 {
@@ -93,9 +94,6 @@ vec2 KarisEnvironmentBRDF(float NdotV, float roughness)
 	return vec2(-1.04, 1.04) * a004 + r.zw;
 }
 
-vec3 fresnelSchlickRoughness(float cosTheta, vec3 F0, float roughness){
-    return F0 + (max(vec3(1.0-roughness), F0) - F0) * pow(1.0 - cosTheta, 5.0);
-}
 
 void main() 
 {	
@@ -153,7 +151,7 @@ void main()
 	vec3 F0 = mix(vec3(0.04f), Albedo, Metalness);
 
 	// Fresnel roughness 
-	vec3 FresnelTerm = fresnelSchlickRoughness(max(dot(Lo, Normal.xyz), 0.000001f), vec3(F0), Roughness); 
+	vec3 FresnelTerm = FresnelSchlickRoughness(max(dot(Lo, Normal.xyz), 0.000001f), vec3(F0), Roughness); 
     FresnelTerm = clamp(FresnelTerm, 0.0f, 1.0f);
 
     vec3 kS = FresnelTerm;
@@ -222,7 +220,7 @@ float CalculateSunShadow(vec3 WorldPosition, vec3 N)
 
 // -- // 
 
-float ndfGGX(float cosLh, float roughness)
+float NDF(float cosLh, float roughness)
 {
 	float alpha   = roughness * roughness;
 	float alphaSq = alpha * alpha;
@@ -231,61 +229,73 @@ float ndfGGX(float cosLh, float roughness)
 	return alphaSq / (PI * denom * denom);
 }
 
-float gaSchlickG1(float cosTheta, float k)
+float Schlick(float cosTheta, float k)
 {
 	return cosTheta / (cosTheta * (1.0 - k) + k);
 }
 
-float gaSchlickGGX(float cosLi, float cosLo, float roughness)
+float GGX(float cosLi, float cosLo, float roughness)
 {
-	float r = roughness + 1.0;
-	float k = (r * r) / 8.0; // Epic suggests using this roughness remapping for analytic lights.
-	return gaSchlickG1(cosLi, k) * gaSchlickG1(cosLo, k);
+	float r = roughness + 1.0f;
+	float k = (r * r) / 8.0f; 
+	return Schlick(cosLi, k) * Schlick(cosLo, k);
 }
 
-vec3 fresnelSchlick(vec3 F0, float cosTheta)
+vec3 FresnelSchlick(vec3 F0, float cosTheta)
 {
 	return F0 + (vec3(1.0) - F0) * pow(1.0 - cosTheta, 5.0);
 }
 
-
-vec3 fresnelroughness(vec3 Eye, vec3 norm, vec3 F0, float roughness) 
+vec3 FresnelSchlickRoughness(vec3 Eye, vec3 norm, vec3 F0, float roughness) 
 {
 	return F0 + (max(vec3(pow(1.0f - roughness, 3.0f)) - F0, vec3(0.0f))) * pow(max(1.0 - clamp(dot(Eye, norm), 0.0f, 1.0f), 0.0f), 5.0f);
+}
+
+vec3 FresnelSchlickRoughness(float cosTheta, vec3 F0, float roughness)
+{
+    return F0 + (max(vec3(1.0-roughness), F0) - F0) * pow(1.0 - cosTheta, 5.0);
 }
 
 vec3 CookTorranceBRDF(vec3 world_pos, vec3 light_dir, vec3 radiance, vec3 albedo, vec3 N, vec2 rm, float shadow)
 {
     const float Epsilon = 0.00001;
 
+	// Material
 	float roughness = rm.x;
 	float metalness = rm.y;
 
     vec3 Lo = normalize(u_ViewerPosition - world_pos);
 	vec3 Li = -light_dir;
 	vec3 Lradiance = radiance;
+
+	// Half vector 
 	vec3 Lh = normalize(Li + Lo);
 
+	// Compute dots (Since they are used multiple times)
 	float cosLo = max(0.0, dot(N, Lo));
 	float cosLi = max(0.0, dot(N, Li));
 	float cosLh = max(0.0, dot(N, Lh));
 
 	// Fresnel 
 	vec3 F0 = mix(vec3(0.04), albedo, metalness);
-	vec3 F  = fresnelSchlick(F0, max(0.0, dot(Lh, Lo)));
+	vec3 F  = FresnelSchlick(F0, max(0.0, dot(Lh, Lo)));
 	
 	// Distribution 
-	float D = ndfGGX(cosLh, roughness);
+	float D = NDF(cosLh, roughness);
 
 	// Geometry 
-	float G = gaSchlickGGX(cosLi, cosLo, roughness);
+	float G = GGX(cosLi, cosLo, roughness);
 
+	// Direct diffuse 
 	vec3 kd = mix(vec3(1.0) - F, vec3(0.0), metalness);
-
 	vec3 diffuseBRDF = kd * albedo;
+
+	// Direct specular 
 	vec3 specularBRDF = (F * D * G) / max(Epsilon, 4.0 * cosLi * cosLo);
 
+	// Combine 
 	vec3 final = (diffuseBRDF + specularBRDF) * Lradiance * cosLi;
 
+	// Multiply by visibility and return
 	return final * (1.0f - shadow);
 }

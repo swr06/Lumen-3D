@@ -76,6 +76,7 @@ struct GBufferData {
    vec3 Data;
    bool ValidMask;
    bool Approximated;
+   bool SSR;
 };
 
 float HASH2SEED = 0.0f;
@@ -383,6 +384,8 @@ GBufferData Raytrace(vec3 Incident, vec3 WorldPosition, vec3 Normal, vec3 LFNorm
         ReturnValue.ValidMask = true;
         ReturnValue.Approximated = false;
 
+        ReturnValue.SSR = false;
+
         return ReturnValue;
 
     }
@@ -406,6 +409,7 @@ GBufferData Raytrace(vec3 Incident, vec3 WorldPosition, vec3 Normal, vec3 LFNorm
         ReturnValue.Albedo += Saturation(ReturnValue.Albedo, EmissiveDesat) * NormalFetch.w * EmissionStrength;
         ReturnValue.ValidMask = true;
         ReturnValue.Approximated = true;
+        ReturnValue.SSR = false;
 
         return ReturnValue;
 
@@ -422,6 +426,7 @@ GBufferData Raytrace(vec3 Incident, vec3 WorldPosition, vec3 Normal, vec3 LFNorm
     ReturnValue.Data = vec3(0.0f, 0.0f, 1.0f);
     ReturnValue.ValidMask = false;
     ReturnValue.Approximated = true;
+    ReturnValue.SSR = false;
 
     return ReturnValue;
 }
@@ -438,6 +443,7 @@ GBufferData ScreenspaceRaytrace(vec3 Incident, vec3 Origin, vec3 Normal, vec3 LF
     ReturnValue.Data = vec3(0.0f, 0.0f, 1.0f);
     ReturnValue.ValidMask = false;
     ReturnValue.Approximated = true;
+    ReturnValue.SSR = true;
 
     vec3 Direction = normalize(reflect(Incident, Normal));
     MicrofacetReflected = Direction;
@@ -517,12 +523,13 @@ GBufferData ScreenspaceRaytrace(vec3 Incident, vec3 Origin, vec3 Normal, vec3 LF
             // Generate gbuffer data and return 
             ReturnValue.Position = WorldPosFromDepth(FinalDepth, FinalProjected.xy);
             ReturnValue.Normal = texture(u_Normals, FinalProjected.xy).xyz;
-            ReturnValue.Albedo = texture(u_Albedos, FinalProjected.xy).xyz * 1.0f;
+            ReturnValue.Albedo = texture(u_Albedos, FinalProjected.xy).xyz;
             vec4 PBR = texture(u_PBR, FinalProjected.xy).xyzw;
-            ReturnValue.Data = vec3(PBR.x, 0.0f, 1.0f);
+            ReturnValue.Data = vec3(0.0f, 0.0f, 1.0f);
             ReturnValue.Albedo += Saturation(ReturnValue.Albedo, EmissiveDesat) * PBR.w * EmissionStrength;
             ReturnValue.ValidMask = true;
             ReturnValue.Approximated = false;
+            ReturnValue.SSR = true;
 
             return ReturnValue;
 		}
@@ -578,13 +585,12 @@ vec3 IntegrateLighting(GBufferData Hit, vec3 Direction) {
     // Lambert BRDF  
     // Todo : Switch to hammon diffuse brdf (ignore specular brdf to reduce variance)
     float Lambertian = max(0.0f, dot(Hit.Normal, -u_SunDirection));
-    vec3 Direct = Lambertian * SUN_COLOR * 0.07f * Shadow * Hit.Albedo;
+    vec3 Direct = Lambertian * SUN_COLOR * 0.07f * Shadow * Hit.Albedo * mix(1.0f, 3.0f, float(Hit.SSR));
     vec3 Ambient = texture(u_EnvironmentMap, vec3(0.0f, 1.0f, 0.0f)).xyz * 0.2f * Hit.Albedo;
     return Direct + Ambient;
 }
 
-
-
+// Temporal upscale offsets 
 ivec2 UpscaleOffsets2x2[] = ivec2[](
 	ivec2(1, 1),
 	ivec2(1, 0),
@@ -610,6 +616,7 @@ const ivec2[16] UpscaleOffsets4x4 = ivec2[16](
     ivec2(2, 3)
 );
 
+// Returns whether the pixel is part of the sky or not 
 bool IsSky(float NonLinearDepth) {
     if (NonLinearDepth > 0.99998f) {
         return true;
@@ -654,13 +661,14 @@ void main() {
         return;
     }
 
+    // Sample gbuffers 
 	vec3 WorldPosition = WorldPosFromDepth(Depth, HighResUV);
     vec3 Normal = texelFetch(u_Normals, HighResPixel, 0).xyz; 
     vec3 LFNormal = texelFetch(u_LFNormals, HighResPixel, 0).xyz; 
     vec3 PBR = texelFetch(u_PBR, HighResPixel, 0).xyz;
-
     float Roughness = PBR.x;
 
+    // Intersection tolerance 
     float Tolerance = mix(1.0, 2.5f, !u_RoughSpecular ? 0.0f : pow(PBR.x, 1.5f));
     float ToleranceSS = mix(0.00175, 0.005f, !u_RoughSpecular ? 0.0f : pow(PBR.x, 1.5f));
 
@@ -669,12 +677,15 @@ void main() {
     float AverageTransversal = 0.0f;
     float TotalWeight = 0.0f;
 
-    const float RoughnessBias = 0.85f;
+    // Bias roughness (to reduce noise)
+    const float RoughnessBias = 0.9f;
+    float BiasedRoughness = pow(Roughness, 1.2f) * RoughnessBias; 
+   
+    // Epic remapping -> //float BiasedRoughness = clamp(pow((Roughness * RoughnessBias) + 1.0f, 2.0f) / 8.0f, 0.0f, 1.0f); 
 
     vec3 Incident = normalize(WorldPosition - u_Incident);
 
     bool DoScreenspaceTrace = true;
-
 
     for (int Sample ; Sample < SAMPLES ; Sample++) {
 
@@ -684,7 +695,7 @@ void main() {
         vec3 Microfacet;
 
         if (u_RoughSpecular) {
-            Microfacet = SampleMicrofacet(Normal, PBR.x * RoughnessBias);
+            Microfacet = SampleMicrofacet(Normal, BiasedRoughness);
         }
             
         else {
