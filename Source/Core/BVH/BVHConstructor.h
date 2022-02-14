@@ -9,6 +9,8 @@
 
 #include "../Utils/Vertex.h"
 
+#include "../Object.h"
+
 namespace Lumen {
 	namespace BVH {
 		typedef uint32_t uint;
@@ -67,9 +69,12 @@ namespace Lumen {
 				max.x = glm::max(glm::max(v0.position.x, v1.position.x), v2.position.x);
 				max.y = glm::max(glm::max(v0.position.y, v1.position.y), v2.position.y);
 				max.z = glm::max(glm::max(v0.position.z, v1.position.z), v2.position.z);
+
+				return Bounds(min, max);
 			}
 		};
 
-		void BuildBVH(std::vector<Vertex>& Vertices, std::vector<GLuint>& Indices);
+		Node* BuildBVH(std::vector<Vertex>& Vertices, std::vector<GLuint>& Indices);
+		Node* BuildBVH(Object& object);
 	}
 };

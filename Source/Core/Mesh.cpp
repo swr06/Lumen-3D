@@ -31,7 +31,6 @@ namespace Lumen
 		{
 			m_VertexCount = m_Vertices.size();
 			m_VertexBuffer.BufferData(m_Vertices.size() * sizeof(Vertex), &m_Vertices.front(), GL_STATIC_DRAW);
-			m_Vertices.clear();
 		}
 
 		if (m_Indices.size() > 0)
@@ -39,7 +38,6 @@ namespace Lumen
 			m_IndicesCount = m_Indices.size();
 			m_IndexBuffer.BufferData(m_Indices.size() * sizeof(GLuint), &m_Indices.front(), GL_STATIC_DRAW);
 			m_Indexed = true;
-			m_Indices.clear();
 		}
 
 		else

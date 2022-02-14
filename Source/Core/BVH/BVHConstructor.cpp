@@ -119,10 +119,10 @@ namespace Lumen {
 
 				// Set node properties 
 
-				LeftNode.LeftChild = 0;
-				LeftNode.RightChild = 0;
 				LeftNode.StartIndex = node->StartIndex;
 				LeftNode.Length = FirstTriangleIndex;
+				LeftNode.LeftChild = 0;
+				LeftNode.RightChild = 0;
 				LeftNode.ParentNode = node->NodeIndex;
 				LeftNode.IsLeftNode = true;
 
@@ -147,7 +147,7 @@ namespace Lumen {
 				RightNode.StartIndex = node->StartIndex + FirstTriangleIndex;
 				RightNode.Length = node->Length - FirstTriangleIndex;
 				RightNode.ParentNode = node->NodeIndex;
-				RightNode.IsLeftNode = true;
+				RightNode.IsLeftNode = false;
 
 
 				// Find right bounding box
@@ -164,8 +164,7 @@ namespace Lumen {
 				RightNode.NodeBounds = Bounds(RightMin, RightMax);
 
 
-				if (!ShouldBeLeaf(RightNode.Length))
-				{
+				if (!ShouldBeLeaf(RightNode.Length)) {
 					BuildNode(&RightNode);
 				}
 
@@ -178,7 +177,7 @@ namespace Lumen {
 
 		}
 
-		void BuildBVH(std::vector<Vertex>& Vertices, std::vector<GLuint>& Indices)
+		Node* BuildBVH(std::vector<Vertex>& Vertices, std::vector<GLuint>& Indices)
 		{
 			// First, generate triangles from vertices to make everything easier to work with 
 
@@ -205,6 +204,93 @@ namespace Lumen {
 				InitialMax = Vec3Min(CurrentBounds.Max, InitialMax);
 			}
 
+			Node& RootNode = BVHNodes.emplace_back();
+
+			RootNode.LeftChild = 0;
+			RootNode.RightChild = 0;
+			RootNode.StartIndex = 0;
+			RootNode.Length = Triangles.size();
+			RootNode.ParentNode = 0;
+			RootNode.IsLeftNode = false;
+			RootNode.NodeBounds = Bounds(InitialMin, InitialMax);
+
+			// Recursively construct 
+			BuildNode(&RootNode);
+
+			// Output debug stats 
+
+			std::cout << "\n\n\n";
+			std::cout << "--BVH Construction Info--";
+			std::cout << "Triangle Count : " << Triangles.size();
+			std::cout << "Node Count : " << Triangles.size();
+			std::cout << "\n\n\n";
+
+			return &RootNode;
 		}
+
+
+		Node* BuildBVH(Object& object)
+		{
+			// First, generate triangles from vertices to make everything easier to work with 
+
+			for (auto& Mesh : object.m_Meshes) {
+
+				auto& Indices = Mesh.m_Indices;
+				auto& Vertices = Mesh.m_Vertices;
+
+				for (int x = 0; x < Indices.size(); x += 3)
+				{
+					Vertex v0 = Vertices.at(Indices.at(x + 0));
+					Vertex v1 = Vertices.at(Indices.at(x + 1));
+					Vertex v2 = Vertices.at(Indices.at(x + 2));
+
+					Triangle tri = { (v0), (v1), (v2) };
+					Triangles.push_back(tri);
+				}
+			}
+
+
+			// Create bounding box 
+
+			glm::vec3 InitialMin = glm::vec3(10000.0f);
+			glm::vec3 InitialMax = glm::vec3(-10000.0f);
+
+			for (int i = 0; i < Triangles.size(); i++)
+			{
+				Bounds CurrentBounds = Triangles.at(i).GetBounds();
+				InitialMin = Vec3Min(CurrentBounds.Min, InitialMin);
+				InitialMax = Vec3Min(CurrentBounds.Max, InitialMax);
+			}
+
+			Node& RootNode = BVHNodes.emplace_back();
+
+			RootNode.LeftChild = 0;
+			RootNode.RightChild = 0;
+			RootNode.StartIndex = 0;
+			RootNode.Length = Triangles.size() - 1;
+			RootNode.ParentNode = 0;
+			RootNode.IsLeftNode = false;
+			RootNode.NodeBounds = Bounds(InitialMin, InitialMax);
+
+			// Recursively construct 
+			BuildNode(&RootNode);
+
+			// Output debug stats 
+
+			std::cout << "\n\n\n";
+			std::cout << "--BVH Construction Info--";
+			std::cout << "Triangle Count : " << Triangles.size();
+			std::cout << "Node Count : " << Triangles.size();
+			std::cout << "\n\n\n";
+
+			return &RootNode;
+
+
+		}
+
 	}
+
+
+
+
 }

@@ -24,6 +24,15 @@ namespace Lumen
 		}
 	}
 
+	void Object::ClearCPUSideData()
+	{
+		for (auto& e : m_Meshes)
+		{
+			e.m_Indices.clear();
+			e.m_Vertices.clear();
+		}
+	}
+
 	Mesh& Object::GenerateMesh()
 	{
 		m_Meshes.emplace_back(m_Meshes.size());

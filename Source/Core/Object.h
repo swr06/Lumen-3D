@@ -52,6 +52,8 @@ namespace Lumen
 		//Uploads the vertex data to the GPU
 		void Buffer();
 
+		void ClearCPUSideData();
+
 		// Generates a mesh and returns a reference to that mesh
 		Mesh& GenerateMesh();
 		inline uint32_t GetID() const noexcept { return m_ObjectID; }
@@ -59,5 +61,6 @@ namespace Lumen
 		const uint32_t m_ObjectID;
 		std::vector<Mesh> m_Meshes;
 		friend void FileLoader::ProcessAssimpMesh(aiMesh* mesh, const aiScene* scene, Object* object, const std::string& pth, const glm::vec4& col, const glm::vec3& reflectivity);
+	
 	};
 }

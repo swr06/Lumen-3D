@@ -15,6 +15,8 @@
 #include "ShadowRenderer.h"
 #include "GLClasses/CubeTextureMap.h"
 
+#include "BVH/BVHConstructor.h"
+
 #include "ProbeMap.h"
 
 #include "TAAJitter.h"
@@ -369,7 +371,9 @@ void Lumen::StartPipeline()
 	SecondaryEntity5.m_Model = glm::translate(SecondaryEntity5.m_Model, glm::vec3(-50, 3.0f, 0.0f) * (1.0f / (EntityScale * 0.5f)));
 	SecondaryEntity5.m_EmissiveAmount = 10.0f;
 
+	// Construct BVH
 
+	BVH::Node* SponzaRootBVHNode = BVH::BuildBVH(Sponza);
 
 
 	std::vector<Entity*> EntityRenderList = { &MainModel, &SecondaryEntity, &SecondaryEntity0, &SecondaryEntity1, &SecondaryEntity2, &SecondaryEntity3, &SecondaryEntity4, &SecondaryEntity5 };
@@ -378,7 +382,7 @@ void Lumen::StartPipeline()
 	// Data object initialization 
 	GLClasses::VertexBuffer ScreenQuadVBO;
 	GLClasses::VertexArray ScreenQuadVAO;
-	GLClasses::DepthBuffer Shadowmap(3584, 3584);
+	GLClasses::DepthBuffer Shadowmap(4096, 4096);
 	GLClasses::Texture BlueNoise;
 	GLClasses::CubeTextureMap Skymap;
 
