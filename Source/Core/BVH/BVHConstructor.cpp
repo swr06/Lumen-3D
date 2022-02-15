@@ -222,7 +222,7 @@ namespace Lumen {
 			std::cout << "\n\n\n";
 			std::cout << "--BVH Construction Info--";
 			std::cout << "Triangle Count : " << Triangles.size();
-			std::cout << "Node Count : " << Triangles.size();
+			std::cout << "Node Count : " << BVHNodes.size();
 			std::cout << "\n\n\n";
 
 			return &RootNode;

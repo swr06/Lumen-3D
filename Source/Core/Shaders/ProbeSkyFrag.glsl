@@ -21,17 +21,18 @@ vec3 GetRayDirectionAt(vec2 txc)
 
 void main()
 {
+	discard;
+
 	vec3 rd = normalize(GetRayDirectionAt(v_TexCoords));
 	
 	float Depth = texture(u_Mask, rd).x;
-	
 
 	if (Depth == 0.0f) {
 	
-		o_AlbedoRoughness.xyz = vec3(4.0f);// sqrt(texture(u_EnvironmentMap, rd).xyz) * 2.6f;
+		o_AlbedoRoughness.xyz = pow(texture(u_EnvironmentMap, rd).xyz, vec3(2.0f));
 		o_AlbedoRoughness.w = 0.0f;
 	
-		o_Depth = 270.0f / 128.0f;
+		o_Depth = 1500.0f;
 	
 		o_NormalMetalness = vec4(0.0f);
 	}

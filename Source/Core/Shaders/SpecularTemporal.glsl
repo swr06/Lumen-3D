@@ -98,6 +98,7 @@ void main() {
         const float DepthWeightStrength = 1.6f;
         TemporalBlur *= pow(exp(-ErrorSurface), 128.0f);
 
+
         TemporalBlur = clamp(TemporalBlur, 0.0f, 0.96f);
         o_Color = mix(Current, History, TemporalBlur);
     }

@@ -55,6 +55,7 @@ uniform vec3 u_ProbeCapturePoints[6];
 uniform vec3 u_Incident;
 
 uniform sampler2D u_Depth;
+uniform sampler2D u_LowResDepth;
 uniform sampler2D u_Normals;
 uniform sampler2D u_LFNormals;
 uniform sampler2D u_PBR;
@@ -71,8 +72,10 @@ uniform bool u_Checker;
 // Contains all data necessary to integrate lighting for a point 
 struct GBufferData {
    vec3 Position;
+   float Depth;
    vec3 Normal;
    vec3 Albedo;
+   vec3 Emission;
    vec3 Data;
    bool ValidMask;
    bool Approximated;
@@ -245,34 +248,31 @@ vec3 CosWeightedHemisphere(const vec3 n)
 }
 
 
-const float EmissiveDesat = 0.15f;
-const float EmissionStrength = 96.0f;
+const float EmissiveDesat = 0.9f;
+const float EmissionStrength = 7.25f;
 
 GBufferData Raytrace(vec3 Incident, vec3 WorldPosition, vec3 Normal, vec3 LFNormal, float ErrorTolerance, float Hash, out vec3 MicrofacetReflected) {
    
     // If enabled, the raytracer returns the nearest hit which is approximated using a weighting factor 
-    const bool FALLBACK_ON_BEST_STEP = true;
-
+    const bool FALLBACK_ON_BEST_STEP = false;
 
     // Bias 
-    WorldPosition = (WorldPosition + LFNormal * 2.0f);
+    WorldPosition = (WorldPosition + LFNormal * 2.2f);
 
     // Settings 
-    const float Distance = 512.0f;
-    const int Steps = 160;
-    const int BinarySteps = 20;
-
+    const float Distance = 384.0f;
+    const int Steps = 180;
+    const int BinarySteps = 16;
 
     float StepSize = Distance / float(Steps);
     float UnditheredStepSize = StepSize;
-    StepSize *= mix(Hash * 1.0f, 1.0f, 0.75f);
 
     vec3 ReflectionVector = normalize(reflect(Incident, Normal)); //CosWeightedHemisphere(LFNormal); 
     vec3 ReflectionVectorLF = normalize(reflect(Incident, LFNormal));
     
     MicrofacetReflected = ReflectionVector;
 
-    vec3 RayPosition = WorldPosition + ReflectionVectorLF * StepSize * 0.5f;
+    vec3 RayPosition = WorldPosition + ReflectionVectorLF * Hash;
     vec3 RayOrigin = RayPosition;
 
     vec3 TraceColor = vec3(0.0f);
@@ -283,17 +283,22 @@ GBufferData Raytrace(vec3 Incident, vec3 WorldPosition, vec3 Normal, vec3 LFNorm
 
     // Exponential stepping 
     int ExponentialStepStart = Steps - (Steps / 4);
-    float ExpStep = mix(1.0f, 1.7f, mix(Hash, 1.0f, 0.2f));
+    float ExpStep = 1.04f;//mix(1.0f, 1.4f, mix(Hash, 1.0f, 0.2f));
 
     // Approximate hits when we can't find an accurate intersection with the geometry 
     vec3 BestSampleDirection = RayPosition;
     float BestRayWeight = -10.0f;
-    
+
+    float PrevRayDepth = 0.0f;
+    float PrevStepSampleDepth = 0.0f;
+
+    int NumExpSteps = 0;
+
     // Find intersection with geometry 
     // Todo : Account for geometrical thickness?
     for (int CurrentStep = 0; CurrentStep < Steps ; CurrentStep++) 
     {
-        if (CurrentStep > ExponentialStepStart) {
+        if (CurrentStep > Steps / 4) {
             StepSize *= ExpStep;
         }
 
@@ -302,26 +307,35 @@ GBufferData Raytrace(vec3 Incident, vec3 WorldPosition, vec3 Normal, vec3 LFNorm
         float L = length(Diff);
         vec3 SampleDirection = Diff / L;
         PreviousSampleDirection = SampleDirection;
-        vec3 SamplePosition = SampleDirection * (texture(u_ProbeDepth, SampleDirection).x * 128.0f);
-        vec3 SampleWorldPosition = SamplePosition + CapturePoint;
-        float Error = DistanceSqr(SampleWorldPosition, RayPosition); 
+        float ProbeDepth = (texture(u_ProbeDepth, SampleDirection).x * 128.0f);
 
-        float IntersectionThresh = StepSize * 1.5f;//mix(StepSize * 0.6f, StepSize * 1.5f, clamp(float(CurrentStep) * (1.0f / 12.0f), 0.0f, 1.0f));
+        float DepthError = abs(ProbeDepth - L);
 
-        if (Error < IntersectionThresh * ErrorTolerance) {
+        float ThresholdCurr = abs(L - PrevRayDepth); 
+        ThresholdCurr = (clamp(ThresholdCurr * 7.0f, 0.01f, Distance) * ErrorTolerance);
+
+        bool AccurateishHit = DepthError < ThresholdCurr;
+        bool DistanceHitWeight = DepthError < 8.0f;
+        //bool DistanceBasedHit = DepthError < ErrorTolerance * length(StepSize) * 2.5f;
+
+        if (L > ProbeDepth && AccurateishHit) {
              FoundHit = true;
              break;
         }
 
-        // Compute ray weighting factor 
-        float RayWeight = pow(1.0f / float(CurrentStep + 1.0f), 6.0f) * pow(1.0f / max(Error, 0.00000001f), 8.725f);
+        if (FALLBACK_ON_BEST_STEP) {
+            // Compute ray weighting factor 
+            float RayWeight = pow(1.0f / float(CurrentStep + 1.0f), 6.0f) * pow(1.0f / max(abs(ProbeDepth - L), 0.00000001f), 8.725f);
 
-        // Weight rays
-        if (RayWeight > BestRayWeight) {
-            BestSampleDirection = SampleDirection;
-            BestRayWeight = RayWeight;
+            // Weight rays
+            if (RayWeight > BestRayWeight) {
+                BestSampleDirection = SampleDirection;
+                BestRayWeight = RayWeight;
+            }
         }
 
+        PrevRayDepth = L;
+        PrevStepSampleDepth = ProbeDepth;
         RayPosition += ReflectionVector * StepSize;
         
     }
@@ -337,7 +351,7 @@ GBufferData Raytrace(vec3 Incident, vec3 WorldPosition, vec3 Normal, vec3 LFNorm
 
         if (DoBinaryRefinement) {
 
-            float BR_StepSize = UnditheredStepSize / 2.0f;
+            float BR_StepSize = StepSize / 2.0f;
             FinalBinaryRefinePos = FinalBinaryRefinePos - ReflectionVector * BR_StepSize;
 
             for (int BinaryRefine = 0 ; BinaryRefine < BinarySteps; BinaryRefine++) 
@@ -365,26 +379,34 @@ GBufferData Raytrace(vec3 Incident, vec3 WorldPosition, vec3 Normal, vec3 LFNorm
         }
 
         vec3 CapturePoint = GetCapturePoint(PreviousSampleDirection);
-        vec3 FinalSampleDirection = normalize(FinalBinaryRefinePos - CapturePoint);
+        vec3 FinalVector = FinalBinaryRefinePos - CapturePoint;
+        float FinalLength = length(FinalVector);
+        vec3 FinalSampleDirection = FinalVector / FinalLength;
 
-        // Return 
+
+        float DepthFetch = textureLod(u_ProbeDepth, FinalSampleDirection, 0.0f).x * 128.0f;
         vec4 AlbedoFetch = textureLod(u_ProbeAlbedo, FinalSampleDirection, 0.0f);
         vec4 NormalFetch = textureLod(u_ProbeNormals, FinalSampleDirection, 0.0f);
-        float DepthFetch = textureLod(u_ProbeDepth, FinalSampleDirection, 0.0f).x * 128.0f;
+
+        float Fade = clamp(pow(exp(-(abs(DepthFetch-FinalLength))), 1.5f), 0.0f, 1.0f);
+        float FadeStrong = clamp(pow(exp(-(abs(DepthFetch-FinalLength))), 4.0f), 0.0f, 1.0f);
 
         GBufferData ReturnValue;
         ReturnValue.Position = (CapturePoint + DepthFetch * FinalSampleDirection);
         ReturnValue.Normal = NormalFetch.xyz;
-        ReturnValue.Albedo = AlbedoFetch.xyz;
+        ReturnValue.Albedo = AlbedoFetch.xyz * mix(0.0f, 0.5f, Fade);
         ReturnValue.Data = vec3(AlbedoFetch.w, 0.0f, 1.0f);
 
         // Emission
-        ReturnValue.Albedo += Saturation(ReturnValue.Albedo, EmissiveDesat) * NormalFetch.w * EmissionStrength;
+
+        ReturnValue.Emission = Saturation( AlbedoFetch.xyz, EmissiveDesat) * NormalFetch.w * 1.0f * EmissionStrength * FadeStrong;
 
         ReturnValue.ValidMask = true;
         ReturnValue.Approximated = false;
 
         ReturnValue.SSR = false;
+
+        ReturnValue.Depth = DepthFetch;
 
         return ReturnValue;
 
@@ -406,10 +428,12 @@ GBufferData Raytrace(vec3 Incident, vec3 WorldPosition, vec3 Normal, vec3 LFNorm
         ReturnValue.Data = vec3(AlbedoFetch.w, 0.0f, 1.0f);
 
         // Emission
-        ReturnValue.Albedo += Saturation(ReturnValue.Albedo, EmissiveDesat) * NormalFetch.w * EmissionStrength;
+        ReturnValue.Emission = Saturation(ReturnValue.Albedo, EmissiveDesat) * NormalFetch.w * 8.0f * EmissionStrength;
         ReturnValue.ValidMask = true;
         ReturnValue.Approximated = true;
         ReturnValue.SSR = false;
+
+        ReturnValue.Depth = -1.;
 
         return ReturnValue;
 
@@ -427,14 +451,15 @@ GBufferData Raytrace(vec3 Incident, vec3 WorldPosition, vec3 Normal, vec3 LFNorm
     ReturnValue.ValidMask = false;
     ReturnValue.Approximated = true;
     ReturnValue.SSR = false;
+    ReturnValue.Depth = -1.;
+    ReturnValue.Emission = vec3(0.0f);
 
     return ReturnValue;
 }
 
-GBufferData ScreenspaceRaytrace(vec3 Incident, vec3 Origin, vec3 Normal, vec3 LFNormal, float ThresholdMultiplier, float Hash, out vec3 MicrofacetReflected)
+GBufferData ScreenspaceRaytrace(vec3 Incident, vec3 Origin, vec3 Normal, vec3 LFNormal, float ThresholdMultiplier, float Hash, out vec3 MicrofacetReflected, int Steps)
 {
-    const float RayDistance = 38.0f;
-    const int Steps = 16;
+    const float Distance = 196.0f;
 
     GBufferData ReturnValue;
     ReturnValue.Position = Origin;
@@ -444,16 +469,22 @@ GBufferData ScreenspaceRaytrace(vec3 Incident, vec3 Origin, vec3 Normal, vec3 LF
     ReturnValue.ValidMask = false;
     ReturnValue.Approximated = true;
     ReturnValue.SSR = true;
+    ReturnValue.Depth = -1.;
+    ReturnValue.Emission = vec3(0.0f);
 
     vec3 Direction = normalize(reflect(Incident, Normal));
     MicrofacetReflected = Direction;
-	vec3 StepVector = (Direction * RayDistance) / float(Steps); 
-	vec3 RayPosition = Origin + StepVector * Hash; 
+    float StepSize = float(Distance) / float(Steps);
+	vec3 RayPosition = Origin + Direction * StepSize * Hash; 
 	vec2 FinalUV = vec2(-1.0f);
+
+    float ExpStep = 1.05f;// mix(1.075f, 1.5f, float(Hash));
 
 	for(int CurrentStep = 0; CurrentStep < Steps; CurrentStep++) 
 	{
-		float Threshold = length(StepVector) * ThresholdMultiplier;
+        float ToleranceStep = mix(2.2f, 6.0f, pow(float(CurrentStep) / float(Steps), 1.5f));
+
+		float Threshold = StepSize * ThresholdMultiplier * ToleranceStep;
 		
 		vec3 ProjectedRayScreenspace = ProjectToClipSpace(RayPosition); 
 		
@@ -469,7 +500,7 @@ GBufferData ScreenspaceRaytrace(vec3 Incident, vec3 Origin, vec3 Normal, vec3 LF
 			return ReturnValue;
 		}
 		
-		float DepthAt = texture(u_Depth, ProjectedRayScreenspace.xy).x; 
+		float DepthAt = texture(u_LowResDepth, ProjectedRayScreenspace.xy).x; 
 		float CurrentRayDepth = LinearizeDepth(ProjectedRayScreenspace.z); 
 		float Error = abs(LinearizeDepth(DepthAt) - CurrentRayDepth);
 		
@@ -484,14 +515,13 @@ GBufferData ScreenspaceRaytrace(vec3 Incident, vec3 Origin, vec3 Normal, vec3 LF
             float FinalDepth = 0.0f;
 
             if (DoBinaryRefinement) {
-			    vec3 BinaryStepVector = StepVector / 2.0f;
+			    vec3 BinaryStepVector = (Direction * StepSize) / 2.0f;
 
                 RayPosition -= BinaryStepVector;
 
-			    for (int BinaryStep = 0 ; BinaryStep < 7 ; BinaryStep++) {
+			    for (int BinaryStep = 0 ; BinaryStep < 16 ; BinaryStep++) {
 			    		
 			    	BinaryStepVector /= 2.0f;
-
 			    	vec3 Projected = ProjectToClipSpace(RayPosition); 
 			    	Projected = Projected * 0.5f + 0.5f;
                     FinalProjected = Projected;
@@ -526,17 +556,19 @@ GBufferData ScreenspaceRaytrace(vec3 Incident, vec3 Origin, vec3 Normal, vec3 LF
             ReturnValue.Albedo = texture(u_Albedos, FinalProjected.xy).xyz;
             vec4 PBR = texture(u_PBR, FinalProjected.xy).xyzw;
             ReturnValue.Data = vec3(0.0f, 0.0f, 1.0f);
-            ReturnValue.Albedo += Saturation(ReturnValue.Albedo, EmissiveDesat) * PBR.w * EmissionStrength;
+            ReturnValue.Emission = Saturation(ReturnValue.Albedo, EmissiveDesat) * PBR.w * EmissionStrength;
             ReturnValue.ValidMask = true;
             ReturnValue.Approximated = false;
             ReturnValue.SSR = true;
+            ReturnValue.Depth = FinalDepth;
 
             return ReturnValue;
 		}
 
         // Step 
-		RayPosition += StepVector; 
+		RayPosition += StepSize * Direction; 
 
+        StepSize *= ExpStep;
 	}
 
 	return ReturnValue;
@@ -551,6 +583,13 @@ vec3 IntegrateLighting(GBufferData Hit, vec3 Direction, const bool FilterShadow)
         return vec3(0.0f);
        // return texture(u_EnvironmentMap, Direction).xyz * 0.3f;
     }
+
+    if (Hit.Depth > 1498.0f && !Hit.SSR) {
+        
+        return pow(Hit.Albedo, vec3(1.0f / 1.3f)) * 1.4f;
+
+    }
+
 
     float Shadow = 0.0f; 
 
@@ -599,7 +638,7 @@ vec3 IntegrateLighting(GBufferData Hit, vec3 Direction, const bool FilterShadow)
     float Lambertian = max(0.0f, dot(Hit.Normal, -u_SunDirection));
     vec3 Direct = Lambertian * SUN_COLOR * 0.07f * Shadow * Hit.Albedo * mix(1.0f, 3.0f, float(Hit.SSR));
     vec3 FakeIndirect = texture(u_EnvironmentMap, vec3(0.0f, 1.0f, 0.0f)).xyz * 0.2f * Hit.Albedo;
-    return Direct + FakeIndirect;
+    return Direct + FakeIndirect + Hit.Emission;
 }
 
 // Temporal upscale offsets 
@@ -676,16 +715,16 @@ void main() {
 
     // Sample gbuffers 
 	vec3 WorldPosition = WorldPosFromDepth(Depth, HighResUV);
-    vec3 Normal = texelFetch(u_Normals, HighResPixel, 0).xyz; 
-    vec3 LFNormal = texelFetch(u_LFNormals, HighResPixel, 0).xyz; 
+    vec3 Normal = normalize(texelFetch(u_Normals, HighResPixel, 0).xyz); 
+    vec3 LFNormal = normalize(texelFetch(u_LFNormals, HighResPixel, 0).xyz); 
     vec3 PBR = texelFetch(u_PBR, HighResPixel, 0).xyz;
     vec3 Incident = normalize(WorldPosition - u_Incident);
 
     float Roughness = u_RoughSpecular ? PBR.x : 0.0f;
 
-    // Intersection tolerance 
-    float Tolerance = mix(1.0, 2.5f, pow(Roughness, 1.5f));
-    float ToleranceSS = mix(0.00175, 0.0055f, pow(Roughness, 1.7f));
+    // Intersection tolerance (Rougher surfaces can have less accurate reflections with a less noticable quality loss)
+    float Tolerance = 1.0f;//mix(1.0, 1.8f, pow(Roughness, 1.5f));
+    float ToleranceSS = 0.001f;//mix(0.00145f, 0.04, Roughness * Roughness);
 
     // Sample integration
     vec3 TotalRadiance = vec3(0.0f);
@@ -693,13 +732,15 @@ void main() {
     float TotalWeight = 0.0f;
 
     // Bias roughness (to reduce noise)
-    const float RoughnessBias = 0.9f;
+    const float RoughnessBias = 0.98f;
     // Epic remapping -> //float BiasedRoughness = clamp(pow((Roughness * RoughnessBias) + 1.0f, 2.0f) / 8.0f, 0.0f, 1.0f); 
     float BiasedRoughness = pow(Roughness, 1.25f) * RoughnessBias; 
    
     bool FilterShadowMap = Roughness <= 0.5 + 0.01f;
 
     bool DoScreenspaceTrace = true;
+
+    int SSSteps = BiasedRoughness <= 0.69f + 0.01f ? (BiasedRoughness <= 0.075f ? 54 : 48) : (BiasedRoughness > 0.9f ? 24 : 32); // nice
 
 
     for (int Sample ; Sample < SAMPLES ; Sample++) {
@@ -725,10 +766,11 @@ void main() {
 
         if (DoScreenspaceTrace) {
             // Trace in screen space 
-            Intersection = ScreenspaceRaytrace(Incident, WorldPosition + LFNormal * 0.8f, Microfacet, LFNormal, ToleranceSS, BayerHash, ReflectedDirection);
+            Intersection = ScreenspaceRaytrace(Incident, WorldPosition + LFNormal * 0.9f, Microfacet, LFNormal, ToleranceSS, BayerHash, ReflectedDirection, SSSteps);
             
             // If that fails, trace in probe space  
             if (!Intersection.ValidMask) {
+
                 Intersection = Raytrace(Incident, WorldPosition, Microfacet, LFNormal, Tolerance, BayerHash, ReflectedDirection);
             }
         }

@@ -34,6 +34,9 @@ uniform float u_RTAOStrength;
 
 uniform vec2 u_Dims;
 
+uniform vec3 u_ProbeCapturePoints[6];
+
+
 const vec3 SUN_COLOR = vec3(6.9f, 6.9f, 10.0f);
 vec3 CookTorranceBRDF(vec3 world_pos, vec3 light_dir, vec3 radiance, vec3 albedo, vec3 normal, vec2 rm, float shadow);
 float FilterShadows(vec3 WorldPosition, vec3 N);
@@ -193,6 +196,33 @@ void SpatialUpscale(float Depth, vec3 Normal, float Roughness, out float AO, out
 	ContactShadow /= TotalWeight;
 }
 
+int GetFaceID(vec3 Direction)
+{
+    vec3 AbsoluteDirection = abs(Direction);
+    float Index = 0.0f;
+
+	if(AbsoluteDirection.z >= AbsoluteDirection.x && AbsoluteDirection.z >= AbsoluteDirection.y)
+	{
+		Index = Direction.z < 0.0 ? 5.0 : 4.0;
+	}
+
+	else if(AbsoluteDirection.y >= AbsoluteDirection.x)
+	{
+		Index = Direction.y < 0.0 ? 3.0 : 2.0;
+	}
+
+	else
+	{
+		Index = Direction.x < 0.0 ? 1.0 : 0.0;
+	}
+
+    return int(Index);
+}
+
+vec3 GetCapturePoint(vec3 Direction) {
+    return u_ProbeCapturePoints[clamp(GetFaceID(Direction) ,0,5)];
+}
+
 void main() 
 {	
 	float Depth = texture(u_DepthTexture, v_TexCoords).r;
@@ -226,6 +256,7 @@ void main()
 	vec3 SpecularIndirect;
 
 	SpatialUpscale(LinearizeDepth(Depth), Normal, PBR.x, AO, ScreenspaceShadow, SpecularIndirect);
+	SpecularIndirect = SpecularIndirect * 1.1f;
 
 	// Direct lighting ->
 	float Shadowmap = FilterShadows(WorldPosition, Normal);
@@ -242,7 +273,6 @@ void main()
 
 	AO =  clamp(pow(AO, u_RTAOStrength * 4.0f), 0.001f, 1.0f);
 	vec3 IndirectDiffuse = (AmbientTerm * AO * TextureAO);
-	vec3 IndirectSpecular = SpecularIndirect * 3.0f;
 
 	float Roughness = PBR.x;
 	
@@ -271,6 +301,7 @@ void main()
 	// Combine indirect diffuse and indirect specular 
     vec3 IndirectLighting = (kD * IndirectDiffuse) + IndirectSpecularFinal;
 
+    vec3 sLo = normalize(GetCapturePoint(Lo) - WorldPosition);
 	o_Color = DirectLighting + Emission + IndirectLighting;
 
 	// Nan/inf check

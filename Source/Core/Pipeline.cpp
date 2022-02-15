@@ -259,9 +259,9 @@ void RenderProbe(Lumen::ProbeMap& probe, int face, glm::vec3 center, const std::
 	shader.SetInteger("u_MetalnessRoughnessMap", 5);
 	RenderEntityList(EntityList, shader);
 
-	glDisable(GL_CULL_FACE);
-	glDisable(GL_DEPTH_TEST);
-
+	//glDisable(GL_CULL_FACE);
+	//glDisable(GL_DEPTH_TEST);
+	//
 	//ProbeSkyShader.Use();
 	//ProbeSkyShader.SetInteger("u_EnvironmentMap", 0);
 	//ProbeSkyShader.SetInteger("u_Mask", 1);
@@ -294,6 +294,9 @@ GLClasses::Framebuffer GBuffers[2] = { GLClasses::Framebuffer(16, 16, { {GL_RGB1
 
 // Lighting 
 GLClasses::Framebuffer LightingPass(16, 16, {GL_RGB16F, GL_RGB, GL_FLOAT, true, true}, false, false);
+
+// Downsampled buffers
+GLClasses::Framebuffer DownsampledDepth4x(16, 16, {GL_R32F, GL_RED, GL_FLOAT, true, true}, false, false);
 
 // AO, Screenspace shadows 
 GLClasses::Framebuffer ScreenspaceOcclusion(16, 16, { { GL_RED, GL_RED, GL_UNSIGNED_BYTE, true, true } , { GL_RED, GL_RED, GL_UNSIGNED_BYTE, true, true }}, false, false);
@@ -373,11 +376,19 @@ void Lumen::StartPipeline()
 
 	// Construct BVH
 
-	BVH::Node* SponzaRootBVHNode = BVH::BuildBVH(Sponza);
+	//BVH::Node* SponzaRootBVHNode = BVH::BuildBVH(Sponza);
 
-
+	// Entity list
 	std::vector<Entity*> EntityRenderList = { &MainModel, &SecondaryEntity, &SecondaryEntity0, &SecondaryEntity1, &SecondaryEntity2, &SecondaryEntity3, &SecondaryEntity4, &SecondaryEntity5 };
 	auto& EntityList = EntityRenderList;
+
+	// Clear CPU side vertex/index data (After bvh construction ofc.) 
+	std::vector<Object*> ObjectList = { &Sponza, &SecondaryLargeModel, &SecondaryModel };
+	
+	for (auto& e : ObjectList) {
+		e->ClearCPUSideData();
+	}
+	
 
 	// Data object initialization 
 	GLClasses::VertexBuffer ScreenQuadVBO;
@@ -443,6 +454,8 @@ void Lumen::StartPipeline()
 	GLClasses::Shader& RedOutputShader = ShaderManager::GetShader("RED");
 	GLClasses::Shader& ConeTraceConvolutionShader = ShaderManager::GetShader("CONE_TRACE_CONVOLVE");
 
+	GLClasses::Shader& DepthDownsampleShader = ShaderManager::GetShader("DEPTH_DOWNSAMPLE_4X");
+
 	// History
 	glm::mat4 PreviousView;
 	glm::mat4 PreviousProjection;
@@ -452,7 +465,7 @@ void Lumen::StartPipeline()
 	glm::mat4 InverseProjection;
 
 	// Probe Setup
-	ProbeMap PlayerProbe(192);
+	ProbeMap PlayerProbe(128);
 	glm::vec3 PlayerProbeCapturePoint;
 
 	// Temporal jitter
@@ -489,6 +502,8 @@ void Lumen::StartPipeline()
 		// Resize buffers (to maintain aspect ratio)
 		GBuffers[0].SetSize(app.GetWidth(), app.GetHeight());
 		GBuffers[1].SetSize(app.GetWidth(), app.GetHeight());
+
+		DownsampledDepth4x.SetSize(app.GetWidth() / 2, app.GetHeight() / 2);
 
 		// Light combine (Direct + Indirect)
 		LightingPass.SetSize(app.GetWidth(), app.GetHeight());
@@ -546,7 +561,7 @@ void Lumen::StartPipeline()
 
 		for (int i = 0; i < ProbeUpdateRate; i++)
 		{
-			int RenderFace = ((app.GetCurrentFrame() % (6 / ProbeUpdateRate)) * ProbeUpdateRate) + i;
+			int RenderFace = (((app.GetCurrentFrame() * ProbeUpdateRate) + i) % 6);
 			RenderProbe(PlayerProbe, RenderFace, PlayerProbeCapturePoint, EntityList, ProbeForwardShader, Skymap.GetID(), ScreenQuadVAO);
 		}
 
@@ -602,6 +617,22 @@ void Lumen::StartPipeline()
 		glDisable(GL_CULL_FACE);
 		glDisable(GL_DEPTH_TEST);
 
+		// Downsample Depth (4x) to optimize screen space trace 
+
+		DepthDownsampleShader.Use();
+		DownsampledDepth4x.Bind();
+
+		DepthDownsampleShader.SetInteger("u_Depth", 0);
+
+		glActiveTexture(GL_TEXTURE0);
+		glBindTexture(GL_TEXTURE_2D, GBuffer.GetDepthBuffer());
+
+		ScreenQuadVAO.Bind();
+		glDrawArrays(GL_TRIANGLES, 0, 6);
+		ScreenQuadVAO.Unbind();
+
+		DownsampledDepth4x.Unbind();
+
 		// Specular Indirect lighting trace :
 
 		SpecularIndirect.Bind();
@@ -617,6 +648,7 @@ void Lumen::StartPipeline()
 		ProbeSpecularShader.SetInteger("u_Shadowmap", 8);
 		ProbeSpecularShader.SetInteger("u_LFNormals", 9);
 		ProbeSpecularShader.SetInteger("u_Albedos", 11);
+		ProbeSpecularShader.SetInteger("u_LowResDepth", 12);
 		ProbeSpecularShader.SetInteger("u_Frame", app.GetCurrentFrame());
 		ProbeSpecularShader.SetBool("u_RoughSpecular", RoughSpecular);
 		ProbeSpecularShader.SetBool("u_Checker", SpecularCheckerboard);
@@ -661,6 +693,9 @@ void Lumen::StartPipeline()
 
 		glActiveTexture(GL_TEXTURE11);
 		glBindTexture(GL_TEXTURE_2D, GBuffer.GetTexture(0));
+		
+		glActiveTexture(GL_TEXTURE12);
+		glBindTexture(GL_TEXTURE_2D, DownsampledDepth4x.GetTexture());
 
 		ScreenQuadVAO.Bind();
 		glDrawArrays(GL_TRIANGLES, 0, 6);
@@ -964,6 +999,12 @@ void Lumen::StartPipeline()
 
 		LightingShader.SetVector3f("u_LightDirection", SunDirection);
 		LightingShader.SetVector3f("u_ViewerPosition", Camera.GetPosition());
+
+		
+		for (int i = 0; i < 6; i++) {
+			std::string name = "u_ProbeCapturePoints[" + std::to_string(i) + "]";
+			LightingShader.SetVector3f(name.c_str(), PlayerProbe.CapturePoints[i]);
+		}
 
 		SetCommonUniforms(LightingShader, UniformBuffer);
 		

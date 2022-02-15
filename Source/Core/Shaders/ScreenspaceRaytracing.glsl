@@ -367,7 +367,7 @@ void main() {
 	}
 
 	vec3 WorldPosition = WorldPosFromDepth(Depth, HighResUV);
-    vec3 Normal = texelFetch(u_Normals, HighResPixel, 0).xyz; 
+    vec3 Normal = normalize(texelFetch(u_Normals, HighResPixel, 0).xyz); 
 	float LinearizedDepth = LinearizeDepth(Depth);
 
 	vec3 ViewDirection = normalize(WorldPosition - u_InverseView[3].xyz);
@@ -391,7 +391,7 @@ void main() {
 	float SqrtNDotV = sqrt(NDotV);
 
 	float BiasAO = mix(0.75f, 0.3f, SqrtNDotV);
-	float BiasDirect = mix(0.75f, 0.25f, SqrtNDotV);
+	float BiasDirect = 0.75f;//mix(0.75f, 0.25f, SqrtNDotV);
 
 	float IndirectAO = u_AO ? Raytrace(WorldPosition + Normal * BiasAO, AODirection, 24.0f, 52, 0.02f, BayerHash).y : 1.0f;
 	float DirectContactShadow = u_Shadow ? Raytrace(WorldPosition + Normal * BiasDirect, ContactShadowDirection, 24.0f, 96, 0.007f, BayerHash).y : 1.0f;
