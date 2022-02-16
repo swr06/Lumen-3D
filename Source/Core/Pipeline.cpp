@@ -304,7 +304,7 @@ GLClasses::Framebuffer ScreenspaceOcclusionCheckerboardConstruct(16, 16, { { GL_
 GLClasses::Framebuffer ScreenspaceOcclusionTemporalBuffers[2] = { GLClasses::Framebuffer(16, 16, { { GL_RED, GL_RED, GL_UNSIGNED_BYTE, true, true } , { GL_RED, GL_RED, GL_UNSIGNED_BYTE, true, true }}, false, false), GLClasses::Framebuffer(16, 16, { { GL_RED, GL_RED, GL_UNSIGNED_BYTE, true, true } , { GL_RED, GL_RED, GL_UNSIGNED_BYTE, true, true } }, false, false) };
 
 // Specular Indirect 
-GLClasses::Framebuffer SpecularIndirectBuffers[2]{ GLClasses::Framebuffer(16, 16, { {GL_RGB16F, GL_RGB, GL_FLOAT, true, true}, {GL_R16F, GL_RED, GL_FLOAT, true, true} }, false, false), GLClasses::Framebuffer(16, 16, { {GL_RGB16F, GL_RGB, GL_FLOAT, true, true}, {GL_R16F, GL_RED, GL_FLOAT, true, true} }, false, false) };
+GLClasses::Framebuffer SpecularIndirectBuffers[2]{ GLClasses::Framebuffer(16, 16, { {GL_RGBA16F, GL_RGBA, GL_FLOAT, true, true}, {GL_R16F, GL_RED, GL_FLOAT, true, true} }, false, false), GLClasses::Framebuffer(16, 16, { {GL_RGBA16F, GL_RGBA, GL_FLOAT, true, true}, {GL_R16F, GL_RED, GL_FLOAT, true, true} }, false, false) };
 GLClasses::Framebuffer SpecularIndirectCheckerUpscaled(16, 16, { {GL_RGB16F, GL_RGB, GL_FLOAT, true, true}, {GL_R16F, GL_RED, GL_FLOAT, true, true} }, false, false);
 GLClasses::Framebuffer SpecularIndirectTemporalBuffers[2] = { GLClasses::Framebuffer(16, 16, {GL_RGB16F, GL_RGB, GL_FLOAT, true, true}, false, false), GLClasses::Framebuffer(16, 16, {GL_RGB16F, GL_RGB, GL_FLOAT, true, true}, false, false) };
 GLClasses::Framebuffer SpecularIndirectConeTraceInput(16, 16, { GL_RGB16F, GL_RGB, GL_FLOAT, true, true }, false, false);
@@ -742,6 +742,8 @@ void Lumen::StartPipeline()
 		SpecularTemporalShader.SetInteger("u_Normals", 4);
 		SpecularTemporalShader.SetInteger("u_Transversals", 5);
 		SpecularTemporalShader.SetInteger("u_PrevTransversals", 6);
+		SpecularTemporalShader.SetInteger("u_PBR", 7);
+		SpecularTemporalShader.SetBool("u_RoughSpecular", RoughSpecular);
 		SetCommonUniforms(SpecularTemporalShader, UniformBuffer);
 
 		glActiveTexture(GL_TEXTURE0);
@@ -764,6 +766,9 @@ void Lumen::StartPipeline()
 
 		glActiveTexture(GL_TEXTURE6);
 		glBindTexture(GL_TEXTURE_2D, PrevSpecularIndirect.GetTexture(1));
+
+		glActiveTexture(GL_TEXTURE7);
+		glBindTexture(GL_TEXTURE_2D, GBuffer.GetTexture(2));
 
 		ScreenQuadVAO.Bind();
 		glDrawArrays(GL_TRIANGLES, 0, 6);

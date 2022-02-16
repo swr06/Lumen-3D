@@ -75,4 +75,5 @@ void main() {
 		o_Transversal = texelFetch(u_InputTransversal, PixelHalvedX, 0).x;
 	}
 
+	o_Data.w =o_Transversal;
 }

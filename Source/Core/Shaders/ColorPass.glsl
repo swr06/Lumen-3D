@@ -140,6 +140,12 @@ vec2 KarisEnvironmentBRDF(float NdotV, float roughness)
 	return vec2(-1.04, 1.04) * a004 + r.zw;
 }
 
+float Luminance(vec3 rgb)
+{
+    const vec3 W = vec3(0.2125, 0.7154, 0.0721);
+    return dot(rgb, W);
+}
+
 // Spatial upscaler 
 void SpatialUpscale(float Depth, vec3 Normal, float Roughness, out float AO, out float ContactShadow, out vec3 Specular) {
 
@@ -159,10 +165,15 @@ void SpatialUpscale(float Depth, vec3 Normal, float Roughness, out float AO, out
 	vec2 TexelSize = 1.0f / (u_Dims * 0.5f);
 
 	float TotalWeight = 0.0f;
+	float TotalSpecularWeight = 0.0f;
 
 	Specular = vec3(0.0f);
 	AO = 0.0f;
 	ContactShadow = 0.0f;
+
+	vec3 CenterSpecular = texture(u_ResolvedSpecular, v_TexCoords).xyz;
+
+	float Exponent = mix(2.75f, 1.0f, clamp(pow(Roughness, 1.5f), 0.0f, 1.0f));
 
 	for (int x = -1 ; x <= 1 ; x++) {
 
@@ -175,23 +186,30 @@ void SpatialUpscale(float Depth, vec3 Normal, float Roughness, out float AO, out
 			float SampleDepth = LinearizeDepth(texture(u_DepthTexture, SampleCoord).x);
 			vec3 SampleNormal = texture(u_NormalTexture, SampleCoord).xyz;
 
-			float DepthWeight = pow(exp(-abs(Depth - SampleDepth)), 150.0f);
-			float NormalWeight = pow(max(dot(SampleNormal, Normal), 0.0f), 16.0f);
+			float DepthWeight = pow(exp(-abs(Depth - SampleDepth)), 128.0f);
+			float NormalWeight = pow(max(dot(SampleNormal, Normal), 0.0f), 12.0f);
 
 			float Weight = DepthWeight * NormalWeight * KernelWeight;
 
-			Specular += texture(u_ResolvedSpecular, SampleCoord).xyz * Weight;
+			vec3 SpecularSample = ivec2(x,y) == ivec2(0) ? CenterSpecular : texture(u_ResolvedSpecular, SampleCoord).xyz;
+			//float LDiff = abs(Luminance(CenterSpecular) - Luminance(SpecularSample));
+			//float LWeight = pow(1.0f/(1.0f+LDiff*4.5f), Exponent);
+			float SpecWeight = DepthWeight * NormalWeight * KernelWeight; // * LWeight
+
+
+			Specular += SpecularSample * SpecWeight;
 			AO += texture(u_RTAO, SampleCoord).x * Weight;
 			ContactShadow += texture(u_ScreenspaceShadows, SampleCoord).x * Weight;
 
 			TotalWeight += Weight;
+			TotalSpecularWeight += SpecWeight;
 		}
 
 	}
 
 	TotalWeight = max(TotalWeight, 0.00001f);
 
-	Specular /= TotalWeight;
+	Specular /= TotalSpecularWeight;
 	AO /= TotalWeight;
 	ContactShadow /= TotalWeight;
 }
@@ -223,13 +241,15 @@ vec3 GetCapturePoint(vec3 Direction) {
     return u_ProbeCapturePoints[clamp(GetFaceID(Direction) ,0,5)];
 }
 
+const bool ProbeDebug = false;
+
 void main() 
 {	
 	float Depth = texture(u_DepthTexture, v_TexCoords).r;
 	vec3 rD = normalize(SampleIncidentRayDirection(v_TexCoords).xyz);
 
 	// Sky check
-	if (Depth > 0.99998f) {
+	if (Depth > 0.999995f && (!ProbeDebug)) {
 		vec3 Sample = texture(u_Skymap, rD).xyz;
 		o_Color = Sample*Sample;
 		return;
@@ -256,7 +276,7 @@ void main()
 	vec3 SpecularIndirect;
 
 	SpatialUpscale(LinearizeDepth(Depth), Normal, PBR.x, AO, ScreenspaceShadow, SpecularIndirect);
-	SpecularIndirect = SpecularIndirect * 1.1f;
+	SpecularIndirect = SpecularIndirect * 1.25f;
 
 	// Direct lighting ->
 	float Shadowmap = FilterShadows(WorldPosition, Normal);
@@ -278,6 +298,8 @@ void main()
 	
 	// Metalness is binary, so use a simple thresholding function
 	float Metalness = PBR.y > 0.04f ? 1.0f : 0.0f;
+
+	SpecularIndirect = mix(SpecularIndirect, SpecularIndirect * 1.8f, Metalness);
 
 	// F0 
 	vec3 F0 = mix(vec3(0.04f), Albedo, Metalness);
@@ -301,8 +323,13 @@ void main()
 	// Combine indirect diffuse and indirect specular 
     vec3 IndirectLighting = (kD * IndirectDiffuse) + IndirectSpecularFinal;
 
-    vec3 sLo = normalize(GetCapturePoint(Lo) - WorldPosition);
 	o_Color = DirectLighting + Emission + IndirectLighting;
+
+	if (ProbeDebug) {
+		vec3 sLo = -normalize(GetCapturePoint(Lo) - WorldPosition);
+		int FaceID = clamp(GetFaceID(sLo),0,5);
+		o_Color = vec3(pow(float(FaceID) / 5.0f, 2.0f));//texture(u_Probe, sLo).xyz;
+	}
 
 	// Nan/inf check
 	if (isnan(o_Color.x) || isnan(o_Color.y) || isnan(o_Color.z) || isinf(o_Color.x) || isinf(o_Color.y) || isinf(o_Color.z)) {

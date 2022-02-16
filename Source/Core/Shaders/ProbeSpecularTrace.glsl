@@ -22,7 +22,7 @@ float Bayer2(vec2 a)
     return fract(dot(a, vec2(0.5, a.y * 0.75)));
 }
 
-layout (location = 0) out vec3 o_Color;
+layout (location = 0) out vec4 o_SpecularIndirect;
 
 // Intersection transversal, used as an input to the temporal denoiser 
 // Can also be used to aid the spatial denoiser
@@ -163,7 +163,7 @@ vec3 SampleMicrofacet(vec3 N, float R) {
 	float NearestDot = -100.0f;
 	vec3 BestDirection = N;
 
-	for (int i = 0 ; i < 4 ; i++) 
+	for (int i = 0 ; i < 3 ; i++) 
     {
 		vec2 Xi = hash2() * vec2(0.9f, 0.85f);
         
@@ -248,8 +248,8 @@ vec3 CosWeightedHemisphere(const vec3 n)
 }
 
 
-const float EmissiveDesat = 0.9f;
-const float EmissionStrength = 7.25f;
+const float EmissiveDesat = 0.925f;
+const float EmissionStrength = 7.5f;
 
 GBufferData Raytrace(vec3 Incident, vec3 WorldPosition, vec3 Normal, vec3 LFNormal, float ErrorTolerance, float Hash, out vec3 MicrofacetReflected) {
    
@@ -340,11 +340,10 @@ GBufferData Raytrace(vec3 Incident, vec3 WorldPosition, vec3 Normal, vec3 LFNorm
         
     }
 
-
-    // Binary refine intersection point 
-
     if (FoundHit) 
     {
+        // Do a basic ssr-style binary search along intersection step and find best intersection point 
+
         const bool DoBinaryRefinement = true;
 
         vec3 FinalBinaryRefinePos = RayPosition;
@@ -365,16 +364,8 @@ GBufferData Raytrace(vec3 Incident, vec3 WorldPosition, vec3 Normal, vec3 LFNorm
                 PreviousSampleDirection = BR_SampleDirection;
 
                 float Depth = (texture(u_ProbeDepth, BR_SampleDirection).x * 128.0f);
-
-                if (Depth < L) 
-                {
-                    FinalBinaryRefinePos -= ReflectionVector * BR_StepSize;
-                }
-
-                else 
-                {
-                    FinalBinaryRefinePos += ReflectionVector * BR_StepSize;
-                }
+                float RaySign = (Depth < L) ? -1.0f : 1.0f;
+                FinalBinaryRefinePos += ReflectionVector * BR_StepSize * RaySign;
             }
         }
 
@@ -507,7 +498,7 @@ GBufferData ScreenspaceRaytrace(vec3 Incident, vec3 Origin, vec3 Normal, vec3 LF
         // Intersected!
 		if (Error < Threshold && ProjectedRayScreenspace.z > DepthAt) 
 		{
-			// Basic Binary refinement : 
+			// Binary search for best intersection point along ray step 
 
             bool DoBinaryRefinement = true;
 
@@ -516,16 +507,15 @@ GBufferData ScreenspaceRaytrace(vec3 Incident, vec3 Origin, vec3 Normal, vec3 LF
 
             if (DoBinaryRefinement) {
 			    vec3 BinaryStepVector = (Direction * StepSize) / 2.0f;
-
-                RayPosition -= BinaryStepVector;
-
-			    for (int BinaryStep = 0 ; BinaryStep < 16 ; BinaryStep++) {
+                RayPosition -= (Direction * StepSize) / 2.0f;
+			    
+                for (int BinaryStep = 0 ; BinaryStep < 16 ; BinaryStep++) {
 			    		
 			    	BinaryStepVector /= 2.0f;
 			    	vec3 Projected = ProjectToClipSpace(RayPosition); 
 			    	Projected = Projected * 0.5f + 0.5f;
                     FinalProjected = Projected;
-                    float Fetch = texture(u_Depth, Projected.xy).x;
+                    float Fetch = texture(u_LowResDepth, Projected.xy).x;
                     FinalDepth = Fetch;
 			    	float BinaryDepthAt = LinearizeDepth(Fetch); 
 			    	float BinaryRayDepth = LinearizeDepth(Projected.z); 
@@ -553,7 +543,7 @@ GBufferData ScreenspaceRaytrace(vec3 Incident, vec3 Origin, vec3 Normal, vec3 LF
             // Generate gbuffer data and return 
             ReturnValue.Position = WorldPosFromDepth(FinalDepth, FinalProjected.xy);
             ReturnValue.Normal = texture(u_Normals, FinalProjected.xy).xyz;
-            ReturnValue.Albedo = texture(u_Albedos, FinalProjected.xy).xyz;
+            ReturnValue.Albedo = texture(u_Albedos, FinalProjected.xy).xyz / 2.0f;
             vec4 PBR = texture(u_PBR, FinalProjected.xy).xyzw;
             ReturnValue.Data = vec3(0.0f, 0.0f, 1.0f);
             ReturnValue.Emission = Saturation(ReturnValue.Albedo, EmissiveDesat) * PBR.w * EmissionStrength;
@@ -584,12 +574,14 @@ vec3 IntegrateLighting(GBufferData Hit, vec3 Direction, const bool FilterShadow)
        // return texture(u_EnvironmentMap, Direction).xyz * 0.3f;
     }
 
+    // Sky 
     if (Hit.Depth > 1498.0f && !Hit.SSR) {
         
         return pow(Hit.Albedo, vec3(1.0f / 1.3f)) * 1.4f;
 
     }
 
+    Hit.Normal = normalize(Hit.Normal);
 
     float Shadow = 0.0f; 
 
@@ -636,7 +628,7 @@ vec3 IntegrateLighting(GBufferData Hit, vec3 Direction, const bool FilterShadow)
     // Lambert BRDF  
     // Todo : Switch to hammon diffuse brdf (ignore specular brdf to reduce variance)
     float Lambertian = max(0.0f, dot(Hit.Normal, -u_SunDirection));
-    vec3 Direct = Lambertian * SUN_COLOR * 0.07f * Shadow * Hit.Albedo * mix(1.0f, 3.0f, float(Hit.SSR));
+    vec3 Direct = Lambertian * SUN_COLOR * 0.07f * Shadow * Hit.Albedo * 3.0f;
     vec3 FakeIndirect = texture(u_EnvironmentMap, vec3(0.0f, 1.0f, 0.0f)).xyz * 0.2f * Hit.Albedo;
     return Direct + FakeIndirect + Hit.Emission;
 }
@@ -669,7 +661,7 @@ const ivec2[16] UpscaleOffsets4x4 = ivec2[16](
 
 // Returns whether the pixel is part of the sky or not 
 bool IsSky(float NonLinearDepth) {
-    if (NonLinearDepth > 0.99998f) {
+    if (NonLinearDepth > 0.9999992f || NonLinearDepth == 1.0f) {
         return true;
 	}
 
@@ -696,7 +688,7 @@ void main() {
 
     // Jitter for temporal super sampling 
     //Pixel += ivec2(UpscaleOffsets4x4[u_Frame % 16]);
-    Pixel += ivec2(u_Jitter * 3);
+    Pixel += ivec2(u_Jitter * 2.0f);
 
     // Constant resolution (0.5x)
     ivec2 HighResPixel = Pixel * 2;
@@ -708,8 +700,9 @@ void main() {
 
 	// Sky check
     if (IsSky(Depth)) {
-        o_Color = vec3(0.0f);
-        o_Transversal = 32.0f;
+        o_SpecularIndirect.xyz = vec3(0.0f);
+        o_Transversal = 64.0f;
+        o_SpecularIndirect.w = o_Transversal;
         return;
     }
 
@@ -740,10 +733,11 @@ void main() {
 
     bool DoScreenspaceTrace = true;
 
-    int SSSteps = BiasedRoughness <= 0.69f + 0.01f ? (BiasedRoughness <= 0.075f ? 54 : 48) : (BiasedRoughness > 0.9f ? 24 : 32); // nice
+    int SSSteps = BiasedRoughness <= 0.69f + 0.01f ? (BiasedRoughness <= 0.075f ? 54 : 48) : (BiasedRoughness > 0.8775f ? 24 : 32); // nice
 
 
     for (int Sample ; Sample < SAMPLES ; Sample++) {
+
 
         float BayerHash = fract(fract(mod(float(u_Frame) + float(Sample) * 2., 384.0f) * (1.0 / PHI)) + Bayer32(gl_FragCoord.xy));
 
@@ -755,7 +749,7 @@ void main() {
         }
             
         else {
-            Microfacet = Normal;
+            Microfacet = LFNormal;
         }
 
         vec3 ReflectedDirection = vec3(0.0f);
@@ -766,7 +760,7 @@ void main() {
 
         if (DoScreenspaceTrace) {
             // Trace in screen space 
-            Intersection = ScreenspaceRaytrace(Incident, WorldPosition + LFNormal * 0.9f, Microfacet, LFNormal, ToleranceSS, BayerHash, ReflectedDirection, SSSteps);
+            Intersection = ScreenspaceRaytrace(Incident, WorldPosition + LFNormal * 2.75f, Microfacet, LFNormal, ToleranceSS, BayerHash, ReflectedDirection, SSSteps);
             
             // If that fails, trace in probe space  
             if (!Intersection.ValidMask) {
@@ -787,7 +781,6 @@ void main() {
 
         // Store transversal for filtering/reprojection
         float CurrentTransversal = Intersection.ValidMask ? distance(Intersection.Position, WorldPosition) : 64.0f;
-        CurrentTransversal /= 64.0f;
         AverageTransversal += CurrentTransversal;
 
         // Add weight 
@@ -797,15 +790,18 @@ void main() {
     TotalRadiance /= max(TotalWeight, 1.0f);
     AverageTransversal /= max(TotalWeight, 1.0f);
 
-    o_Color = TotalRadiance;
-    o_Transversal = AverageTransversal;
+    o_SpecularIndirect.xyz = TotalRadiance;
+    o_Transversal = AverageTransversal / 64.0f;
 
     // Nan/inf check
-    if (isnan(o_Color.x) || isnan(o_Color.y) || isnan(o_Color.z) || isinf(o_Color.x) || isinf(o_Color.y) || isinf(o_Color.z)) {
-        o_Color = vec3(0.0f);
+    if (isnan(o_SpecularIndirect.x) || isnan(o_SpecularIndirect.y) || isnan(o_SpecularIndirect.z) || isinf(o_SpecularIndirect.x) || isinf(o_SpecularIndirect.y) || isinf(o_SpecularIndirect.z)) {
+        o_SpecularIndirect.xyz = vec3(0.0f);
     }
 
     if (isnan(o_Transversal) || isinf(o_Transversal)) {
         o_Transversal = 0.0f;
+        o_SpecularIndirect.w = 0.0f;
     }
+
+    o_SpecularIndirect.w = o_Transversal;
 }
