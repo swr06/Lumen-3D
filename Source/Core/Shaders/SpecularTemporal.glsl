@@ -105,7 +105,8 @@ void CalculateStatistics(ivec2 Pixel, vec4 Specular, float Roughness, out vec3 M
     Mean = Specular.xyz;
     StandardDeviation = Mean * Mean;
 
-    int Kernel = Roughness < 0.1f ? 1 : 2;
+    int KernelX = 1; //Roughness < 0.1f ? 1 : 2;
+    int KernelY = 2; //Roughness < 0.1f ? 1 : 2;
     float TotalWeight = 1.0f;
 
     AverageTraversal = Specular.w;
@@ -113,9 +114,9 @@ void CalculateStatistics(ivec2 Pixel, vec4 Specular, float Roughness, out vec3 M
     Min = vec3(1000.0f);
     Max = vec3(-1000.0f);
 
-    for (int x = -Kernel; x <= Kernel; x++) 
+    for (int x = -KernelX; x <= KernelX; x++) 
     {
-        for (int y = -Kernel ; y <= Kernel ; y++) 
+        for (int y = -KernelY ; y <= KernelY ; y++) 
         {
             vec4 Sample = texelFetch(u_Specular, Pixel + ivec2(x, y), 0);
             Min = min(Sample.xyz, Min);
@@ -204,7 +205,7 @@ void main() {
         // Velocity rejection
         vec2 Dimensions = textureSize(u_HistorySpecular, 0).xy;
 		vec2 Velocity = (v_TexCoords - Reprojected.xy) * Dimensions;
-        bool MovedCamera = distance(u_InverseView[3].xyz, u_PrevInverseView[3].xyz) > 0.003f;
+        bool MovedCamera = distance(u_InverseView[3].xyz, u_PrevInverseView[3].xyz) > 0.0005f;
 
         // Calculate temporal blur
         float TemporalBlur = MovedCamera ? clamp(exp(-length(Velocity)) * 0.825f + 0.785f, 0.0f, 0.975f) : 0.975f;

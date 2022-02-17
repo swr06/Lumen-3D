@@ -251,13 +251,10 @@ vec3 CosWeightedHemisphere(const vec3 n)
 const float EmissiveDesat = 0.925f;
 const float EmissionStrength = 7.5f;
 
-GBufferData Raytrace(vec3 Incident, vec3 WorldPosition, vec3 Normal, vec3 LFNormal, float ErrorTolerance, float Hash, out vec3 MicrofacetReflected) {
+GBufferData Raytrace(vec3 WorldPosition, vec3 Direction, float ErrorTolerance, float Hash) {
    
     // If enabled, the raytracer returns the nearest hit which is approximated using a weighting factor 
     const bool FALLBACK_ON_BEST_STEP = false;
-
-    // Bias 
-    WorldPosition = (WorldPosition + LFNormal * 2.2f);
 
     // Settings 
     const float Distance = 384.0f;
@@ -267,12 +264,9 @@ GBufferData Raytrace(vec3 Incident, vec3 WorldPosition, vec3 Normal, vec3 LFNorm
     float StepSize = Distance / float(Steps);
     float UnditheredStepSize = StepSize;
 
-    vec3 ReflectionVector = normalize(reflect(Incident, Normal)); //CosWeightedHemisphere(LFNormal); 
-    vec3 ReflectionVectorLF = normalize(reflect(Incident, LFNormal));
+    vec3 ReflectionVector = Direction; //CosWeightedHemisphere(LFNormal); 
     
-    MicrofacetReflected = ReflectionVector;
-
-    vec3 RayPosition = WorldPosition + ReflectionVectorLF * Hash;
+    vec3 RayPosition = WorldPosition + ReflectionVector * Hash;
     vec3 RayOrigin = RayPosition;
 
     vec3 TraceColor = vec3(0.0f);
@@ -448,7 +442,7 @@ GBufferData Raytrace(vec3 Incident, vec3 WorldPosition, vec3 Normal, vec3 LFNorm
     return ReturnValue;
 }
 
-GBufferData ScreenspaceRaytrace(vec3 Incident, vec3 Origin, vec3 Normal, vec3 LFNormal, float ThresholdMultiplier, float Hash, out vec3 MicrofacetReflected, int Steps)
+GBufferData ScreenspaceRaytrace(vec3 Origin, vec3 Direction, float ThresholdMultiplier, float Hash, int Steps)
 {
     const float Distance = 196.0f;
 
@@ -463,10 +457,8 @@ GBufferData ScreenspaceRaytrace(vec3 Incident, vec3 Origin, vec3 Normal, vec3 LF
     ReturnValue.Depth = -1.;
     ReturnValue.Emission = vec3(0.0f);
 
-    vec3 Direction = normalize(reflect(Incident, Normal));
-    MicrofacetReflected = Direction;
     float StepSize = float(Distance) / float(Steps);
-	vec3 RayPosition = Origin + Direction * StepSize * Hash; 
+	vec3 RayPosition = Origin + Direction * Hash; 
 	vec2 FinalUV = vec2(-1.0f);
 
     float ExpStep = 1.05f;// mix(1.075f, 1.5f, float(Hash));
@@ -564,6 +556,91 @@ GBufferData ScreenspaceRaytrace(vec3 Incident, vec3 Origin, vec3 Normal, vec3 LF
 	return ReturnValue;
 
 }
+
+
+GBufferData ScreenspaceTrace_Clip(vec3 Origin, vec3 Direction, float ThresholdMultiplier, float Hash, int Steps)
+{
+    const int BinarySteps = 16;
+
+    GBufferData ReturnValue;
+    ReturnValue.Position = Origin;
+    ReturnValue.Normal = vec3(0.0f);
+    ReturnValue.Albedo = vec3(0.0f);
+    ReturnValue.Data = vec3(0.0f, 0.0f, 1.0f);
+    ReturnValue.ValidMask = false;
+    ReturnValue.Approximated = true;
+    ReturnValue.SSR = true;
+    ReturnValue.Depth = -1.;
+    ReturnValue.Emission = vec3(0.0f);
+
+
+    vec3 ScreenOrigin = ProjectToScreenSpace(Origin);
+
+    float StepSize = 1.0f / float(Steps);
+
+    vec3 ScreenDirection = normalize(ProjectToScreenSpace(Origin + Direction) - ScreenOrigin);
+
+    vec3 RayPosition = ScreenOrigin + ScreenDirection * Hash * StepSize;
+
+
+    for (int Step = 0 ; Step < Steps ; Step++) {
+
+        if (!SSRayValid(RayPosition.xy)) {
+
+            return ReturnValue;
+
+        }
+
+        float Tolerance = StepSize * mix(pow(float(Step) / float(Steps), 2.0f), 2.0f, 7.0f); // * (ThresholdMultiplier * 1000.0f);
+
+
+        float Depth = texture(u_Depth, RayPosition.xy).x;
+        float LinearDepth = LinearizeDepth(Depth);
+        float Error = abs(LinearizeDepth(RayPosition.z) - LinearDepth);
+
+        if (Error < Tolerance && RayPosition.z > Depth)
+        {
+            // Binary search the best intersection location
+
+            vec3 BinaryStepVector = (ScreenDirection * StepSize) / 2.0f;
+            RayPosition -= BinaryStepVector;
+
+            for(int BinaryStep = 0; BinaryStep < BinarySteps; BinaryStep++)
+            {
+                float DepthError = texture(u_Depth, RayPosition.xy).r - RayPosition.z;
+                float Sign = sign(DepthError);
+                RayPosition += Sign * BinaryStepVector;
+                BinaryStepVector /= 2.0f;
+            }
+
+            // Generate gbuffer data and return 
+
+            float FinalDepth = Depth;
+            vec2 FinalProjected = RayPosition.xy;
+
+            ReturnValue.Position = WorldPosFromDepth(FinalDepth, FinalProjected.xy);
+            ReturnValue.Normal = texture(u_Normals, FinalProjected.xy).xyz;
+            ReturnValue.Albedo = texture(u_Albedos, FinalProjected.xy).xyz / 2.0f;
+            vec4 PBR = texture(u_PBR, FinalProjected.xy).xyzw;
+            ReturnValue.Data = vec3(0.0f, 0.0f, 1.0f);
+            ReturnValue.Emission = Saturation(ReturnValue.Albedo, EmissiveDesat) * PBR.w * EmissionStrength;
+            ReturnValue.ValidMask = true;
+            ReturnValue.Approximated = false;
+            ReturnValue.SSR = true;
+            ReturnValue.Depth = FinalDepth;
+
+            return ReturnValue;
+        }
+
+
+        RayPosition += ScreenDirection * StepSize;
+    }
+
+	return ReturnValue;
+
+}
+
+
 
 const vec3 SUN_COLOR = vec3(6.9f, 6.9f, 10.0f);
 
@@ -733,7 +810,7 @@ void main() {
 
     bool DoScreenspaceTrace = true;
 
-    int SSSteps = BiasedRoughness <= 0.69f + 0.01f ? (BiasedRoughness <= 0.075f ? 54 : 48) : (BiasedRoughness > 0.8775f ? 24 : 32); // nice
+    int SSSteps = BiasedRoughness <= 0.69f + 0.01f ? (BiasedRoughness <= 0.1f ? 56 : 42) : (BiasedRoughness > 0.825f ? 24 : 32); // nice
 
 
     for (int Sample ; Sample < SAMPLES ; Sample++) {
@@ -752,29 +829,31 @@ void main() {
             Microfacet = LFNormal;
         }
 
-        vec3 ReflectedDirection = vec3(0.0f);
-        
+        vec3 Direction = normalize(reflect(Incident, Microfacet));
+
         // Raytrace!
 
         GBufferData Intersection;
 
+        const float Bias_n = 2.75f;
+
         if (DoScreenspaceTrace) {
             // Trace in screen space 
-            Intersection = ScreenspaceRaytrace(Incident, WorldPosition + LFNormal * 2.75f, Microfacet, LFNormal, ToleranceSS, BayerHash, ReflectedDirection, SSSteps);
+            Intersection = ScreenspaceRaytrace(WorldPosition + LFNormal * Bias_n, Direction, ToleranceSS, BayerHash, SSSteps);
             
             // If that fails, trace in probe space  
             if (!Intersection.ValidMask) {
 
-                Intersection = Raytrace(Incident, WorldPosition, Microfacet, LFNormal, Tolerance, BayerHash, ReflectedDirection);
+                Intersection = Raytrace(WorldPosition + LFNormal * Bias_n, Direction, Tolerance, BayerHash);
             }
         }
 
         else {
-            Intersection = Raytrace(Incident, WorldPosition, Microfacet, LFNormal, Tolerance, BayerHash, ReflectedDirection);
+            Intersection = Raytrace(WorldPosition + LFNormal * Bias_n, Direction, Tolerance, BayerHash);
         }
 
         // Integrate lighting 
-        vec3 CurrentRadiance = IntegrateLighting(Intersection, ReflectedDirection, FilterShadowMap);
+        vec3 CurrentRadiance = IntegrateLighting(Intersection, Direction, FilterShadowMap);
 
         // Sum up radiance 
         TotalRadiance += CurrentRadiance;
