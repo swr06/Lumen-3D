@@ -249,7 +249,7 @@ vec3 CosWeightedHemisphere(const vec3 n)
 
 
 const float EmissiveDesat = 0.925f;
-const float EmissionStrength = 7.5f;
+const float EmissionStrength = 9.5f;
 
 GBufferData Raytrace(vec3 WorldPosition, vec3 Direction, float ErrorTolerance, float Hash) {
    
@@ -384,7 +384,7 @@ GBufferData Raytrace(vec3 WorldPosition, vec3 Direction, float ErrorTolerance, f
 
         // Emission
 
-        ReturnValue.Emission = Saturation( AlbedoFetch.xyz, EmissiveDesat) * NormalFetch.w * 1.0f * EmissionStrength * FadeStrong;
+        ReturnValue.Emission = Saturation(AlbedoFetch.xyz, EmissiveDesat) * NormalFetch.w * EmissionStrength * FadeStrong;
 
         ReturnValue.ValidMask = true;
         ReturnValue.Approximated = false;

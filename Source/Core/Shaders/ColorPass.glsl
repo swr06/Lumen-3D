@@ -211,6 +211,7 @@ void SpatialUpscale(float Depth, vec3 Normal, float Roughness, out float AO, out
 
 	Specular /= TotalSpecularWeight;
 	AO /= TotalWeight;
+	//ContactShadow = texture(u_ScreenspaceShadows, v_TexCoords).x;
 	ContactShadow /= TotalWeight;
 }
 
@@ -279,8 +280,9 @@ void main()
 	SpecularIndirect = SpecularIndirect * 1.25f;
 
 	// Direct lighting ->
-	float Shadowmap = FilterShadows(WorldPosition, Normal);
-	float DirectionalShadow = clamp(max(Shadowmap, 1.-clamp(pow(clamp(ScreenspaceShadow + 0.05f, 0.0f, 1.0f), 42.0f),0.0f,1.0f)), 0.0f, 1.0f);
+	float Shadowmap = clamp(FilterShadows(WorldPosition, Normal), 0.0f, 1.0f);
+	ScreenspaceShadow = ScreenspaceShadow * ScreenspaceShadow * ScreenspaceShadow * ScreenspaceShadow * ScreenspaceShadow;
+	float DirectionalShadow = clamp((1.-ScreenspaceShadow) + Shadowmap, 0.0f, 1.0f); //max(pow((1.-ScreenspaceShadow), 3.0f), Shadowmap); 
 	vec3 DirectLighting = CookTorranceBRDF(WorldPosition, normalize(u_LightDirection), SUN_COLOR * 0.15f, Albedo, Normal, PBR.xy, DirectionalShadow).xyz;
 	
 	// Indirect lighting ->

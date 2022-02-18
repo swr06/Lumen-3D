@@ -129,89 +129,114 @@ vec3 CosWeightedHemisphere(const vec3 n)
     return normalize(rr);
 }
 
-// x, y = transversal, occlusion amount 
-// Raytraces in world space 
 
-vec2 Raytrace(vec3 Origin, vec3 Direction, float RayDistance, int Steps, float ThresholdMultiplier, float Hash)
+struct GBufferData {
+   vec3 Position;
+   float Depth;
+   bool ValidMask;
+};
+
+bool SSRayValid(vec2 x) {
+	float bias = 0.0001f;
+	if (x.x > bias && x.x < 1.0f - bias && x.y > bias && x.y < 1.0f - bias) {
+		return true;
+	}
+
+	return false;
+}
+
+GBufferData ScreenspaceRaytrace(vec3 Origin, vec3 Direction, float ThresholdMultiplier, float Hash, int Steps, int BinarySteps, float Distance, float ExpStep)
 {
-	vec3 StepVector = (Direction * RayDistance) / float(Steps); 
-	vec3 RayPosition = Origin + StepVector * Hash; 
+    GBufferData ReturnValue;
+    ReturnValue.Position = Origin;
+    ReturnValue.ValidMask = false;
+
+    float StepSize = float(Distance) / float(Steps);
+	vec3 RayPosition = Origin + Direction * Hash; 
 	vec2 FinalUV = vec2(-1.0f);
 
 	for(int CurrentStep = 0; CurrentStep < Steps; CurrentStep++) 
 	{
-		float Threshold = length(StepVector) * ThresholdMultiplier;
+        float ToleranceStep = mix(2.2f, 4.0f, pow(float(CurrentStep) / float(Steps), 1.5f));
+
+		float Threshold = StepSize * ThresholdMultiplier * ToleranceStep;
 		
 		vec3 ProjectedRayScreenspace = ProjectToClipSpace(RayPosition); 
 		
 		if(abs(ProjectedRayScreenspace.x) > 1.0f || abs(ProjectedRayScreenspace.y) > 1.0f || abs(ProjectedRayScreenspace.z) > 1.0f) 
 		{
-			return vec2(-1.0f, 1.0f); 
+			return ReturnValue;
 		}
 		
 		ProjectedRayScreenspace.xyz = ProjectedRayScreenspace.xyz * 0.5f + 0.5f; 
 
-		if (!RayValid(ProjectedRayScreenspace.xy))
+		if (!SSRayValid(ProjectedRayScreenspace.xy))
 		{
-			return vec2(-1.0f, 1.0f);
+			return ReturnValue;
 		}
 		
 		float DepthAt = texture(u_Depth, ProjectedRayScreenspace.xy).x; 
 		float CurrentRayDepth = LinearizeDepth(ProjectedRayScreenspace.z); 
 		float Error = abs(LinearizeDepth(DepthAt) - CurrentRayDepth);
 		
+        // Intersected!
 		if (Error < Threshold && ProjectedRayScreenspace.z > DepthAt) 
 		{
-			//return float(StepVector) / float(Steps);
+			// Binary search for best intersection point along ray step 
 
-			// Binary refinement : 
+            bool DoBinaryRefinement = BinarySteps > 0;
 
-			bool DoBinaryRefinement = false;
+            vec3 FinalProjected = vec3(0.0f);
+            float FinalDepth = 0.0f;
 
-			if (DoBinaryRefinement) {
+            if (DoBinaryRefinement) {
+			    vec3 BinaryStepVector = (Direction * StepSize) / 2.0f;
+                RayPosition -= (Direction * StepSize) / 2.0f;
+			    
+                for (int BinaryStep = 0 ; BinaryStep < BinarySteps ; BinaryStep++) {
+			    		
+			    	BinaryStepVector /= 2.0f;
+			    	vec3 Projected = ProjectToClipSpace(RayPosition); 
+			    	Projected = Projected * 0.5f + 0.5f;
+                    FinalProjected = Projected;
+                    float Fetch = texture(u_Depth, Projected.xy).x;
+                    FinalDepth = Fetch;
+			    	float BinaryDepthAt = LinearizeDepth(Fetch); 
+			    	float BinaryRayDepth = LinearizeDepth(Projected.z); 
 
-				vec3 BinaryStepVector = StepVector / 2.0f;
+			    	if (BinaryDepthAt < BinaryRayDepth) {
+			    		RayPosition -= BinaryStepVector;
 
-				for (int BinaryStep = 0 ; BinaryStep < 3 ; BinaryStep++) {
-					
-					vec3 Projected = ProjectToClipSpace(RayPosition); 
-					Projected = Projected * 0.5f + 0.5f;
-					float BinaryDepthAt = LinearizeDepth(texture(u_Depth, Projected.xy).x); 
-					float BinaryRayDepth = LinearizeDepth(Projected.z); 
+			    	}
 
-					if (BinaryDepthAt < BinaryRayDepth) {
-						RayPosition -= BinaryStepVector;
+			    	else {
+			    		RayPosition += BinaryStepVector;
 
-					}
+			    	}
 
-					else {
-						RayPosition += BinaryStepVector;
+			    }
+            }
 
-					}
+            else {
+                
+                FinalProjected = ProjectToScreenSpace(RayPosition);
+                FinalDepth = texture(u_Depth, FinalProjected.xy).x;
+            }
 
-					BinaryStepVector /= 2.0f;
-				}
-			}
+            ReturnValue.Position = WorldPosFromDepth(FinalDepth, FinalProjected.xy);
+            ReturnValue.ValidMask = true;
+            ReturnValue.Depth = FinalDepth;
 
-			// Calculate world space transversal  
-			vec2 FinalPosition = ProjectToClipSpace(RayPosition).xy * 0.5f + 0.5f;
-			float Transversal = distance(WorldPosFromDepth(texture(u_Depth, FinalPosition).x, FinalPosition), Origin.xyz);
-
-			// Invalid hit
-
-			float Occlusion = Transversal / RayDistance;
-			return vec2(Transversal, Occlusion);
+            return ReturnValue;
 		}
 
+        // Step 
+		RayPosition += StepSize * Direction; 
 
-		RayPosition += StepVector; 
-
-		if (CurrentStep > Steps / 2) {
-			StepVector *= 1.05f;
-		}
+        StepSize *= ExpStep;
 	}
 
-	return vec2(-1.0f, 1.0f);
+	return ReturnValue;
 
 }
 
@@ -334,6 +359,30 @@ bool IsSky(float NonLinearDepth) {
     return false;
 }
 
+float ResolveAO(vec3 WorldPosition, vec3 Normal, vec3 Direction, float Bayer) {
+
+	const float Distance = 54.0f;
+	
+	GBufferData Hit = ScreenspaceRaytrace(WorldPosition + (Normal * 1.0f) - (Direction * 0.6f), Direction, 0.004f, Bayer, 24, 4, Distance, 1.0f);
+
+	if (!Hit.ValidMask) { return 1.0f; }
+
+	// World space transversal
+	float Transversal = distance(WorldPosition, Hit.Position);
+
+	if (Transversal < 0.0f || Transversal > Distance) { return 1.0f; }
+
+	float OcclusionFactor = pow(clamp(Transversal / Distance, 0.0f, 1.0f), 1.0f);;
+
+	return OcclusionFactor;
+}
+
+float ResolveShadow(vec3 WorldPosition, vec3 Normal, vec3 Direction, float Bayer) {
+
+	GBufferData Hit = ScreenspaceRaytrace(WorldPosition + (Normal * 1.1125f) - (Direction * 0.4f), Direction, 0.00225f, 0.0f, 40, 4, 40.0f, 1.0f);
+	return Hit.ValidMask ? 0.0f : 1.0f;
+}
+
 void main() {
 
 	vec2 JitteredTexCoords = v_TexCoords;
@@ -379,22 +428,15 @@ void main() {
 	vec3 AODirection = mix(CosWeightedHemisphere(Normal), Normal, 1.0f - AOScale);
 	AODirection = normalize(AODirection);
 
-	vec3 Hash3D = vec3(hash2(), hash2().x);
 	vec3 ContactShadowDirection = -u_SunDirection;
 	ContactShadowDirection = normalize(ContactShadowDirection);
 
     vec3 Lo = normalize(u_InverseView[3].xyz - WorldPosition);
-	float NDotV = clamp(dot(Lo, Normal), 0.0f, 1.0f);
 
 	float Distance = distance(WorldPosition.xyz, u_InverseView[3].xyz);
 
-	float SqrtNDotV = sqrt(NDotV);
-
-	float BiasAO = mix(0.75f, 0.3f, SqrtNDotV);
-	float BiasDirect = 0.75f;//mix(0.75f, 0.25f, SqrtNDotV);
-
-	float IndirectAO = u_AO ? Raytrace(WorldPosition + Normal * BiasAO, AODirection, 24.0f, 52, 0.02f, BayerHash).y : 1.0f;
-	float DirectContactShadow = u_Shadow ? Raytrace(WorldPosition + Normal * BiasDirect, ContactShadowDirection, 24.0f, 96, 0.007f, BayerHash).y : 1.0f;
+	float IndirectAO = u_AO ? ResolveAO(WorldPosition, Normal, AODirection, BayerHash) : 1.0f;
+	float DirectContactShadow = u_Shadow ? ResolveShadow(WorldPosition, Normal, ContactShadowDirection, BayerHash) : 1.0f;
 	
 	o_AO = IndirectAO;
 	o_Direct = DirectContactShadow;

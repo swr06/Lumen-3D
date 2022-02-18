@@ -93,7 +93,44 @@ float WaveletFilter(float Depth, vec3 Normal) {
     return Total;
 }
 
+vec3 ClipAABBMinMax(vec3 prevColor, vec3 minColor, vec3 maxColor)
+{
+    vec3 pClip = 0.5 * (maxColor + minColor); 
+    vec3 eClip = 0.5 * (maxColor - minColor); 
+    vec3 vClip = prevColor - pClip;
+    vec3 vUnit = vClip / eClip;
+    vec3 aUnit = abs(vUnit);
+    float denom = max(aUnit.x, max(aUnit.y, aUnit.z));
+    return denom > 1.0 ? pClip + vClip / denom : prevColor;
+}
 
+float ClampDirect(float Current, vec2 Projection, bool DoClamp) {
+
+    float History = texture(u_HistoryDirect, Projection.xy).x;
+    
+    if (!DoClamp) {
+
+        return History;
+
+    }
+
+    ivec2 Offsets[4] = ivec2[4](ivec2(0.0f, 1.0f), ivec2(0.0f, -1.0f), ivec2(1.0f, 0.0f), ivec2(-1.0f, 0.0f));
+
+    float Min = 1000.0f, Max = -1000.0f;
+
+    for (int x = 0 ; x < 4 ; x++) {
+
+        float Sample = texelFetch(u_CurrentDirect, ivec2(gl_FragCoord.xy) + Offsets[x], 0).x;
+        Min = min(Min, Sample);
+        Max = max(Max, Sample);
+    }
+
+    Min = min(Min, Current) - 0.03f;
+    Max = min(Max, Current) + 0.03f;
+
+
+    return ClipAABBMinMax(vec3(History), vec3(Min), vec3(Max)).x;
+}
 
 void main() {
 
@@ -108,9 +145,9 @@ void main() {
     float Current = WaveletFilter(LinearizedDepth, Normal); //texture(u_Current, v_TexCoords).x;
     float CurrentDirect = texture(u_CurrentDirect, v_TexCoords).x;
 
-    float Cutoff = 0.01f;
+    float Cutoff = 0.02f;
 
-    bool MovedCamera = distance(u_InverseView[3].xyz, u_PrevInverseView[3].xyz) > 0.003f;
+    bool MovedCamera = distance(u_InverseView[3].xyz, u_PrevInverseView[3].xyz) > 0.002f;
 
     if (Reprojected.x > Cutoff && Reprojected.x < 1.0f - Cutoff && Reprojected.y > Cutoff && Reprojected.y < 1.0f - Cutoff) 
     {
@@ -121,16 +158,16 @@ void main() {
         vec2 Dimensions = textureSize(u_History, 0).xy;
 		vec2 Velocity = (v_TexCoords - Reprojected.xy) * Dimensions;
 
-        float TemporalBlur = MovedCamera ? clamp(exp(-length(Velocity)) * 0.95f + 0.7325f, 0.0f, 0.95f) : 0.95f;
+        float TemporalBlur = MovedCamera ? clamp(exp(-length(Velocity)) * 0.95f + 0.7725f, 0.0f, 0.95f) : 0.95f;
 
         float History = texture(u_History, Reprojected.xy).x;
-        float HistoryDirect = texture(u_HistoryDirect, Reprojected.xy).x;
+        float HistoryDirect = ClampDirect(CurrentDirect, Reprojected.xy, MovedCamera);//texture(u_HistoryDirect, Reprojected.xy).x;
 
-        TemporalBlur *= pow(exp(-Error), 72.0f * 1.0f);
+        TemporalBlur *= pow(exp(-Error), 70.0f * 1.0f);
         TemporalBlur = clamp(TemporalBlur, 0.0f, 0.95f);
 
         o_AO = mix(Current, History, TemporalBlur);
-        o_DirectShadows = mix(CurrentDirect, HistoryDirect, clamp(TemporalBlur, 0.0f, 0.875f));
+        o_DirectShadows = mix(CurrentDirect, HistoryDirect, clamp(TemporalBlur * 1.05f, 0.0f, 0.95f));
     }
 
     else {

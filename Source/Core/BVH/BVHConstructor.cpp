@@ -1,11 +1,13 @@
 #include "BVHConstructor.h"
 
+#include <stack>
+
 namespace Lumen {
 	namespace BVH {
 
-		static std::vector<Triangle> BVHTriangles;
 		static std::vector<Triangle> Triangles;
-		static std::vector<Node> BVHNodes;
+		static uint64_t TotalIterations = 0;
+		static uint32_t LastIndex = 0;
 
 		inline glm::vec3 Vec3Min(const glm::vec3& a, const glm::vec3& b) {
 			return glm::vec3(glm::min(a.x, b.x), glm::min(a.y, b.y), glm::min(a.z, b.z));
@@ -15,8 +17,8 @@ namespace Lumen {
 			return glm::vec3(glm::max(a.x, b.x), glm::max(a.y, b.y), glm::max(a.z, b.z));
 		}
 
-		inline bool ShouldBeLeaf(const uint& Length) {
-			return Length <= 4;
+		inline bool ShouldBeLeaf(uint Length) {
+			return Length <= 256;
 		}
 
 		int FindLongestAxis(const Bounds& bounds) {
@@ -33,146 +35,165 @@ namespace Lumen {
 			return 0;
 		}
 
-		void BuildNode(Node* node) {
+		void BuildNode(Node* RootNode) {
 
-			uint StartIndex = node->StartIndex;
-			uint EndIndex = node->Length + StartIndex;
-			uint Length = EndIndex - StartIndex;
+			std::stack<Node*> NodeStack;
 
-			bool IsLeaf = ShouldBeLeaf(Length);
+			NodeStack.push(RootNode);
 
-			if (IsLeaf) {
-				return;
-			}
+			while (!NodeStack.empty()) {
 
-			else {
+				std::cout << "\nProcess index : " << LastIndex;
 
-				// Create 2 new nodes 
+				Node* node = NodeStack.top();
+				NodeStack.pop();
 
-				Node& LeftNode = BVHNodes.emplace_back();
-				node->LeftChild = BVHNodes.size() - 1;
-				LeftNode.NodeIndex = node->LeftChild;
+				TotalIterations++;
+				uint StartIndex = node->StartIndex;
+				uint EndIndex = node->Length + StartIndex;
+				uint Length = EndIndex - StartIndex;
 
-				Node& RightNode = BVHNodes.emplace_back();
-				node->RightChild = BVHNodes.size() - 1;
-				RightNode.NodeIndex = node->RightChild;
+				bool IsLeaf = ShouldBeLeaf(Length);
 
-				int LongestAxis = FindLongestAxis(node->NodeBounds);
-				float Border = node->NodeBounds.GetCenter()[LongestAxis];
+				if (IsLeaf) {
+					continue;
+				}
 
-				Bounds LeftNodeBounds;
-				Bounds RightNodeBounds;
+				else {
 
-				// Split based on spatial median 
+					// Create 2 new nodes 
 
-				uint LeftIndexItr = StartIndex;
-				uint RightIndexItr = EndIndex;
-				uint FirstTriangleIndex = 0;
+					Node* LeftNodePtr = new Node;
+					Node& LeftNode = *LeftNodePtr;
+					LastIndex++;
+					node->LeftChild = LastIndex;
+					LeftNode.NodeIndex = node->LeftChild;
 
-				// Split/Sort triangles into 2 sets 
-				// One for the left node and one for the right node
-				while (LeftIndexItr < RightIndexItr) {
+					Node* RightNodePtr = new Node;
+					Node& RightNode = *RightNodePtr;
+					LastIndex++;
+					node->RightChild = LastIndex;
+					RightNode.NodeIndex = node->RightChild;
 
-					// Forward iteration
+					int LongestAxis = FindLongestAxis(node->NodeBounds);
+					float Border = node->NodeBounds.GetCenter()[LongestAxis];
+
+					Bounds LeftNodeBounds;
+					Bounds RightNodeBounds;
+
+					// Split based on spatial median 
+
+					uint LeftIndexItr = StartIndex;
+					uint RightIndexItr = EndIndex;
+					uint FirstTriangleIndex = 0;
+
+					// Split/Sort triangles into 2 sets 
+					// One for the left node and one for the right node
 					while (LeftIndexItr < RightIndexItr) {
 
-						Triangle& CurrentTriangle = Triangles[LeftIndexItr];
+						// Forward iteration
+						while (LeftIndexItr < RightIndexItr) {
 
-						if (CurrentTriangle.v0.position[LongestAxis] > Border &&
-							CurrentTriangle.v1.position[LongestAxis] > Border &&
-							CurrentTriangle.v2.position[LongestAxis] > Border) {
+							Triangle& CurrentTriangle = Triangles[LeftIndexItr];
 
-							break;
+							if (CurrentTriangle.v0.position[LongestAxis] > Border &&
+								CurrentTriangle.v1.position[LongestAxis] > Border &&
+								CurrentTriangle.v2.position[LongestAxis] > Border) {
+
+								break;
+							}
+
+							FirstTriangleIndex++;
+							LeftIndexItr++;
 						}
 
-						FirstTriangleIndex++;
-						LeftIndexItr++;
-					}
+						// Backward iteration
+						while (LeftIndexItr < RightIndexItr) {
 
-					// Backward iteration
-					while (LeftIndexItr < RightIndexItr) {
+							Triangle& CurrentTriangle = Triangles[RightIndexItr];
 
-						Triangle& CurrentTriangle = Triangles[RightIndexItr];
+							if (CurrentTriangle.v0.position[LongestAxis] <= Border &&
+								CurrentTriangle.v1.position[LongestAxis] <= Border &&
+								CurrentTriangle.v2.position[LongestAxis] <= Border) {
 
-						if (CurrentTriangle.v0.position[LongestAxis] <= Border &&
-							CurrentTriangle.v1.position[LongestAxis] <= Border &&
-							CurrentTriangle.v2.position[LongestAxis] <= Border) {
+								break;
+							}
 
-							break;
+							RightIndexItr--;
 						}
 
-						RightIndexItr--;
+						// Swap triangles
+						if (LeftIndexItr < RightIndexItr) {
+
+							Triangle Temp = Triangles[LeftIndexItr];
+							Triangles[LeftIndexItr] = Triangles[RightIndexItr];
+							Triangles[RightIndexItr] = Temp;
+
+						}
+
+
 					}
 
-					// Swap triangles
-					if (LeftIndexItr < RightIndexItr) {
 
-						Triangle Temp = Triangles[LeftIndexItr];
-						Triangles[LeftIndexItr] = Triangles[RightIndexItr];
-						Triangles[RightIndexItr] = Temp;
+					// Set node properties 
 
+					LeftNode.StartIndex = node->StartIndex;
+					LeftNode.Length = FirstTriangleIndex;
+					LeftNode.LeftChild = 0;
+					LeftNode.RightChild = 0;
+					LeftNode.ParentNode = node->NodeIndex;
+					LeftNode.IsLeftNode = true;
+
+					// Find bounding boxes 
+
+					// Left node bounding box 
+					glm::vec3 LeftMin = glm::vec3(10000.0f);
+					glm::vec3 LeftMax = glm::vec3(-10000.0f);
+
+					for (int i = LeftNode.StartIndex; i < LeftNode.StartIndex + LeftNode.Length; i++)
+					{
+						Bounds CurrentBounds = Triangles.at(i).GetBounds();
+						LeftMin = Vec3Min(CurrentBounds.Min, LeftMin);
+						LeftMax = Vec3Max(CurrentBounds.Max, LeftMax);
 					}
 
+					LeftNode.NodeBounds = Bounds(LeftMin, LeftMax);
 
-				}
-
-
-				// Set node properties 
-
-				LeftNode.StartIndex = node->StartIndex;
-				LeftNode.Length = FirstTriangleIndex;
-				LeftNode.LeftChild = 0;
-				LeftNode.RightChild = 0;
-				LeftNode.ParentNode = node->NodeIndex;
-				LeftNode.IsLeftNode = true;
-
-				// Find bounding boxes 
-
-				// Left node bounding box 
-				glm::vec3 LeftMin = glm::vec3(10000.0f);
-				glm::vec3 LeftMax = glm::vec3(-10000.0f);
-
-				for (int i = LeftNode.StartIndex; i < LeftNode.StartIndex + LeftNode.Length; i++)
-				{
-					Bounds CurrentBounds = Triangles.at(i).GetBounds();
-					LeftMin = Vec3Min(CurrentBounds.Min, LeftMin);
-					LeftMax = Vec3Min(CurrentBounds.Max, LeftMax);
-				}
-
-				LeftNode.NodeBounds = Bounds(LeftMin, LeftMax);
-
-				// Initialize right node
-				RightNode.LeftChild = 0;
-				RightNode.RightChild = 0;
-				RightNode.StartIndex = node->StartIndex + FirstTriangleIndex;
-				RightNode.Length = node->Length - FirstTriangleIndex;
-				RightNode.ParentNode = node->NodeIndex;
-				RightNode.IsLeftNode = false;
+					// Initialize right node
+					RightNode.LeftChild = 0;
+					RightNode.RightChild = 0;
+					RightNode.StartIndex = node->StartIndex + FirstTriangleIndex;
+					RightNode.Length = node->Length - FirstTriangleIndex;
+					RightNode.ParentNode = node->NodeIndex;
+					RightNode.IsLeftNode = false;
 
 
-				// Find right bounding box
-				glm::vec3 RightMin = glm::vec3(10000.0f);
-				glm::vec3 RightMax = glm::vec3(-10000.0f);
+					// Find right bounding box
+					glm::vec3 RightMin = glm::vec3(10000.0f);
+					glm::vec3 RightMax = glm::vec3(-10000.0f);
 
-				for (int i = RightNode.StartIndex; i < RightNode.StartIndex + RightNode.Length; i++)
-				{
-					Bounds CurrentBounds = Triangles.at(i).GetBounds();
-					RightMin = Vec3Min(CurrentBounds.Min, RightMin);
-					RightMax = Vec3Min(CurrentBounds.Max, RightMax);
-				}
+					for (int i = RightNode.StartIndex; i < RightNode.StartIndex + RightNode.Length; i++)
+					{
+						Bounds CurrentBounds = Triangles.at(i).GetBounds();
+						RightMin = Vec3Min(CurrentBounds.Min, RightMin);
+						RightMax = Vec3Max(CurrentBounds.Max, RightMax);
+					}
 
-				RightNode.NodeBounds = Bounds(RightMin, RightMax);
+					RightNode.NodeBounds = Bounds(RightMin, RightMax);
 
 
-				if (!ShouldBeLeaf(RightNode.Length)) {
-					BuildNode(&RightNode);
-				}
+					if (!ShouldBeLeaf(RightNode.Length)) {
+						//BuildNode(&RightNode);
+						NodeStack.push(RightNodePtr);
+					}
 
-				if (!ShouldBeLeaf(LeftNode.Length)) {
-					BuildNode(&LeftNode);
+					if (!ShouldBeLeaf(LeftNode.Length)) {
+						//BuildNode(&LeftNode);
+						NodeStack.push(LeftNodePtr);
+					}
+
 				}
 			}
-
 
 
 		}
@@ -180,6 +201,8 @@ namespace Lumen {
 		Node* BuildBVH(std::vector<Vertex>& Vertices, std::vector<GLuint>& Indices)
 		{
 			// First, generate triangles from vertices to make everything easier to work with 
+
+			std::cout << "\nGenerating Triangles..";
 
 			for (int x = 0; x < Indices.size(); x += 3)
 			{
@@ -191,6 +214,10 @@ namespace Lumen {
 				Triangles.push_back(tri);
 			}
 
+			std::cout << "\nGenerated Triangles!";
+
+			std::cout << "\Creating initial node bounding box..";
+
 
 			// Create bounding box 
 
@@ -201,10 +228,11 @@ namespace Lumen {
 			{
 				Bounds CurrentBounds = Triangles.at(i).GetBounds();
 				InitialMin = Vec3Min(CurrentBounds.Min, InitialMin);
-				InitialMax = Vec3Min(CurrentBounds.Max, InitialMax);
+				InitialMax = Vec3Max(CurrentBounds.Max, InitialMax);
 			}
 
-			Node& RootNode = BVHNodes.emplace_back();
+			Node* RootNodePtr = new Node;
+			Node& RootNode = *RootNodePtr;
 
 			RootNode.LeftChild = 0;
 			RootNode.RightChild = 0;
@@ -214,6 +242,8 @@ namespace Lumen {
 			RootNode.IsLeftNode = false;
 			RootNode.NodeBounds = Bounds(InitialMin, InitialMax);
 
+			std::cout << "\nGenerated bounding box!";
+
 			// Recursively construct 
 			BuildNode(&RootNode);
 
@@ -222,7 +252,7 @@ namespace Lumen {
 			std::cout << "\n\n\n";
 			std::cout << "--BVH Construction Info--";
 			std::cout << "Triangle Count : " << Triangles.size();
-			std::cout << "Node Count : " << BVHNodes.size();
+			std::cout << "Node Count : " << LastIndex;
 			std::cout << "\n\n\n";
 
 			return &RootNode;
@@ -231,7 +261,11 @@ namespace Lumen {
 
 		Node* BuildBVH(Object& object)
 		{
+			TotalIterations = 0;
+				
 			// First, generate triangles from vertices to make everything easier to work with 
+
+			std::cout << "\nGenerating Triangles..";
 
 			for (auto& Mesh : object.m_Meshes) {
 
@@ -249,8 +283,10 @@ namespace Lumen {
 				}
 			}
 
+			std::cout << "\nGenerated Triangles!";
 
 			// Create bounding box 
+			std::cout << "\Creating initial node bounding box..";
 
 			glm::vec3 InitialMin = glm::vec3(10000.0f);
 			glm::vec3 InitialMax = glm::vec3(-10000.0f);
@@ -259,10 +295,11 @@ namespace Lumen {
 			{
 				Bounds CurrentBounds = Triangles.at(i).GetBounds();
 				InitialMin = Vec3Min(CurrentBounds.Min, InitialMin);
-				InitialMax = Vec3Min(CurrentBounds.Max, InitialMax);
+				InitialMax = Vec3Max(CurrentBounds.Max, InitialMax);
 			}
 
-			Node& RootNode = BVHNodes.emplace_back();
+			Node* RootNodePtr = new Node;
+			Node& RootNode = *RootNodePtr;
 
 			RootNode.LeftChild = 0;
 			RootNode.RightChild = 0;
@@ -271,6 +308,8 @@ namespace Lumen {
 			RootNode.ParentNode = 0;
 			RootNode.IsLeftNode = false;
 			RootNode.NodeBounds = Bounds(InitialMin, InitialMax);
+
+			std::cout << "\nGenerated bounding box!";
 
 			// Recursively construct 
 			BuildNode(&RootNode);
