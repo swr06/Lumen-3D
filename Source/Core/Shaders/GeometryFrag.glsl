@@ -55,5 +55,7 @@ void main()
 
 	}
 
+	o_PBR.x = clamp(o_PBR.x, 0.02f, 1.0f);
+
 	o_PBR.w = u_ModelEmission;
 }

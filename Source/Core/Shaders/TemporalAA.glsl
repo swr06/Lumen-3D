@@ -103,7 +103,7 @@ void main()
 
 	vec3 WorldPosition = WorldPosFromDepth(CurrentDepth, v_TexCoords).xyz;
 	vec3 PreviousCoord = Reprojection(WorldPosition.xyz); 
-	float bias = 0.001f;
+	float bias = (u_InverseView != u_InversePrevView) ? 0.002f : 0.0f;
 
 	if (PreviousCoord.x > bias && PreviousCoord.x < 1.0f-bias &&
 		PreviousCoord.y > bias && PreviousCoord.y < 1.0f-bias && 

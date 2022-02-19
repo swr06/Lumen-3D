@@ -57,6 +57,9 @@ static bool ScreenspaceOcclusionCheckerboard = true;
 // Probe update rate 
 static int ProbeUpdateRate = 1;
 
+// Spatial
+static bool SpatialFiltering = false;
+
 // Application 
 class RayTracerApp : public Lumen::Application
 {
@@ -121,6 +124,11 @@ public:
 		ImGui::SliderInt("Probe Update Rate", &ProbeUpdateRate, 1, 6);
 
 		ImGui::NewLine();
+
+		ImGui::Checkbox("Spatial Filtering?", &SpatialFiltering);
+
+		ImGui::NewLine();
+
 		ImGui::NewLine();
 		
 		ImGui::Text("Specular Resolution : %f on each axis", SpecularIndirectRes);
@@ -315,6 +323,11 @@ GLClasses::Framebuffer SpecularIndirectConeTraced(16, 16, { GL_RGB16F, GL_RGB, G
 // TAA Buffers
 GLClasses::Framebuffer TAABuffers[2] = { GLClasses::Framebuffer(16, 16, {GL_RGB16F, GL_RGB, GL_FLOAT, true, true}, false, false), GLClasses::Framebuffer(16, 16, {GL_RGB16F, GL_RGB, GL_FLOAT, true, true}, false, false) };
 
+// Spatial Buffers 
+
+GLClasses::Framebuffer WaveletBuffers[2] = { GLClasses::Framebuffer(16, 16, { GL_RGBA16F, GL_RGBA, GL_FLOAT, true, true }, false, false), GLClasses::Framebuffer(16, 16, { GL_RGBA16F, GL_RGBA, GL_FLOAT, true, true }, false, false) };
+
+
 // Main pipeline
 void Lumen::StartPipeline()
 {
@@ -455,6 +468,8 @@ void Lumen::StartPipeline()
 	GLClasses::Shader& RedOutputShader = ShaderManager::GetShader("RED");
 	GLClasses::Shader& ConeTraceConvolutionShader = ShaderManager::GetShader("CONE_TRACE_CONVOLVE");
 
+	GLClasses::Shader& SpatialFilter = ShaderManager::GetShader("SPATIAL");
+
 	GLClasses::Shader& DepthDownsampleShader = ShaderManager::GetShader("DEPTH_DOWNSAMPLE_4X");
 
 	// History
@@ -530,6 +545,11 @@ void Lumen::StartPipeline()
 		ScreenspaceOcclusionTemporalBuffers[0].SetSize(app.GetWidth() * ScreenspaceOcclusionRes, app.GetHeight() * ScreenspaceOcclusionRes);
 		ScreenspaceOcclusionTemporalBuffers[1].SetSize(app.GetWidth() * ScreenspaceOcclusionRes, app.GetHeight() * ScreenspaceOcclusionRes);
 		ScreenspaceOcclusionCheckerboardConstruct.SetSize(app.GetWidth() * ScreenspaceOcclusionRes, app.GetHeight() * ScreenspaceOcclusionRes);
+
+		// Spatial 
+
+		WaveletBuffers[0].SetSize(app.GetWidth() / 2, app.GetHeight() / 2);
+		WaveletBuffers[1].SetSize(app.GetWidth() / 2, app.GetHeight() / 2);
 
 		// Generate mipmaps 
 		if (app.GetCurrentFrame() % 8 == 0) {
@@ -878,6 +898,57 @@ void Lumen::StartPipeline()
 			ScreenQuadVAO.Unbind();
 		}
 
+
+		// Wavelet filtering 
+
+		GLClasses::Framebuffer* FinalDenoiseBufferPtr = nullptr;
+
+		if (SpatialFiltering) {
+
+			const int Passes = 5;
+			const int StepSizes[5] = { 32, 16, 8, 4, 2 };
+
+
+			for (int Pass = 0; Pass < Passes; Pass++) {
+
+				auto& CurrentBuffer = WaveletBuffers[(Pass % 2 == 0) ? 0 : 1];
+				auto& SpatialHistory = WaveletBuffers[(Pass % 2 == 0) ? 1 : 0];
+
+				FinalDenoiseBufferPtr = &CurrentBuffer;
+
+				bool InitialPass = Pass == 0;
+
+				CurrentBuffer.Bind();
+				SpatialFilter.Use();
+
+				SpatialFilter.SetInteger("u_Depth", 0);
+				SpatialFilter.SetInteger("u_Normals", 1);
+				SpatialFilter.SetInteger("u_PBR", 2);
+				SpatialFilter.SetInteger("u_Specular", 3);
+				SpatialFilter.SetInteger("u_StepSize", StepSizes[Pass]);
+
+				SetCommonUniforms(SpatialFilter, UniformBuffer);
+
+				glActiveTexture(GL_TEXTURE0);
+				glBindTexture(GL_TEXTURE_2D, GBuffer.GetDepthBuffer());
+
+				glActiveTexture(GL_TEXTURE1);
+				glBindTexture(GL_TEXTURE_2D, GBuffer.GetTexture(1));
+
+				glActiveTexture(GL_TEXTURE2);
+				glBindTexture(GL_TEXTURE_2D, GBuffer.GetTexture(2));
+
+				glActiveTexture(GL_TEXTURE3);
+				glBindTexture(GL_TEXTURE_2D, InitialPass ? SpecularTemporal.GetTexture() : SpatialHistory.GetTexture(0));
+
+				ScreenQuadVAO.Bind();
+				glDrawArrays(GL_TRIANGLES, 0, 6);
+				ScreenQuadVAO.Unbind();
+			}
+		}
+
+		auto& FinalDenoisedBuffer = FinalDenoiseBufferPtr ? *FinalDenoiseBufferPtr : WaveletBuffers[0];
+
 		// Screenspace raytracing ->
 
 		// Screenspace RTAO / Screenspace direct shadows 
@@ -1039,7 +1110,7 @@ void Lumen::StartPipeline()
 		glBindTexture(GL_TEXTURE_CUBE_MAP, PlayerProbe.m_CubemapTexture);
 		
 		glActiveTexture(GL_TEXTURE8);
-		glBindTexture(GL_TEXTURE_2D, SSCT ? SpecularIndirectConeTraced.GetTexture() : SpecularTemporal.GetTexture());
+		glBindTexture(GL_TEXTURE_2D, SSCT ? SpecularIndirectConeTraced.GetTexture() : (SpatialFiltering ? FinalDenoisedBuffer.GetTexture() : SpecularTemporal.GetTexture()));
 		
 		glActiveTexture(GL_TEXTURE9);
 		glBindTexture(GL_TEXTURE_2D, SSRTTemporal.GetTexture());

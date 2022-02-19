@@ -102,16 +102,17 @@ vec3 ClipAABB(in vec3 cOld, in vec3 cNew, in vec3 centre, in vec3 halfSize)
     return cOld + dir * t;
 }
 
-void CalculateStatistics(ivec2 Pixel, vec4 Specular, float Roughness, out vec3 Mean, out vec3 StandardDeviation, out float AverageTraversal, out vec3 Min, out vec3 Max) {
+void CalculateStatistics(ivec2 Pixel, vec4 Specular, float Roughness, out vec3 Mean, out vec3 StandardDeviation, out float AverageTraversal, out float MinTransversal, out vec3 Min, out vec3 Max) {
 
     Mean = Specular.xyz;
     StandardDeviation = Mean * Mean;
 
-    int KernelX = Roughness > 0.3f ? 2 : 1; 
-    int KernelY = Roughness > 0.3f ? 3 : 2; 
+    int KernelX = Roughness > 0.3f ? 3 : 2; 
+    int KernelY = Roughness > 0.3f ? 4 : 2; 
     float TotalWeight = 1.0f;
 
     AverageTraversal = Specular.w;
+    MinTransversal = Specular.w;
 
     Min = vec3(1000.0f);
     Max = vec3(-1000.0f);
@@ -126,6 +127,7 @@ void CalculateStatistics(ivec2 Pixel, vec4 Specular, float Roughness, out vec3 M
             Mean += Sample.xyz;
             StandardDeviation += Sample.xyz * Sample.xyz;
             AverageTraversal += Sample.w;
+            MinTransversal = min(MinTransversal, Sample.w);
             TotalWeight += 1.0f;
         }
     }
@@ -140,22 +142,35 @@ void CalculateStatistics(ivec2 Pixel, vec4 Specular, float Roughness, out vec3 M
 
 vec3 Clip(ivec2 Pixel, bool LesserConservative, vec3 History, vec3 Specular, float Roughness, vec3 Mean, vec3 StandardDeviation, vec3 Min, vec3 Max) {
 
-    float RoughnessWeight = Roughness < 0.1f ? 0.0f : mix(0.0f, 0.4f, clamp(pow(Roughness, 1.1f) * 1.5f, 0.0f, 1.0f)) * mix(1.0f, 0.7f, float(LesserConservative));
-    vec3 VarianceClipped = ClipAABB(History, Specular, Mean, StandardDeviation + RoughnessWeight);
-    vec3 StrictClipped = ClipAABBMinMax(History, Min + 0.015f, Max + 0.015f);
-    vec3 StrictishClipped = clamp(VarianceClipped, Min - 0.075f, Max + 0.075f);
-    vec3 Unclipped = History;
+    bool UseNewClipping = true;
 
-    vec3 Resolved = VarianceClipped;
+    if (UseNewClipping) {
 
-    if (Roughness < 0.1f) {
-        Resolved = StrictishClipped;
-        if (Roughness < 0.05f) {
-            Resolved = StrictClipped;
+        float RoughnessWeight = Roughness < 0.1f ? 0.0f : mix(0.0f, 0.4f, clamp(pow(Roughness, 1.1f) * 1.45f, 0.0f, 1.0f)) * mix(1.0f, 0.7f, float(LesserConservative));
+
+        vec3 VarianceClipped = ClipAABB(History, Specular, Mean, StandardDeviation + RoughnessWeight);
+        vec3 StrictClipped = ClipAABBMinMax(History, Min + 0.015f, Max + 0.015f);
+        vec3 StrictishClipped = clamp(VarianceClipped, Min - 0.075f, Max + 0.075f);
+        vec3 Unclipped = History;
+
+        vec3 Resolved = VarianceClipped;
+
+        if (Roughness < 0.1f) {
+            Resolved = StrictishClipped;
+            if (Roughness < 0.05f) {
+                Resolved = StrictClipped;
+            }
         }
+
+        return Resolved;
     }
 
-    return Resolved;
+    else {
+
+        float Bias = mix(0.0f, 0.5f, pow(Roughness, 1.25f));
+        vec3 Clipped = ClipAABBMinMax(History, Min - Bias, Max + Bias);
+        return Clipped;
+    }
 }
 
 void main() {
@@ -179,10 +194,11 @@ void main() {
     // Calculate statistics for the current pixel
     vec3 Mean, StandardDeviation, Min, Max;
     float AverageTraversal;
-    CalculateStatistics(Pixel, Current, Roughness, Mean, StandardDeviation, AverageTraversal, Min, Max);
+    float MinTransversal;
+    CalculateStatistics(Pixel, Current, Roughness, Mean, StandardDeviation, AverageTraversal, MinTransversal, Min, Max);
 
     // Traversal
-    float Transversal = Current.w;// Roughness < 0.1f ? Current.w : AverageTraversal;
+    float Transversal = MinTransversal; // Roughness < 0.1f ? Current.w : MinTransversal;
     Transversal *= 64.0f;
 
     // Reproject 
@@ -222,16 +238,17 @@ void main() {
 
         // Clip specular 
         vec3 ClippedSpecular = Clip(Pixel, MovedCamera, History, Current.xyz, Roughness, Mean, StandardDeviation, Min, Max);
-        History = MovedCamera ? ClippedSpecular : texture(u_HistorySpecular, Reprojected.xy).xyz; 
+        vec4 RawHistory = texture(u_HistorySpecular, Reprojected.xy).xyzw;
+        History = MovedCamera ? ClippedSpecular : RawHistory.xyz; 
 
         // Apply depth weight
         const float DepthWeightStrength = 1.6f;
-        TemporalBlur *= pow(exp(-ErrorSurface), 64.0f + 4.0f);
+        TemporalBlur *= pow(exp(-ErrorSurface), 56.0f);
 
         // Blur
         TemporalBlur = clamp(TemporalBlur, 0.0f, 0.96f);
         o_Color.xyz = mix(Current.xyz, History, TemporalBlur);
-        o_Color.w = Transversal / 64.0f;
+        o_Color.w = mix(Transversal / 64.0f, RawHistory.w, TemporalBlur);
     }
 
     else {

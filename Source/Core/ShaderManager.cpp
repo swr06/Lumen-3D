@@ -14,6 +14,7 @@ void Lumen::ShaderManager::CreateShaders()
 	AddShader("PROBE_SKY", "Core/Shaders/ProbeSkyVert.glsl", "Core/Shaders/ProbeSkyFrag.glsl");
 
 	AddShader("PROBE_SPECULAR", "Core/Shaders/FBOVert.glsl", "Core/Shaders/ProbeSpecularTrace.glsl");
+	AddShader("SPATIAL", "Core/Shaders/FBOVert.glsl", "Core/Shaders/SpatialFilter.glsl");
 	AddShader("SPECULAR_TEMPORAL", "Core/Shaders/FBOVert.glsl", "Core/Shaders/SpecularTemporal.glsl");
 	AddShader("SPECULAR_CONE_TRACE", "Core/Shaders/FBOVert.glsl", "Core/Shaders/ScreenspaceConeTracing.glsl");
 	AddShader("BLIT", "Core/Shaders/FBOVert.glsl", "Core/Shaders/BasicBlit.glsl");

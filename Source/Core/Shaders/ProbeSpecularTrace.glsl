@@ -763,7 +763,7 @@ void main() {
 
     // Jitter for temporal super sampling 
     //Pixel += ivec2(UpscaleOffsets4x4[u_Frame % 16]);
-    Pixel += ivec2(u_Jitter * 2.0f);
+    Pixel += ivec2(u_Jitter * 3.0f);
 
     // Constant resolution (0.5x)
     ivec2 HighResPixel = Pixel * 2;
@@ -776,7 +776,7 @@ void main() {
 	// Sky check
     if (IsSky(Depth)) {
         o_SpecularIndirect.xyz = vec3(0.0f);
-        o_Transversal = 64.0f;
+        o_Transversal = 256.0f;
         o_SpecularIndirect.w = o_Transversal;
         return;
     }
@@ -788,7 +788,7 @@ void main() {
     vec3 PBR = texelFetch(u_PBR, HighResPixel, 0).xyz;
     vec3 Incident = normalize(WorldPosition - u_Incident);
 
-    float Roughness = u_RoughSpecular ? PBR.x : 0.0f;
+    float Roughness = u_RoughSpecular ? PBR.x : 0.1f;
 
     // Intersection tolerance (Rougher surfaces can have less accurate reflections with a less noticable quality loss)
     float Tolerance = 1.0f;//mix(1.0, 1.8f, pow(Roughness, 1.5f));
@@ -802,7 +802,7 @@ void main() {
     // Bias roughness (to reduce noise)
     const float RoughnessBias = 0.98f;
     // Epic remapping -> //float BiasedRoughness = clamp(pow((Roughness * RoughnessBias) + 1.0f, 2.0f) / 8.0f, 0.0f, 1.0f); 
-    float BiasedRoughness = pow(Roughness, 1.25f) * RoughnessBias; 
+    float BiasedRoughness = max(Roughness * 0.85f, 0.07f);//pow(Roughness, 1.25f) * RoughnessBias; 
    
     bool FilterShadowMap = Roughness <= 0.5 + 0.01f;
 
@@ -859,7 +859,7 @@ void main() {
         TotalRadiance += CurrentRadiance;
 
         // Store transversal for filtering/reprojection
-        float CurrentTransversal = Intersection.ValidMask ? distance(Intersection.Position, WorldPosition) : 64.0f;
+        float CurrentTransversal = Intersection.ValidMask ? distance(Intersection.Position, WorldPosition) : 256.0f;
         AverageTransversal += CurrentTransversal;
 
         // Add weight 

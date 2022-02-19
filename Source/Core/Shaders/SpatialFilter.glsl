@@ -6,6 +6,8 @@
 
 layout (location = 0) out vec4 o_Specular;
 
+//layout (location = 1) out vec4 o_Diffuse;
+
 in vec2 v_TexCoords;
 
 uniform sampler2D u_Specular;
@@ -29,7 +31,6 @@ uniform float u_zNear;
 uniform float u_zFar;
 
 uniform int u_StepSize;
-uniform bool u_Checkered;
 
 // Spherical Gaussian 
 struct SG {
@@ -98,12 +99,33 @@ float GetLobeWeight(float CenterRoughness, float SampleRoughness, vec3 CenterNor
 	return LobeSimilarity * AxisSimilarity;
 }
 
-float SpecularWeight(float CenterDepth, float SampleDepth, float CenterTransversal, float SampleTransversal, float CenterRoughness, float SampleRoughness, vec3 CenterNormal, vec3 SampleNormal, float Kernel, const vec3 Incident) {
+float GetLobeWeight(in SG CenterLobe, float SampleRoughness, vec3 SampleNormal, const vec3 Incident) {
+	
+	// Lobe similarity weight strength
+	const float Beta = 128.0f;
 
-	float DepthWeight = pow(exp(-abs(CenterDepth - SampleDepth)), 128.0f);
+	float LobeSimilarity = 1.0f;
+	float AxisSimilarity = 1.0f;
+
+	SG SampleLobe = RoughnessLobe(SampleRoughness, SampleNormal, Incident);
+
+	float OneOverSharpnessSum = 1.0f / (CenterLobe.Sharpness + SampleLobe.Sharpness);
+
+	LobeSimilarity = pow(2.0f * sqrt(CenterLobe.Sharpness * SampleLobe.Sharpness) * OneOverSharpnessSum, Beta);
+	AxisSimilarity = exp(-(Beta * (CenterLobe.Sharpness * SampleLobe.Sharpness) * OneOverSharpnessSum) * clamp(1.0f - dot(CenterLobe.Axis, SampleLobe.Axis), 0.0f, 1.0f));
+
+	return LobeSimilarity * AxisSimilarity;
+}
+
+float SpecularWeight(float CenterDepth, float SampleDepth, float CenterTransversal, float SampleTransversal, float CenterRoughness, float SampleRoughness, vec3 CenterNormal, vec3 SampleNormal, float Kernel, const vec3 Incident, in SG CenterSG) {
+
+	SampleTransversal *= 64.0f;
+	CenterTransversal *= 64.0f;
+
+	float DepthWeight = pow(exp(-abs(CenterDepth - SampleDepth)), 48.0f);
 	float LobeWeight = GetLobeWeight(CenterRoughness, SampleRoughness, CenterNormal, SampleNormal, Incident);
-	float TransversalWeight = pow(exp(-abs(CenterTransversal - SampleTransversal)), 6.0f);
-	return TransversalWeight * LobeWeight * DepthWeight;
+	float TraversalWeight = pow(exp(-(abs(SampleTransversal-CenterTransversal)/4.0f)), 2.0f); 
+	return DepthWeight * pow(LobeWeight, 7.0f) * Kernel;
 }
 
 float DiffuseWeight(float CenterDepth, float SampleDepth, vec3 CenterNormal, vec3 SampleNormal, float CenterLuma, float SampleLuma, float Variance, float SqrtVariance, float Kernel) {
@@ -135,11 +157,21 @@ void main() {
 
 	const float Atrous[3] = float[3]( 1.0f, 2.0f / 3.0f, 1.0f / 6.0f );
 
-	int KernelX = u_Checkered ? 1 : 2;
-	int KernelY = u_Checkered ? 2 : 2;
+	const bool DoSpatial = true;
+
+	int KernelX = 1;
+	int KernelY = 1;
 
 	ivec2 Pixel = ivec2(gl_FragCoord.xy);
     ivec2 HighResPixel = Pixel * 2;
+
+	vec4 CenterSpecular = texelFetch(u_Specular, Pixel, 0);
+
+	if (!DoSpatial) {
+
+		o_Specular = CenterSpecular;
+		return;
+	}
 
     float Depth = texelFetch(u_Depth, HighResPixel, 0).x;
 	vec3 Normal = normalize(texelFetch(u_Normals, HighResPixel, 0).xyz); 
@@ -147,13 +179,14 @@ void main() {
 	float LinearDepth = LinearizeDepth(Depth);
 	vec3 WorldPosition = WorldPosFromDepth(Depth, v_TexCoords);
 
-	vec4 CenterSpecular = texelFetch(u_Specular, Pixel, 0);
 
 	vec3 Incident = normalize(u_ViewerPosition - WorldPosition);
 
 	vec4 SpecularSum = CenterSpecular;
 	float TotalSpecularWeight = 1.0f;
 
+
+	SG CenterLobe = RoughnessLobe(PBR.x, Normal, Incident);
 
 	for (int x = -KernelX ; x <= KernelX ; x++)
 	{
@@ -173,7 +206,7 @@ void main() {
 			vec4 SpecularSample = texelFetch(u_Specular, SamplePixel, 0).xyzw;
 
 			float KernelWeight = Atrous[abs(x)] * Atrous[abs(y)];
-			float SpecularWeight = SpecularWeight(LinearDepth, SampleDepth, CenterSpecular.w, SpecularSample.w, PBR.x, SamplePBR.x, Normal, SampleNormal, KernelWeight, Incident);
+			float SpecularWeight = SpecularWeight(LinearDepth, SampleDepth, CenterSpecular.w, SpecularSample.w, PBR.x, SamplePBR.x, Normal, SampleNormal, KernelWeight, Incident, CenterLobe);
 
 			SpecularSum += SpecularSample * SpecularWeight;
 			TotalSpecularWeight += SpecularWeight;

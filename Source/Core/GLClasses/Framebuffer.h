@@ -67,6 +67,8 @@ namespace GLClasses
 		{
 			if (width != m_FBWidth || height != m_FBHeight)
 			{
+				std::cout << "\nFramebuffer resize! : ID : " << m_FBO << " !" << "\n";
+
 				glDeleteFramebuffers(1, &m_FBO);
 
 				for (int i = 0; i < m_TextureAttachments.size(); i++)

@@ -88,12 +88,12 @@ float GetLobeWeight(float CenterRoughness, float SampleRoughness, vec3 CenterNor
 	return LobeSimilarity * AxisSimilarity;
 }
 
-float SpecularWeight(float CenterDepth, float SampleDepth, float CenterTransversal, float SampleTransversal, float CenterRoughness, float SampleRoughness, vec3 CenterNormal, vec3 SampleNormal, const vec3 Incident) {
+float SpecularWeight(float CenterDepth, float SampleDepth, float CenterRoughness, float SampleRoughness, vec3 CenterNormal, vec3 SampleNormal, float Kernel, const vec3 Incident, in SG CenterSG) {
 
-	float DepthWeight = pow(exp(-abs(CenterDepth - SampleDepth)), 128.0f);
+	float DepthWeight = pow(exp(-abs(CenterDepth - SampleDepth)), 48.0f);
 	float LobeWeight = GetLobeWeight(CenterRoughness, SampleRoughness, CenterNormal, SampleNormal, Incident);
-	float TransversalWeight = pow(abs(CenterTransversal - SampleTransversal), 16.0f);
-	return TransversalWeight * LobeWeight * DepthWeight;
+	float NormalWeight = pow(max(dot(SampleNormal, CenterNormal), 0.0f), 16.0f);
+	return DepthWeight * Kernel * clamp((CenterRoughness > 0.1f ? pow(LobeWeight, 2.0f) : pow(LobeWeight, 1.0f / 3.0f)), 0., 1.);
 }
 
 // Gets world position from screenspace texcoord 
@@ -147,11 +147,12 @@ float Luminance(vec3 rgb)
 }
 
 // Spatial upscaler 
-void SpatialUpscale(float Depth, vec3 Normal, float Roughness, out float AO, out float ContactShadow, out vec3 Specular) {
+void SpatialUpscale(float Depth, vec3 Normal, float Roughness, vec3 Incident, out float AO, out float ContactShadow, out vec3 Specular) {
+
 
 	const float Atrous[3] = float[3]( 1.0f, 2.0f / 3.0f, 1.0f / 6.0f );
 
-	const bool DoSpatialUpscaling = false;
+	const bool DoSpatialUpscaling = true;
 
 	if (!DoSpatialUpscaling) {
 
@@ -165,9 +166,7 @@ void SpatialUpscale(float Depth, vec3 Normal, float Roughness, out float AO, out
 	vec2 TexelSize = 1.0f / (u_Dims * 0.5f);
 
 	float TotalWeight = 0.0f;
-	float TotalSpecularWeight = 0.0f;
 
-	Specular = vec3(0.0f);
 	AO = 0.0f;
 	ContactShadow = 0.0f;
 
@@ -175,9 +174,13 @@ void SpatialUpscale(float Depth, vec3 Normal, float Roughness, out float AO, out
 
 	float Exponent = mix(2.75f, 1.0f, clamp(pow(Roughness, 1.5f), 0.0f, 1.0f));
 
+	SG CenterSG = RoughnessLobe(Roughness, Normal, Incident);
+	float TotalSpecularWeight = 1.0f;
+	Specular = CenterSpecular;
+
 	for (int x = -1 ; x <= 1 ; x++) {
 
-		for (int y = -1 ; y <= 1 ; y++) {
+		for (int y = -2 ; y <= 2 ; y++) {
 			
 			float KernelWeight = Atrous[abs(x)] * Atrous[abs(y)];
 			
@@ -185,24 +188,24 @@ void SpatialUpscale(float Depth, vec3 Normal, float Roughness, out float AO, out
 
 			float SampleDepth = LinearizeDepth(texture(u_DepthTexture, SampleCoord).x);
 			vec3 SampleNormal = texture(u_NormalTexture, SampleCoord).xyz;
+			vec3 SamplePBR = texture(u_PBRTexture, SampleCoord).xyz;
 
 			float DepthWeight = pow(exp(-abs(Depth - SampleDepth)), 128.0f);
 			float NormalWeight = pow(max(dot(SampleNormal, Normal), 0.0f), 12.0f);
 
 			float Weight = DepthWeight * NormalWeight * KernelWeight;
 
-			vec3 SpecularSample = ivec2(x,y) == ivec2(0) ? CenterSpecular : texture(u_ResolvedSpecular, SampleCoord).xyz;
-			//float LDiff = abs(Luminance(CenterSpecular) - Luminance(SpecularSample));
-			//float LWeight = pow(1.0f/(1.0f+LDiff*4.5f), Exponent);
-			float SpecWeight = DepthWeight * NormalWeight * KernelWeight; // * LWeight
+			if (!(x == 0 && y == 0)) {
+				vec3 SpecularSample = ivec2(x,y) == ivec2(0) ? CenterSpecular : texture(u_ResolvedSpecular, SampleCoord).xyz;
+				float SpecWeight = SpecularWeight(Depth, SampleDepth, Roughness, SamplePBR.x, Normal, SampleNormal, KernelWeight, Incident, CenterSG); // * LWeight
+				TotalSpecularWeight += SpecWeight;
+				Specular += SpecularSample * SpecWeight;
+			}
 
-
-			Specular += SpecularSample * SpecWeight;
 			AO += texture(u_RTAO, SampleCoord).x * Weight;
 			ContactShadow += texture(u_ScreenspaceShadows, SampleCoord).x * Weight;
 
 			TotalWeight += Weight;
-			TotalSpecularWeight += SpecWeight;
 		}
 
 	}
@@ -276,7 +279,7 @@ void main()
 	float ScreenspaceShadow;
 	vec3 SpecularIndirect;
 
-	SpatialUpscale(LinearizeDepth(Depth), Normal, PBR.x, AO, ScreenspaceShadow, SpecularIndirect);
+	SpatialUpscale(LinearizeDepth(Depth), Normal, PBR.x, Lo, AO, ScreenspaceShadow, SpecularIndirect);
 	SpecularIndirect = SpecularIndirect * 1.25f;
 
 	// Direct lighting ->
@@ -326,7 +329,6 @@ void main()
     vec3 IndirectLighting = (kD * IndirectDiffuse) + IndirectSpecularFinal;
 
 	o_Color = DirectLighting + Emission + IndirectLighting;
-	o_Color = SpecularIndirect;
 
 	if (ProbeDebug) {
 		vec3 sLo = -normalize(GetCapturePoint(Lo) - WorldPosition);

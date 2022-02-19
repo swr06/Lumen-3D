@@ -145,7 +145,9 @@ void main() {
     float Current = WaveletFilter(LinearizedDepth, Normal); //texture(u_Current, v_TexCoords).x;
     float CurrentDirect = texture(u_CurrentDirect, v_TexCoords).x;
 
-    float Cutoff = 0.02f;
+    bool ChangedViewMatrix = u_PrevInverseView != u_InverseView;
+
+    float Cutoff = ChangedViewMatrix ? 0.01f : 0.0f;
 
     bool MovedCamera = distance(u_InverseView[3].xyz, u_PrevInverseView[3].xyz) > 0.002f;
 
