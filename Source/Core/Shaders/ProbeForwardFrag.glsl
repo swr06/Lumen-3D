@@ -26,7 +26,9 @@ void main()
 {
 	vec3 Albedo, Normal, PBR;
 	Albedo = texture(u_AlbedoMap, v_TexCoords).xyz;
-	Normal = v_Normal;
+
+	// Todo : sample normal map if probe res > 512 or something 
+	Normal = normalize(v_Normal);
 
 	if (u_UsesGLTFPBR) {
 		PBR = vec3(texture(u_MetalnessRoughnessMap, v_TexCoords).yz, 1.0f);

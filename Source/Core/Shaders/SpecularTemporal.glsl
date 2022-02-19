@@ -1,6 +1,6 @@
 #version 330 core 
 
-layout (location = 0) out vec3 o_Color;
+layout (location = 0) out vec4 o_Color;
 
 in vec2 v_TexCoords;
 
@@ -17,6 +17,8 @@ uniform mat4 u_Projection;
 uniform mat4 u_View;
 uniform mat4 u_InverseView;
 uniform mat4 u_InverseProjection;
+
+uniform vec2 u_HaltonJitter;
 
 uniform mat4 u_PrevView;
 uniform mat4 u_PrevProjection;
@@ -105,8 +107,8 @@ void CalculateStatistics(ivec2 Pixel, vec4 Specular, float Roughness, out vec3 M
     Mean = Specular.xyz;
     StandardDeviation = Mean * Mean;
 
-    int KernelX = 1; //Roughness < 0.1f ? 1 : 2;
-    int KernelY = 2; //Roughness < 0.1f ? 1 : 2;
+    int KernelX = Roughness > 0.3f ? 2 : 1; 
+    int KernelY = Roughness > 0.3f ? 3 : 2; 
     float TotalWeight = 1.0f;
 
     AverageTraversal = Specular.w;
@@ -132,11 +134,13 @@ void CalculateStatistics(ivec2 Pixel, vec4 Specular, float Roughness, out vec3 M
     AverageTraversal /= TotalWeight;
 
     StandardDeviation = sqrt(StandardDeviation / TotalWeight - Mean * Mean);
+
+
 }
 
-vec3 Clip(ivec2 Pixel, vec3 History, vec3 Specular, float Roughness, vec3 Mean, vec3 StandardDeviation, vec3 Min, vec3 Max) {
+vec3 Clip(ivec2 Pixel, bool LesserConservative, vec3 History, vec3 Specular, float Roughness, vec3 Mean, vec3 StandardDeviation, vec3 Min, vec3 Max) {
 
-    float RoughnessWeight = Roughness < 0.1f ? 0.0f : mix(0.0f, 0.45f, clamp(pow(Roughness, 1.1f) * 1.55f, 0.0f, 1.0f));
+    float RoughnessWeight = Roughness < 0.1f ? 0.0f : mix(0.0f, 0.4f, clamp(pow(Roughness, 1.1f) * 1.5f, 0.0f, 1.0f)) * mix(1.0f, 0.7f, float(LesserConservative));
     vec3 VarianceClipped = ClipAABB(History, Specular, Mean, StandardDeviation + RoughnessWeight);
     vec3 StrictClipped = ClipAABBMinMax(History, Min + 0.015f, Max + 0.015f);
     vec3 StrictishClipped = clamp(VarianceClipped, Min - 0.075f, Max + 0.075f);
@@ -160,6 +164,8 @@ void main() {
 
     ivec2 Pixel = ivec2(gl_FragCoord.xy);
 
+    vec2 NormalizedJitter = u_HaltonJitter / textureSize(u_Specular, 0).xy;
+
     float Roughness = !u_RoughSpecular ? 0.05f : texture(u_PBR, v_TexCoords).x;
 
     float Depth = texture(u_Depth, v_TexCoords).x;
@@ -176,8 +182,7 @@ void main() {
     CalculateStatistics(Pixel, Current, Roughness, Mean, StandardDeviation, AverageTraversal, Min, Max);
 
     // Traversal
-    float SampleTransversal = texture(u_Transversals, v_TexCoords).x;
-    float Transversal = Roughness < 0.1f ? SampleTransversal : AverageTraversal;
+    float Transversal = Current.w;// Roughness < 0.1f ? Current.w : AverageTraversal;
     Transversal *= 64.0f;
 
     // Reproject 
@@ -188,8 +193,10 @@ void main() {
     // Reprojected surface 
     vec3 ReprojectedSurface = Reprojection(WorldPosition);
 
+    bool ChangedViewMatrix = u_PrevInverseView != u_InverseView;
+
     // Screenspace check
-    float Cutoff = 0.009f;
+    float Cutoff = ChangedViewMatrix ? 0.01f : 0.0f;
     if (Reprojected.x > Cutoff && Reprojected.x < 1.0f - Cutoff && Reprojected.y > Cutoff && Reprojected.y < 1.0f - Cutoff &&
         ReprojectedSurface.x > Cutoff && ReprojectedSurface.x < 1.0f - Cutoff && ReprojectedSurface.y > Cutoff && ReprojectedSurface.y < 1.0f - Cutoff && (!BE_USELESS)) 
     {
@@ -208,30 +215,33 @@ void main() {
         bool MovedCamera = distance(u_InverseView[3].xyz, u_PrevInverseView[3].xyz) > 0.0005f;
 
         // Calculate temporal blur
-        float TemporalBlur = MovedCamera ? clamp(exp(-length(Velocity)) * 0.825f + 0.785f, 0.0f, 0.975f) : 0.975f;
+        float TemporalBlur = MovedCamera ? clamp(exp(-length(Velocity)) * 0.8f + 0.86f, 0.0f, 0.975f) : 0.975f;
 
         // Sample History 
         vec3 History = texture(u_HistorySpecular, Reprojected.xy).xyz;
 
         // Clip specular 
-        vec3 ClippedSpecular = Clip(Pixel, History, Current.xyz, Roughness, Mean, StandardDeviation, Min, Max);
+        vec3 ClippedSpecular = Clip(Pixel, MovedCamera, History, Current.xyz, Roughness, Mean, StandardDeviation, Min, Max);
         History = MovedCamera ? ClippedSpecular : texture(u_HistorySpecular, Reprojected.xy).xyz; 
 
         // Apply depth weight
         const float DepthWeightStrength = 1.6f;
-        TemporalBlur *= pow(exp(-ErrorSurface), 128.0f);
+        TemporalBlur *= pow(exp(-ErrorSurface), 64.0f + 4.0f);
 
         // Blur
         TemporalBlur = clamp(TemporalBlur, 0.0f, 0.96f);
-        o_Color = mix(Current.xyz, History, TemporalBlur);
+        o_Color.xyz = mix(Current.xyz, History, TemporalBlur);
+        o_Color.w = Transversal / 64.0f;
     }
 
     else {
-        o_Color = Current.xyz;
+        o_Color.xyz = Current.xyz;
+        o_Color.w = Transversal / 64.0f;
     }
 
     if (isnan(o_Color.x) || isnan(o_Color.y) || isnan(o_Color.z) || isinf(o_Color.x) || isinf(o_Color.y) || isinf(o_Color.z)) {
-        o_Color = vec3(0.0f);
+        o_Color.xyz = vec3(0.0f);
+        o_Color.w = vec3(0.0f).x;
     }
 
 }

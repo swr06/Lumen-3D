@@ -151,7 +151,7 @@ void SpatialUpscale(float Depth, vec3 Normal, float Roughness, out float AO, out
 
 	const float Atrous[3] = float[3]( 1.0f, 2.0f / 3.0f, 1.0f / 6.0f );
 
-	const bool DoSpatialUpscaling = true;
+	const bool DoSpatialUpscaling = false;
 
 	if (!DoSpatialUpscaling) {
 
@@ -326,6 +326,7 @@ void main()
     vec3 IndirectLighting = (kD * IndirectDiffuse) + IndirectSpecularFinal;
 
 	o_Color = DirectLighting + Emission + IndirectLighting;
+	o_Color = SpecularIndirect;
 
 	if (ProbeDebug) {
 		vec3 sLo = -normalize(GetCapturePoint(Lo) - WorldPosition);

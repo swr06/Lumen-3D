@@ -251,15 +251,13 @@ vec3 CosWeightedHemisphere(const vec3 n)
 const float EmissiveDesat = 0.925f;
 const float EmissionStrength = 9.5f;
 
-GBufferData Raytrace(vec3 WorldPosition, vec3 Direction, float ErrorTolerance, float Hash) {
+GBufferData Raytrace(vec3 WorldPosition, vec3 Direction, float ErrorTolerance, float Hash, int Steps, int BinarySteps) {
    
     // If enabled, the raytracer returns the nearest hit which is approximated using a weighting factor 
     const bool FALLBACK_ON_BEST_STEP = false;
 
     // Settings 
     const float Distance = 384.0f;
-    const int Steps = 180;
-    const int BinarySteps = 16;
 
     float StepSize = Distance / float(Steps);
     float UnditheredStepSize = StepSize;
@@ -705,7 +703,7 @@ vec3 IntegrateLighting(GBufferData Hit, vec3 Direction, const bool FilterShadow)
     // Lambert BRDF  
     // Todo : Switch to hammon diffuse brdf (ignore specular brdf to reduce variance)
     float Lambertian = max(0.0f, dot(Hit.Normal, -u_SunDirection));
-    vec3 Direct = Lambertian * SUN_COLOR * 0.07f * Shadow * Hit.Albedo * 3.0f;
+    vec3 Direct = Lambertian * SUN_COLOR * 0.07f * Shadow * Hit.Albedo * 6.75f;
     vec3 FakeIndirect = texture(u_EnvironmentMap, vec3(0.0f, 1.0f, 0.0f)).xyz * 0.2f * Hit.Albedo;
     return Direct + FakeIndirect + Hit.Emission;
 }
@@ -812,6 +810,8 @@ void main() {
 
     int SSSteps = BiasedRoughness <= 0.69f + 0.01f ? (BiasedRoughness <= 0.1f ? 56 : 42) : (BiasedRoughness > 0.825f ? 24 : 32); // nice
 
+    int ProbeSteps = clamp(int(mix(170.0f, 64.0f, pow((BiasedRoughness < 0.125f) ? 0.0f : BiasedRoughness, 1.325f))), 64, 180);
+    int ProbeBinarySteps = (Roughness < 0.125f) ? (16) : (Roughness < 0.325f ? 8 : 4);
 
     for (int Sample ; Sample < SAMPLES ; Sample++) {
 
@@ -844,12 +844,12 @@ void main() {
             // If that fails, trace in probe space  
             if (!Intersection.ValidMask) {
 
-                Intersection = Raytrace(WorldPosition + LFNormal * Bias_n, Direction, Tolerance, BayerHash);
+                Intersection = Raytrace(WorldPosition + LFNormal * Bias_n, Direction, Tolerance, BayerHash, ProbeSteps, ProbeBinarySteps);
             }
         }
 
         else {
-            Intersection = Raytrace(WorldPosition + LFNormal * Bias_n, Direction, Tolerance, BayerHash);
+            Intersection = Raytrace(WorldPosition + LFNormal * Bias_n, Direction, Tolerance, BayerHash, ProbeSteps, ProbeBinarySteps);
         }
 
         // Integrate lighting 

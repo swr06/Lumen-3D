@@ -207,6 +207,7 @@ void SetCommonUniforms(GLClasses::Shader& shader, CommonUniforms& uniforms) {
 	shader.SetVector3f("u_SunDirection", SunDirection);
 	shader.SetFloat("u_zNear", Camera.GetNearPlane());
 	shader.SetFloat("u_zFar", Camera.GetFarPlane());
+	shader.SetVector2f("u_HaltonJitter", Lumen::GetTAAJitterSecondary(uniforms.Frame));
 }
 
 void UnbindEverything() {
@@ -305,8 +306,8 @@ GLClasses::Framebuffer ScreenspaceOcclusionTemporalBuffers[2] = { GLClasses::Fra
 
 // Specular Indirect 
 GLClasses::Framebuffer SpecularIndirectBuffers[2]{ GLClasses::Framebuffer(16, 16, { {GL_RGBA16F, GL_RGBA, GL_FLOAT, true, true}, {GL_R16F, GL_RED, GL_FLOAT, true, true} }, false, false), GLClasses::Framebuffer(16, 16, { {GL_RGBA16F, GL_RGBA, GL_FLOAT, true, true}, {GL_R16F, GL_RED, GL_FLOAT, true, true} }, false, false) };
-GLClasses::Framebuffer SpecularIndirectCheckerUpscaled(16, 16, { {GL_RGB16F, GL_RGB, GL_FLOAT, true, true}, {GL_R16F, GL_RED, GL_FLOAT, true, true} }, false, false);
-GLClasses::Framebuffer SpecularIndirectTemporalBuffers[2] = { GLClasses::Framebuffer(16, 16, {GL_RGB16F, GL_RGB, GL_FLOAT, true, true}, false, false), GLClasses::Framebuffer(16, 16, {GL_RGB16F, GL_RGB, GL_FLOAT, true, true}, false, false) };
+GLClasses::Framebuffer SpecularIndirectCheckerUpscaled(16, 16, { {GL_RGBA16F, GL_RGBA, GL_FLOAT, true, true}, {GL_R16F, GL_RED, GL_FLOAT, true, true} }, false, false);
+GLClasses::Framebuffer SpecularIndirectTemporalBuffers[2] = { GLClasses::Framebuffer(16, 16, {GL_RGBA16F, GL_RGBA, GL_FLOAT, true, true}, false, false), GLClasses::Framebuffer(16, 16, {GL_RGBA16F, GL_RGBA, GL_FLOAT, true, true}, false, false) };
 GLClasses::Framebuffer SpecularIndirectConeTraceInput(16, 16, { GL_RGB16F, GL_RGB, GL_FLOAT, true, true }, false, false);
 GLClasses::Framebuffer SpecularIndirectConeTraceInputAlternate(16, 16, { GL_RGB16F, GL_RGB, GL_FLOAT, true, true }, false, false);
 GLClasses::Framebuffer SpecularIndirectConeTraced(16, 16, { GL_RGB16F, GL_RGB, GL_FLOAT, true, true }, false, false);
@@ -465,7 +466,7 @@ void Lumen::StartPipeline()
 	glm::mat4 InverseProjection;
 
 	// Probe Setup
-	ProbeMap PlayerProbe(128);
+	ProbeMap PlayerProbe(192);
 	glm::vec3 PlayerProbeCapturePoint;
 
 	// Temporal jitter
