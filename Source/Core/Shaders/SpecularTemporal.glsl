@@ -1,6 +1,7 @@
 #version 330 core 
 
 layout (location = 0) out vec4 o_Color;
+layout (location = 1) out float o_Frames;
 
 in vec2 v_TexCoords;
 
@@ -9,9 +10,10 @@ uniform sampler2D u_PreviousDepth;
 uniform sampler2D u_Specular;
 uniform sampler2D u_HistorySpecular;
 uniform sampler2D u_Normals;
-uniform sampler2D u_Transversals;
 uniform sampler2D u_PrevTransversals;
 uniform sampler2D u_PBR;
+
+uniform sampler2D u_Frames;
 
 uniform mat4 u_Projection;
 uniform mat4 u_View;
@@ -107,7 +109,7 @@ void CalculateStatistics(ivec2 Pixel, vec4 Specular, float Roughness, out vec3 M
     Mean = Specular.xyz;
     StandardDeviation = Mean * Mean;
 
-    int KernelX = Roughness > 0.3f ? 3 : 2; 
+    int KernelX = Roughness > 0.3f ? 2 : 2; 
     int KernelY = Roughness > 0.3f ? 4 : 2; 
     float TotalWeight = 1.0f;
 
@@ -146,7 +148,7 @@ vec3 Clip(ivec2 Pixel, bool LesserConservative, vec3 History, vec3 Specular, flo
 
     if (UseNewClipping) {
 
-        float RoughnessWeight = Roughness < 0.1f ? 0.0f : mix(0.0f, 0.4f, clamp(pow(Roughness, 1.1f) * 1.45f, 0.0f, 1.0f)) * mix(1.0f, 0.7f, float(LesserConservative));
+        float RoughnessWeight = Roughness < 0.1f ? 0.0f : mix(0.0f, 0.4f, clamp(pow(Roughness, 1.1f) * 1.45f, 0.0f, 1.0f)) * mix(1.0f, 0.85f, float(LesserConservative));
 
         vec3 VarianceClipped = ClipAABB(History, Specular, Mean, StandardDeviation + RoughnessWeight);
         vec3 StrictClipped = ClipAABBMinMax(History, Min + 0.015f, Max + 0.015f);
@@ -217,6 +219,7 @@ void main() {
         ReprojectedSurface.x > Cutoff && ReprojectedSurface.x < 1.0f - Cutoff && ReprojectedSurface.y > Cutoff && ReprojectedSurface.y < 1.0f - Cutoff && (!BE_USELESS)) 
     {
         
+
         // Depth rejection
         float ReprojectedDepth = linearizeDepth(texture(u_PreviousDepth, Reprojected.xy).x);
         float ReprojectedSurfaceDepth = linearizeDepth(texture(u_PreviousDepth, ReprojectedSurface.xy).x);
@@ -230,9 +233,7 @@ void main() {
 		vec2 Velocity = (v_TexCoords - Reprojected.xy) * Dimensions;
         bool MovedCamera = distance(u_InverseView[3].xyz, u_PrevInverseView[3].xyz) > 0.0005f;
 
-        // Calculate temporal blur
-        float TemporalBlur = MovedCamera ? clamp(exp(-length(Velocity)) * 0.8f + 0.86f, 0.0f, 0.975f) : 0.975f;
-
+      
         // Sample History 
         vec3 History = texture(u_HistorySpecular, Reprojected.xy).xyz;
 
@@ -241,24 +242,35 @@ void main() {
         vec4 RawHistory = texture(u_HistorySpecular, Reprojected.xy).xyzw;
         History = MovedCamera ? ClippedSpecular : RawHistory.xyz; 
 
-        // Apply depth weight
+        // Calculate temporal blur
+        float MovedBlurFactor = clamp(exp(-length(Velocity)) * 0.8f + 0.86f, 0.0f, 0.975f);
+        
+        float Frames = texture(u_Frames, Reprojected.xy).x * 64.0f;
+
         const float DepthWeightStrength = 1.6f;
-        TemporalBlur *= pow(exp(-ErrorSurface), 56.0f);
+        float DepthRejection = pow(exp(-ErrorSurface), 32.0f); 
+
+        // Calculate temporal blur and frame increment
+        float Framerejection = (DepthRejection < 0.25f ? 0.0f : (DepthRejection <= 0.5 ? 0.5f : (DepthRejection <= 0.8f ? 0.75f : 1.0f))) * mix(1.0f, MovedBlurFactor, float(MovedCamera));
+        o_Frames = (Frames * Framerejection) + 1;
+        float TemporalBlur = (1.0f / max(o_Frames, 1.0f));
 
         // Blur
-        TemporalBlur = clamp(TemporalBlur, 0.0f, 0.96f);
-        o_Color.xyz = mix(Current.xyz, History, TemporalBlur);
+        o_Color.xyz = mix(History.xyz, Current.xyz, TemporalBlur);
         o_Color.w = mix(Transversal / 64.0f, RawHistory.w, TemporalBlur);
     }
 
     else {
         o_Color.xyz = Current.xyz;
         o_Color.w = Transversal / 64.0f;
+        o_Frames = 1.0f;
     }
 
     if (isnan(o_Color.x) || isnan(o_Color.y) || isnan(o_Color.z) || isinf(o_Color.x) || isinf(o_Color.y) || isinf(o_Color.z)) {
         o_Color.xyz = vec3(0.0f);
         o_Color.w = vec3(0.0f).x;
     }
+
+    o_Frames = clamp(o_Frames / 64.0f, 0.0f, 1.0f);
 
 }

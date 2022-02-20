@@ -190,14 +190,14 @@ void SpatialUpscale(float Depth, vec3 Normal, float Roughness, vec3 Incident, ou
 			vec3 SampleNormal = texture(u_NormalTexture, SampleCoord).xyz;
 			vec3 SamplePBR = texture(u_PBRTexture, SampleCoord).xyz;
 
-			float DepthWeight = pow(exp(-abs(Depth - SampleDepth)), 128.0f);
+			float DepthWeight = pow(exp(-abs(Depth - SampleDepth)), 64.0f);
 			float NormalWeight = pow(max(dot(SampleNormal, Normal), 0.0f), 12.0f);
 
 			float Weight = DepthWeight * NormalWeight * KernelWeight;
 
 			if (!(x == 0 && y == 0)) {
 				vec3 SpecularSample = ivec2(x,y) == ivec2(0) ? CenterSpecular : texture(u_ResolvedSpecular, SampleCoord).xyz;
-				float SpecWeight = SpecularWeight(Depth, SampleDepth, Roughness, SamplePBR.x, Normal, SampleNormal, KernelWeight, Incident, CenterSG); // * LWeight
+				float SpecWeight = DepthWeight * NormalWeight * KernelWeight; //SpecularWeight(Depth, SampleDepth, Roughness, SamplePBR.x, Normal, SampleNormal, KernelWeight, Incident, CenterSG); // * LWeight
 				TotalSpecularWeight += SpecWeight;
 				Specular += SpecularSample * SpecWeight;
 			}

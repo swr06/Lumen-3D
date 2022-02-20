@@ -233,7 +233,7 @@
     <None Include="Core\Shaders\BasicBlit.glsl" />
     <None Include="Core\Shaders\BasicFrag.glsl" />
     <None Include="Core\Shaders\BasicVert.glsl" />
-    <None Include="Core\Shaders\DownsampleDepth.glsl" />
+    <None Include="Core\Shaders\DownsampleGBuffer.glsl" />
     <None Include="Core\Shaders\SpatialFilter.glsl" />
     <None Include="Core\Shaders\SpecularCheckerboarder.glsl" />
     <None Include="Core\Shaders\ColorPass.glsl" />

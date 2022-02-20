@@ -1,13 +1,12 @@
 #version 330 core 
 
 layout (location = 0) out vec4 o_Data;
-layout (location = 1) out float o_Transversal;
 
 uniform sampler2D u_Input;
-uniform sampler2D u_InputTransversal;
 
 uniform sampler2D u_Depth;
 uniform sampler2D u_Normals;
+
 
 uniform float u_zNear;
 uniform float u_zFar;
@@ -52,28 +51,22 @@ void main() {
 			vec3 SampleNormal = texelFetch(u_Normals, HighResCoord, 0).xyz;
 
 			vec4 SampleData = texelFetch(u_Input, Coord, 0).xyzw;
-			float SampleTransversal = texelFetch(u_InputTransversal, Coord, 0).x;
 
 			float CurrentWeight = pow(exp(-(abs(SampleDepth - BaseDepth))), 54.0f) * pow(max(dot(SampleNormal, BaseNormal), 0.0f), 12.0f);
 			CurrentWeight = clamp(CurrentWeight, 0.0000000001f, 1.0f);
 
 			Total += SampleData * CurrentWeight;
-			TotalTraversal += SampleTransversal * CurrentWeight;
 			TotalWeight += CurrentWeight;
 		}
 
 		Total /= max(TotalWeight, 0.000001f);
 		TotalTraversal /= max(TotalWeight, 0.000001f);
 		o_Data = Total;
-		o_Transversal = TotalTraversal;
 	}
 
 	else {
 		ivec2 PixelHalvedX = Pixel;
 		PixelHalvedX.x /= 2;
 		o_Data = texelFetch(u_Input, PixelHalvedX, 0).xyzw;
-		o_Transversal = texelFetch(u_InputTransversal, PixelHalvedX, 0).x;
 	}
-
-	o_Data.w =o_Transversal;
 }

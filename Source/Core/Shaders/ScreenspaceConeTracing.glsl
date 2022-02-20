@@ -7,7 +7,6 @@ in vec2 v_TexCoords;
 uniform sampler2D u_Depth;
 uniform sampler2D u_LFNormals;
 uniform sampler2D u_PBR;
-uniform sampler2D u_Transversals;
 uniform sampler2D u_Input;
 
 uniform mat4 u_Projection;
@@ -92,7 +91,9 @@ void main() {
     vec3 ViewDirection = normalize(WorldPosition - u_Incident);
     vec3 ReflectionVector = normalize(reflect(ViewDirection, LFNormal)); 
 
-    float Transversal = texture(u_Transversals, v_TexCoords).x;
+    vec4 BaseSample = texture(u_Input, v_TexCoords);
+
+    float Transversal = BaseSample.w;//texture(u_Transversals, v_TexCoords).x;
 
     vec3 Total = vec3(0.0f);
 

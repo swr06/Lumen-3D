@@ -163,7 +163,7 @@ vec3 SampleMicrofacet(vec3 N, float R) {
 	float NearestDot = -100.0f;
 	vec3 BestDirection = N;
 
-	for (int i = 0 ; i < 3 ; i++) 
+	for (int i = 0 ; i < 4 ; i++) 
     {
 		vec2 Xi = hash2() * vec2(0.9f, 0.85f);
         
@@ -703,7 +703,7 @@ vec3 IntegrateLighting(GBufferData Hit, vec3 Direction, const bool FilterShadow)
     // Lambert BRDF  
     // Todo : Switch to hammon diffuse brdf (ignore specular brdf to reduce variance)
     float Lambertian = max(0.0f, dot(Hit.Normal, -u_SunDirection));
-    vec3 Direct = Lambertian * SUN_COLOR * 0.07f * Shadow * Hit.Albedo * 6.75f;
+    vec3 Direct = Lambertian * SUN_COLOR * 0.75f * Shadow * Hit.Albedo;
     vec3 FakeIndirect = texture(u_EnvironmentMap, vec3(0.0f, 1.0f, 0.0f)).xyz * 0.2f * Hit.Albedo;
     return Direct + FakeIndirect + Hit.Emission;
 }
@@ -802,7 +802,7 @@ void main() {
     // Bias roughness (to reduce noise)
     const float RoughnessBias = 0.98f;
     // Epic remapping -> //float BiasedRoughness = clamp(pow((Roughness * RoughnessBias) + 1.0f, 2.0f) / 8.0f, 0.0f, 1.0f); 
-    float BiasedRoughness = max(Roughness * 0.85f, 0.07f);//pow(Roughness, 1.25f) * RoughnessBias; 
+    float BiasedRoughness = max(Roughness * 0.925, 0.07f);//pow(Roughness, 1.25f) * RoughnessBias; 
    
     bool FilterShadowMap = Roughness <= 0.5 + 0.01f;
 

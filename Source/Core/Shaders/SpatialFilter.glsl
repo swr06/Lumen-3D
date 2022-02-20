@@ -6,15 +6,28 @@
 
 layout (location = 0) out vec4 o_Specular;
 
+
 //layout (location = 1) out vec4 o_Diffuse;
+//layout (location = 2) out float o_IndirectAO; 
+//layout (location = 3) out float o_Direct;
+
 
 in vec2 v_TexCoords;
 
 uniform sampler2D u_Specular;
+
+// Downsampled gbuffers 
 uniform sampler2D u_Depth;
 uniform sampler2D u_Normals;
 uniform sampler2D u_PBR;
 
+// Jitter 
+uniform sampler2D u_BlueNoise;
+
+// Frame counters 
+uniform sampler2D u_SpecularFrames;
+
+// Matrices
 uniform mat4 u_Projection;
 uniform mat4 u_View;
 uniform mat4 u_InverseView;
@@ -31,6 +44,8 @@ uniform float u_zNear;
 uniform float u_zFar;
 
 uniform int u_StepSize;
+
+//
 
 // Spherical Gaussian 
 struct SG {
@@ -62,7 +77,7 @@ vec3 WorldPosFromDepth(float depth, vec2 txc)
 }
 
 // Calculates a spherical gaussian whose sharpness and amplitude are similar to that of a specular lobe for a roughness value r
-// Inspired by UE4
+// Based on UE4's implementation 
 SG RoughnessLobe(float Roughness, vec3 Normal, vec3 Incident) {
 	
 	Roughness = max(Roughness, 0.001f);
@@ -101,7 +116,6 @@ float GetLobeWeight(float CenterRoughness, float SampleRoughness, vec3 CenterNor
 
 float GetLobeWeight(in SG CenterLobe, float SampleRoughness, vec3 SampleNormal, const vec3 Incident) {
 	
-	// Lobe similarity weight strength
 	const float Beta = 128.0f;
 
 	float LobeSimilarity = 1.0f;
@@ -117,15 +131,56 @@ float GetLobeWeight(in SG CenterLobe, float SampleRoughness, vec3 SampleNormal, 
 	return LobeSimilarity * AxisSimilarity;
 }
 
-float SpecularWeight(float CenterDepth, float SampleDepth, float CenterTransversal, float SampleTransversal, float CenterRoughness, float SampleRoughness, vec3 CenterNormal, vec3 SampleNormal, float Kernel, const vec3 Incident, in SG CenterSG) {
-
+float SpecularWeight(in float CenterDepth, in float SampleDepth, in float CenterTransversal, 
+					 in float SampleTransversal, in float CenterRoughness, in float SampleRoughness,
+					 in vec3 CenterNormal, in vec3 SampleNormal, const vec3 Incident, 
+					 in vec2 Luminances, in SG CenterSG, in float Radius, in float Frames, in float Kernel) 
+{
+	// Linearize transversals 
 	SampleTransversal *= 64.0f;
 	CenterTransversal *= 64.0f;
 
-	float DepthWeight = pow(exp(-abs(CenterDepth - SampleDepth)), 48.0f);
+	// Depth weight 
+	float DepthWeight = clamp(pow(exp(-abs(CenterDepth - SampleDepth)), 40.0f), 0.0f, 1.0f);
+
+	// Specular lobe weight 
+
+	// Handles the roughness transversal and normal weight!
 	float LobeWeight = GetLobeWeight(CenterRoughness, SampleRoughness, CenterNormal, SampleNormal, Incident);
-	float TraversalWeight = pow(exp(-(abs(SampleTransversal-CenterTransversal)/4.0f)), 2.0f); 
-	return DepthWeight * pow(LobeWeight, 7.0f) * Kernel;
+	float RawLobeWeight = clamp(LobeWeight, 0.0f, 1.0f);
+	LobeWeight = pow(LobeWeight, 9.0f);
+	LobeWeight = clamp(mix(LobeWeight, clamp(LobeWeight * 4.0f, 0.0f, 1.0f), pow(SampleRoughness, 1.25f)), 0.0f, 1.0f);
+
+	float RawTraversalWeight = pow(exp(-(abs(SampleTransversal-CenterTransversal))), 2.0f); 
+
+	// Transversal-Luminance Weight ->
+
+	float LuminanceWeight = 1.0f;
+
+	bool DoLuminanceWeight = true;
+
+	if (DoLuminanceWeight) {
+		
+		// If LMax is higher, it results in sharper reflections 
+		float LMax = mix(40.0f, 20.0f, CenterRoughness * CenterRoughness); // Weight luminance factor with roughness
+
+		float TransversalRadius = pow(Radius, 1.0f);
+		float Exponent = mix(1.0f, LMax, TransversalRadius);
+		float LDiff = abs(Luminances.x - Luminances.y);
+		float Lw = exp(-LDiff);
+		LuminanceWeight = clamp(pow(Lw, Exponent), 0.0f, 1.0f);
+
+	}
+
+	// Frame bias (Filter more in case of disocclusions)
+	float Framebias = pow(clamp(float(Frames) / 14.0f, 0.0f, 1.0f), 1.1f);
+
+	// Combine and account for the framebias 
+	float CombinedWeightComplex = clamp(LobeWeight * DepthWeight * Kernel * LuminanceWeight, 0.0f, 1.0f);
+	float CombinedWeightBasic = clamp(DepthWeight * Kernel * RawLobeWeight, 0.0f, 1.0f);
+	float CombinedWeight = mix(CombinedWeightBasic, CombinedWeightComplex, Framebias);
+
+	return CombinedWeight;
 }
 
 float DiffuseWeight(float CenterDepth, float SampleDepth, vec3 CenterNormal, vec3 SampleNormal, float CenterLuma, float SampleLuma, float Variance, float SqrtVariance, float Kernel) {
@@ -134,6 +189,8 @@ float DiffuseWeight(float CenterDepth, float SampleDepth, vec3 CenterNormal, vec
 
 	float DepthWeight = clamp(pow(exp(-abs(CenterDepth - SampleDepth)), 128.0f), 0.0f, 1.0f);
 	float NormalWeight = clamp(pow(max(dot(CenterNormal, SampleNormal), 0.0f), 8.0f), 0.0f, 1.0f);
+
+	// SVGF 
 
 	float PhiL = SqrtVariance;
 	PhiL /= 2.0f;
@@ -153,17 +210,23 @@ float DiffuseWeightBasic(float CenterDepth, float SampleDepth, vec3 CenterNormal
 	return TotalWeight;
 }
 
+float Luminance(vec3 x) 
+{
+	return dot(x, vec3(0.2126, 0.7152,0.0722)); 
+}
+
 void main() {
+
+	ivec2 Pixel = ivec2(gl_FragCoord.xy);
 
 	const float Atrous[3] = float[3]( 1.0f, 2.0f / 3.0f, 1.0f / 6.0f );
 
 	const bool DoSpatial = true;
 
-	int KernelX = 1;
-	int KernelY = 1;
+	bool CheckerStep = (Pixel.x + Pixel.y) % 2 == 0;
 
-	ivec2 Pixel = ivec2(gl_FragCoord.xy);
-    ivec2 HighResPixel = Pixel * 2;
+	int KernelX = 1;
+	int KernelY = 1; //CheckerStep ? 2 : 1;
 
 	vec4 CenterSpecular = texelFetch(u_Specular, Pixel, 0);
 
@@ -173,20 +236,39 @@ void main() {
 		return;
 	}
 
-    float Depth = texelFetch(u_Depth, HighResPixel, 0).x;
-	vec3 Normal = normalize(texelFetch(u_Normals, HighResPixel, 0).xyz); 
-    vec3 PBR = texelFetch(u_PBR, HighResPixel, 0).xyz;
+	// Sample GBuffers 
+    float Depth = texelFetch(u_Depth, Pixel, 0).x;
+	vec3 Normal = normalize(texelFetch(u_Normals, Pixel, 0).xyz); 
+    vec3 PBR = texelFetch(u_PBR, Pixel, 0).xyz;
+
+	// Calculate positions 
 	float LinearDepth = LinearizeDepth(Depth);
 	vec3 WorldPosition = WorldPosFromDepth(Depth, v_TexCoords);
+	vec3 ViewSpaceBase = vec3(u_View * vec4(WorldPosition.xyz, 1.0f));
+	float ViewLength = length(ViewSpaceBase);
 
+	// Specular radius 
+	float ViewLengthWeight = 0.001f + (ViewLength /  64.0f);
+	float SpecularHitDistance = CenterSpecular.w * 64.0f;
+	float TransversalContrib = SpecularHitDistance / max((SpecularHitDistance + ViewLengthWeight), 0.00001f);
+	float Rr = PBR.x;
+	float SpecularRadius = clamp(pow(mix(1.0f * Rr, 1.0f, TransversalContrib), pow((1.0f-Rr),1.0/1.4f)*5.0f), 0.0f, 1.0f);
+	float SpecularFrames = texture(u_SpecularFrames, v_TexCoords).x * 64.0f;
 
+	// Eye vector 
 	vec3 Incident = normalize(u_ViewerPosition - WorldPosition);
 
+	// Calculate center roughness lobe 
+	SG CenterLobe = RoughnessLobe(PBR.x, Normal, Incident);
+	
+	// Jitter sample pixel with blue noise to reduce aliasing patterns with the wavelet filter
+	vec3 BlueNoiseSample = texelFetch(u_BlueNoise, Pixel % ivec2(256), 0).xyz;
+	ivec2 JitterValue = ivec2(0);
+	JitterValue = ivec2((vec2(BlueNoiseSample.xy) - 0.5f) * float(u_StepSize));
+
+	// Sum 
 	vec4 SpecularSum = CenterSpecular;
 	float TotalSpecularWeight = 1.0f;
-
-
-	SG CenterLobe = RoughnessLobe(PBR.x, Normal, Incident);
 
 	for (int x = -KernelX ; x <= KernelX ; x++)
 	{
@@ -196,17 +278,17 @@ void main() {
 				continue; 
 			}
 
-			ivec2 SamplePixel = Pixel + ivec2(x, y) * u_StepSize;
-			ivec2 SamplePixelHighRes = (Pixel + ivec2(x, y) * u_StepSize) * 2;
+			ivec2 SamplePixel = Pixel + (ivec2(x, y) * u_StepSize) + JitterValue;
 
-			float SampleDepth = LinearizeDepth(texelFetch(u_Depth, SamplePixelHighRes, 0).x);
-			vec3 SampleNormal = normalize(texelFetch(u_Normals, SamplePixelHighRes, 0).xyz); 
-			vec3 SamplePBR = texelFetch(u_PBR, SamplePixelHighRes, 0).xyz;
+			float SampleDepth = LinearizeDepth(texelFetch(u_Depth, SamplePixel, 0).x);
+			vec3 SampleNormal = normalize(texelFetch(u_Normals, SamplePixel, 0).xyz); 
+			vec3 SamplePBR = texelFetch(u_PBR, SamplePixel, 0).xyz;
 
 			vec4 SpecularSample = texelFetch(u_Specular, SamplePixel, 0).xyzw;
 
 			float KernelWeight = Atrous[abs(x)] * Atrous[abs(y)];
-			float SpecularWeight = SpecularWeight(LinearDepth, SampleDepth, CenterSpecular.w, SpecularSample.w, PBR.x, SamplePBR.x, Normal, SampleNormal, KernelWeight, Incident, CenterLobe);
+
+			float SpecularWeight = SpecularWeight(LinearDepth, SampleDepth, CenterSpecular.w, SpecularSample.w, PBR.x, SamplePBR.x, Normal, SampleNormal, Incident, vec2(Luminance(CenterSpecular.xyz), Luminance(SpecularSample.xyz)), CenterLobe, SpecularRadius, SpecularFrames, KernelWeight);
 
 			SpecularSum += SpecularSample * SpecularWeight;
 			TotalSpecularWeight += SpecularWeight;
