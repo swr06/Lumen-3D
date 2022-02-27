@@ -275,7 +275,7 @@ GBufferData Raytrace(vec3 WorldPosition, vec3 Direction, float ErrorTolerance, f
 
     // Exponential stepping 
     int ExponentialStepStart = Steps - (Steps / 4);
-    float ExpStep = 1.04f;//mix(1.0f, 1.4f, mix(Hash, 1.0f, 0.2f));
+    float ExpStep = 1.05f;//mix(1.0f, 1.4f, mix(Hash, 1.0f, 0.2f));
 
     // Approximate hits when we can't find an accurate intersection with the geometry 
     vec3 BestSampleDirection = RayPosition;
@@ -290,7 +290,7 @@ GBufferData Raytrace(vec3 WorldPosition, vec3 Direction, float ErrorTolerance, f
     // Todo : Account for geometrical thickness?
     for (int CurrentStep = 0; CurrentStep < Steps ; CurrentStep++) 
     {
-        if (CurrentStep > Steps / 4) {
+        if (CurrentStep > Steps / 3) {
             StepSize *= ExpStep;
         }
 
@@ -440,7 +440,11 @@ GBufferData Raytrace(vec3 WorldPosition, vec3 Direction, float ErrorTolerance, f
     return ReturnValue;
 }
 
-GBufferData ScreenspaceRaytrace(vec3 Origin, vec3 Direction, float ThresholdMultiplier, float Hash, int Steps)
+float LogXy(float base, float x) {
+    return log(x) / log(base);
+}
+
+GBufferData ScreenspaceRaytrace(vec3 Origin, vec3 Direction, float ThresholdMultiplier, float Hash, int Steps, int BinarySteps)
 {
     const float Distance = 196.0f;
 
@@ -459,7 +463,7 @@ GBufferData ScreenspaceRaytrace(vec3 Origin, vec3 Direction, float ThresholdMult
 	vec3 RayPosition = Origin + Direction * Hash; 
 	vec2 FinalUV = vec2(-1.0f);
 
-    float ExpStep = 1.05f;// mix(1.075f, 1.5f, float(Hash));
+    float ExpStep = 1.035f; //clamp((log(500.0f) / log(float(Steps))) * 0.75f, 1.05f, 6.0f);// mix(1.075f, 1.5f, float(Hash));
 
 	for(int CurrentStep = 0; CurrentStep < Steps; CurrentStep++) 
 	{
@@ -499,7 +503,7 @@ GBufferData ScreenspaceRaytrace(vec3 Origin, vec3 Direction, float ThresholdMult
 			    vec3 BinaryStepVector = (Direction * StepSize) / 2.0f;
                 RayPosition -= (Direction * StepSize) / 2.0f;
 			    
-                for (int BinaryStep = 0 ; BinaryStep < 16 ; BinaryStep++) {
+                for (int BinaryStep = 0 ; BinaryStep < BinarySteps ; BinaryStep++) {
 			    		
 			    	BinaryStepVector /= 2.0f;
 			    	vec3 Projected = ProjectToClipSpace(RayPosition); 
@@ -808,14 +812,19 @@ void main() {
 
     bool DoScreenspaceTrace = true;
 
-    int SSSteps = BiasedRoughness <= 0.69f + 0.01f ? (BiasedRoughness <= 0.1f ? 56 : 42) : (BiasedRoughness > 0.825f ? 24 : 32); // nice
+    // Screenspace tracing is only done if roughness < 0.425
+    int SSSteps = Roughness < 0.2f ? 64 : (Roughness < 0.3f ? 40 : 24);
+    int SSBinarySteps = Roughness < 0.2f ? 16 : 12;
 
-    int ProbeSteps = clamp(int(mix(170.0f, 64.0f, pow((BiasedRoughness < 0.125f) ? 0.0f : BiasedRoughness, 1.325f))), 64, 180);
-    int ProbeBinarySteps = (Roughness < 0.125f) ? (16) : (Roughness < 0.325f ? 8 : 4);
+    // Calculate steps 
+    int ProbeSteps = int(mix(120.0f, 52.0f, BiasedRoughness * BiasedRoughness * 1.1f * mix(1.0f, 0.75f, float(BiasedRoughness < 0.2f))));
+    int ProbeBinarySteps = (BiasedRoughness < 0.5f) ? 16 : 12;
+
+
 
     for (int Sample ; Sample < SAMPLES ; Sample++) {
 
-
+        
         float BayerHash = fract(fract(mod(float(u_Frame) + float(Sample) * 2., 384.0f) * (1.0 / PHI)) + Bayer32(gl_FragCoord.xy));
 
         // Sample microfacet normal from VNDF
@@ -829,17 +838,18 @@ void main() {
             Microfacet = LFNormal;
         }
 
-        vec3 Direction = normalize(reflect(Incident, Microfacet));
-
-        // Raytrace!
-
-        GBufferData Intersection;
-
         const float Bias_n = 2.75f;
 
-        if (DoScreenspaceTrace) {
+
+        // Raytrace 
+
+        vec3 Direction = normalize(reflect(Incident, Microfacet));
+        GBufferData Intersection;
+
+        if (DoScreenspaceTrace && BiasedRoughness <= 0.425f)
+        {
             // Trace in screen space 
-            Intersection = ScreenspaceRaytrace(WorldPosition + LFNormal * Bias_n, Direction, ToleranceSS, BayerHash, SSSteps);
+            Intersection = ScreenspaceRaytrace(WorldPosition + LFNormal * Bias_n, Direction, ToleranceSS, BayerHash, SSSteps, SSBinarySteps);
             
             // If that fails, trace in probe space  
             if (!Intersection.ValidMask) {
@@ -847,12 +857,12 @@ void main() {
                 Intersection = Raytrace(WorldPosition + LFNormal * Bias_n, Direction, Tolerance, BayerHash, ProbeSteps, ProbeBinarySteps);
             }
         }
-
+        
         else {
             Intersection = Raytrace(WorldPosition + LFNormal * Bias_n, Direction, Tolerance, BayerHash, ProbeSteps, ProbeBinarySteps);
         }
 
-        // Integrate lighting 
+        // Integrate lighting for hit point
         vec3 CurrentRadiance = IntegrateLighting(Intersection, Direction, FilterShadowMap);
 
         // Sum up radiance 
