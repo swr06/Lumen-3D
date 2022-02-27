@@ -337,8 +337,6 @@ void main()
 		o_Color = vec3(pow(float(FaceID) / 5.0f, 2.0f));//texture(u_Probe, sLo).xyz;
 	}
 
-	o_Color = SpecularIndirect;
-
 	// Nan/inf check
 	if (isnan(o_Color.x) || isnan(o_Color.y) || isnan(o_Color.z) || isinf(o_Color.x) || isinf(o_Color.y) || isinf(o_Color.z)) {
         o_Color = vec3(0.0f);

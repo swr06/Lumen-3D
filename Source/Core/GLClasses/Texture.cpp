@@ -66,6 +66,13 @@ namespace GLClasses
 			glTexParameteri(type, GL_TEXTURE_MIN_FILTER, mipmap ? GL_LINEAR_MIPMAP_LINEAR : min_filter);
 			glTexParameteri(type, GL_TEXTURE_MAG_FILTER, mag_filter);
 
+			if (mipmap) {
+				GLfloat value, max_anisotropy = 8.0f; 
+				glGetFloatv(GL_MAX_TEXTURE_MAX_ANISOTROPY_EXT, &value);
+				value = (value > max_anisotropy) ? max_anisotropy : value;
+				glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAX_ANISOTROPY_EXT, value);
+			}
+
 			unsigned char* image = stbi_load(path.c_str(), &m_width, &m_height, &m_BPP, 0);
 
 			if (m_BPP == 1)
