@@ -361,5 +361,11 @@
     <None Include="Core\Shaders\SpatialFilter.glsl">
       <Filter>Source Files\Lumen\Lumen-Core\Lumen-Shaders</Filter>
     </None>
+    <None Include="Core\Shaders\InstanceCubemapUpdate\InstanceCubemapUpdateFrag.glsl">
+      <Filter>Source Files\Lumen\Lumen-Core\Lumen-Shaders</Filter>
+    </None>
+    <None Include="Core\Shaders\InstanceCubemapUpdate\InstanceCubemapUpdateVert.glsl">
+      <Filter>Source Files\Lumen\Lumen-Core\Lumen-Shaders</Filter>
+    </None>
   </ItemGroup>
 </Project>

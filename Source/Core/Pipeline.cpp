@@ -352,7 +352,7 @@ void Lumen::StartPipeline()
 	Entity SecondaryEntity(&SecondaryLargeModel);
 	SecondaryEntity.m_Model = glm::scale(glm::mat4(1.0f), glm::vec3(0.6f));
 	SecondaryEntity.m_Model = glm::translate(SecondaryEntity.m_Model, glm::vec3(0.0f, 0.8f, 0.0f));
-	SecondaryEntity.m_EntityRoughness = 0.05f;
+	SecondaryEntity.m_EntityRoughness = 0.4f;
 	SecondaryEntity.m_EntityMetalness = 1.0f;
 
 	float EntityScale = 3.5f;
@@ -906,9 +906,9 @@ void Lumen::StartPipeline()
 
 		if (SpatialFiltering) {
 
-			const int Passes = 5;
-			const int StepSizes[5] = { 32, 16, 8, 4, 2 };
-
+			const int Passes = 4;
+			//const int StepSizes[5] = { 32, 16, 8, 4, 2 };
+			const int StepSizes[4] = { 32, 12, 4, 2 };
 
 			for (int Pass = 0; Pass < Passes; Pass++) {
 

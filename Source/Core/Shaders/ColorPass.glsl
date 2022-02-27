@@ -1,4 +1,5 @@
 #version 400 core
+
 #define PI 3.14159265359
 
 layout (location = 0) out vec3 o_Color;
@@ -335,6 +336,8 @@ void main()
 		int FaceID = clamp(GetFaceID(sLo),0,5);
 		o_Color = vec3(pow(float(FaceID) / 5.0f, 2.0f));//texture(u_Probe, sLo).xyz;
 	}
+
+	o_Color = SpecularIndirect;
 
 	// Nan/inf check
 	if (isnan(o_Color.x) || isnan(o_Color.y) || isnan(o_Color.z) || isinf(o_Color.x) || isinf(o_Color.y) || isinf(o_Color.z)) {

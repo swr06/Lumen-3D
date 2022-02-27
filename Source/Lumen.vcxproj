@@ -234,6 +234,8 @@
     <None Include="Core\Shaders\BasicFrag.glsl" />
     <None Include="Core\Shaders\BasicVert.glsl" />
     <None Include="Core\Shaders\DownsampleGBuffer.glsl" />
+    <None Include="Core\Shaders\InstanceCubemapUpdate\InstanceCubemapUpdateFrag.glsl" />
+    <None Include="Core\Shaders\InstanceCubemapUpdate\InstanceCubemapUpdateVert.glsl" />
     <None Include="Core\Shaders\SpatialFilter.glsl" />
     <None Include="Core\Shaders\SpecularCheckerboarder.glsl" />
     <None Include="Core\Shaders\ColorPass.glsl" />
