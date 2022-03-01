@@ -168,6 +168,9 @@
     <ClInclude Include="Core\BVH\BVHConstructor.h">
       <Filter>Source Files\Lumen\Lumen-Core\BVH</Filter>
     </ClInclude>
+    <ClInclude Include="Core\Voxelizer.h">
+      <Filter>Source Files\Lumen\Lumen-Core</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="Dependencies\imgui\imgui.cpp">
@@ -278,6 +281,9 @@
     <ClCompile Include="Core\BVH\BVHConstructor.cpp">
       <Filter>Source Files\Lumen\Lumen-Core\BVH</Filter>
     </ClCompile>
+    <ClCompile Include="Core\Voxelizer.cpp">
+      <Filter>Source Files\Lumen\Lumen-Core</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <None Include="Core\Shaders\BasicFrag.glsl">
@@ -365,6 +371,18 @@
       <Filter>Source Files\Lumen\Lumen-Core\Lumen-Shaders</Filter>
     </None>
     <None Include="Core\Shaders\InstanceCubemapUpdate\InstanceCubemapUpdateVert.glsl">
+      <Filter>Source Files\Lumen\Lumen-Core\Lumen-Shaders</Filter>
+    </None>
+    <None Include="Core\Shaders\Voxelizer\VoxelizationGeometry.geom">
+      <Filter>Source Files\Lumen\Lumen-Core\Lumen-Shaders</Filter>
+    </None>
+    <None Include="Core\Shaders\Voxelizer\VoxelizationRadiance.glsl">
+      <Filter>Source Files\Lumen\Lumen-Core\Lumen-Shaders</Filter>
+    </None>
+    <None Include="Core\Shaders\Voxelizer\VoxelizationVertex.glsl">
+      <Filter>Source Files\Lumen\Lumen-Core\Lumen-Shaders</Filter>
+    </None>
+    <None Include="Core\Shaders\ClearVolume.comp">
       <Filter>Source Files\Lumen\Lumen-Core\Lumen-Shaders</Filter>
     </None>
   </ItemGroup>

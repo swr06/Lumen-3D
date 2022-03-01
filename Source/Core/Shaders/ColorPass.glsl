@@ -1,4 +1,6 @@
-#version 400 core
+#version 450 core
+
+#extension ARB_bindless_texture : require
 
 #define PI 3.14159265359
 
@@ -28,6 +30,7 @@ uniform mat4 u_LightVP;
 
 uniform float u_zNear;
 uniform float u_zFar;
+uniform float u_Time;
 
 uniform int u_CurrentFrame;
 
@@ -36,6 +39,10 @@ uniform float u_RTAOStrength;
 uniform vec2 u_Dims;
 
 uniform vec3 u_ProbeCapturePoints[6];
+
+uniform sampler3D u_VoxelVolumes[6];
+uniform float u_VoxelRanges[6];
+uniform vec3 u_VoxelCenters[6];
 
 
 const vec3 SUN_COLOR = vec3(6.9f, 6.9f, 10.0f);
@@ -50,42 +57,31 @@ struct SG {
 	float Amplitude;
 };
 
-// Returns a spherical gaussian approximation of the specular lobe 
-// Based on the Blinn-Phong BRDF (Good enough for filtering) 
-// https://www.desmos.com/calculator/rvtqpze0g7
+
+
+
 SG RoughnessLobe(float Roughness, vec3 Normal, vec3 Incident) {
-	
 	Roughness = max(Roughness, 0.001f);
 	float a = Roughness * Roughness;
 	float a2 = a * a;
-
 	float NDotV = clamp(abs(dot(Incident, Normal)) + 0.00001f, 0.0f, 1.0f);
 	vec3 SGAxis = 2.0f * NDotV * Normal - Incident;
-
 	SG ReturnValue;
 	ReturnValue.Axis = SGAxis;
 	ReturnValue.Sharpness = 0.5f / (a2 * max(NDotV, 0.1f));
 	ReturnValue.Amplitude = 1.0f / (PI * a2);
-
 	return ReturnValue;
 }
 
 float GetLobeWeight(float CenterRoughness, float SampleRoughness, vec3 CenterNormal, vec3 SampleNormal, const vec3 Incident) {
-	
-	// Lobe similarity weight strength
 	const float Beta = 32.0f;
-
 	float LobeSimilarity = 1.0f;
 	float AxisSimilarity = 1.0f;
-
 	SG CenterLobe = RoughnessLobe(CenterRoughness, CenterNormal, Incident);
 	SG SampleLobe = RoughnessLobe(SampleRoughness, SampleNormal, Incident);
-
 	float OneOverSharpnessSum = 1.0f / (CenterLobe.Sharpness + SampleLobe.Sharpness);
-
 	LobeSimilarity = pow(2.0f * sqrt(CenterLobe.Sharpness * SampleLobe.Sharpness) * OneOverSharpnessSum, Beta);
 	AxisSimilarity = exp(-(Beta * (CenterLobe.Sharpness * SampleLobe.Sharpness) * OneOverSharpnessSum) * clamp(1.0f - dot(CenterLobe.Axis, SampleLobe.Axis), 0.0f, 1.0f));
-
 	return LobeSimilarity * AxisSimilarity;
 }
 
@@ -246,10 +242,124 @@ vec3 GetCapturePoint(vec3 Direction) {
     return u_ProbeCapturePoints[clamp(GetFaceID(Direction) ,0,5)];
 }
 
+
+vec3 TransformToVoxelSpace(int Volume, vec3 WorldPosition) {
+	WorldPosition = WorldPosition - u_VoxelCenters[Volume];
+	float Size = u_VoxelRanges[Volume];
+	float HalfExtent = Size / 2.0f;
+	vec3 ScaledPos = WorldPosition / HalfExtent;
+	vec3 Voxel = ScaledPos;
+	Voxel = Voxel * 0.5f + 0.5f;
+	return (Voxel * float(128));
+}
+
+bool InsideVolume(vec3 p) { float e = 128.0f; return abs(p.x) < e && abs(p.y) < e && abs(p.z) < e ; } 
+
+sampler3D GetCascadeVolume(int cascade) {
+
+	if (cascade == 0) { return u_VoxelVolumes[0]; }
+	if (cascade == 1) { return u_VoxelVolumes[1]; }
+	if (cascade == 2) { return u_VoxelVolumes[2]; }
+	if (cascade == 3) { return u_VoxelVolumes[3]; }
+	if (cascade == 4) { return u_VoxelVolumes[4]; }
+	if (cascade == 5) { return u_VoxelVolumes[5]; }
+	{ return u_VoxelVolumes[0]; }
+}
+
+bool DDA(int cascade, vec3 origin, vec3 direction, int dist, out vec4 data, out vec3 normal, out vec3 world_pos)
+{
+	origin = TransformToVoxelSpace(cascade, origin);
+
+	const vec3 BLOCK_CALCULATED_NORMALS[6] = vec3[](vec3(1.0, 0.0, 0.0),vec3(-1.0, 0.0, 0.0),vec3(0.0, 1.0, 0.0),vec3(0.0, -1.0, 0.0),vec3(0.0, 0.0, 1.0),vec3(0.0, 0.0, -1.0));
+	
+	world_pos = origin;
+
+	vec3 Temp;
+	vec3 VoxelCoord; 
+	vec3 FractPosition;
+
+	Temp.x = direction.x > 0.0 ? 1.0 : 0.0;
+	Temp.y = direction.y > 0.0 ? 1.0 : 0.0;
+	Temp.z = direction.z > 0.0 ? 1.0 : 0.0;
+	vec3 plane = floor(world_pos + Temp);
+
+	for (int x = 0; x < dist; x++)
+	{
+		if (!InsideVolume(world_pos)) {
+			break;
+		}
+
+		vec3 Next = (plane - world_pos) / direction;
+		int side = 0;
+
+		if (Next.x < min(Next.y, Next.z)) {
+			world_pos += direction * Next.x;
+			world_pos.x = plane.x;
+			plane.x += sign(direction.x);
+			side = 0;
+		}
+
+		else if (Next.y < Next.z) {
+			world_pos += direction * Next.y;
+			world_pos.y = plane.y;
+			plane.y += sign(direction.y);
+			side = 1;
+		}
+
+		else {
+			world_pos += direction * Next.z;
+			world_pos.z = plane.z;
+			plane.z += sign(direction.z);
+			side = 2;
+		}
+
+		VoxelCoord = (plane - Temp);
+		int Side = ((side + 1) * 2) - 1;
+		if (side == 0) {
+			if (world_pos.x - VoxelCoord.x > 0.5){
+				Side = 0;
+			}
+		}
+
+		else if (side == 1){
+			if (world_pos.y - VoxelCoord.y > 0.5){
+				Side = 2;
+			}
+		}
+
+		else {
+			if (world_pos.z - VoxelCoord.z > 0.5){
+				Side = 4;
+			}
+		}
+
+		normal = BLOCK_CALCULATED_NORMALS[Side];
+		data = texelFetch(GetCascadeVolume(cascade), ivec3(VoxelCoord.xyz), 0).xyzw;
+
+		if (data.w > 0.05f)
+		{
+			return true; 
+		}
+	}
+
+	return false;
+}
+
+float HASH2SEED = 0.0f;
+vec2 hash2() 
+{
+	return fract(sin(vec2(HASH2SEED += 0.1, HASH2SEED += 0.1)) * vec2(43758.5453123, 22578.1459123));
+}
+
 const bool ProbeDebug = false;
 
 void main() 
 {	
+	HASH2SEED = (v_TexCoords.x * v_TexCoords.y) * 64.0;
+
+    // Animate noise for temporal integration
+	HASH2SEED += fract(u_Time) * 64.0f;
+
 	float Depth = texture(u_DepthTexture, v_TexCoords).r;
 	vec3 rD = normalize(SampleIncidentRayDirection(v_TexCoords).xyz);
 
@@ -257,6 +367,7 @@ void main()
 	if (Depth > 0.999995f && (!ProbeDebug)) {
 		vec3 Sample = texture(u_Skymap, rD).xyz;
 		o_Color = Sample*Sample;
+
 		return;
 	}
 
@@ -274,6 +385,8 @@ void main()
 
 	// View vector 
     vec3 Lo = normalize(u_ViewerPosition - WorldPosition);
+
+	vec3 R = normalize(reflect(-Lo, Normal));
 
 	// Spatial upscale ->
 	float AO;
@@ -341,6 +454,33 @@ void main()
 	if (isnan(o_Color.x) || isnan(o_Color.y) || isnan(o_Color.z) || isinf(o_Color.x) || isinf(o_Color.y) || isinf(o_Color.z)) {
         o_Color = vec3(0.0f);
     }
+
+
+
+	bool DEBUG_VOXEL_VOLUMES = false;
+
+	if (DEBUG_VOXEL_VOLUMES) {
+
+		// DDA 
+		vec4 VoxelData;
+		vec3 VoxelNormal, VoxelPosition;
+
+		int Cascade = clamp(int(mix(0.0f, 5.0f, hash2().x)), 0, 5);
+
+		bool HadHit = DDA(0, u_ViewerPosition, rD, 500, VoxelData, VoxelNormal, VoxelPosition);
+		//bool HadHit = DDA(0, WorldPosition + Normal * 7.0f, R, 500, VoxelData, VoxelNormal, VoxelPosition);
+		
+		if (HadHit) {
+			o_Color = VoxelData.xyz;
+		}
+		
+		else {
+			o_Color = vec3(0.);
+		}
+
+	}
+
+
 }
 
 // Percentage closer filtering 

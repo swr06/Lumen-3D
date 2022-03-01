@@ -179,6 +179,7 @@
     <ClInclude Include="Core\Utils\Random.h" />
     <ClInclude Include="Core\Utils\Timer.h" />
     <ClInclude Include="Core\Utils\Vertex.h" />
+    <ClInclude Include="Core\Voxelizer.h" />
     <ClInclude Include="Dependencies\imgui\imconfig.h" />
     <ClInclude Include="Dependencies\imgui\imgui.h" />
     <ClInclude Include="Dependencies\imgui\imgui_impl_glfw.h" />
@@ -217,6 +218,7 @@
     <ClCompile Include="Core\ShaderManager.cpp" />
     <ClCompile Include="Core\ShadowRenderer.cpp" />
     <ClCompile Include="Core\TAAJitter.cpp" />
+    <ClCompile Include="Core\Voxelizer.cpp" />
     <ClCompile Include="Dependencies\glad\src\glad.c" />
     <ClCompile Include="Dependencies\imgui\imgui.cpp" />
     <ClCompile Include="Dependencies\imgui\imgui_demo.cpp">
@@ -233,6 +235,7 @@
     <None Include="Core\Shaders\BasicBlit.glsl" />
     <None Include="Core\Shaders\BasicFrag.glsl" />
     <None Include="Core\Shaders\BasicVert.glsl" />
+    <None Include="Core\Shaders\ClearVolume.comp" />
     <None Include="Core\Shaders\DownsampleGBuffer.glsl" />
     <None Include="Core\Shaders\InstanceCubemapUpdate\InstanceCubemapUpdateFrag.glsl" />
     <None Include="Core\Shaders\InstanceCubemapUpdate\InstanceCubemapUpdateVert.glsl" />
@@ -259,6 +262,9 @@
     <None Include="Core\Shaders\SSRTCheckerboarder.glsl" />
     <None Include="Core\Shaders\SSRTTemporal.glsl" />
     <None Include="Core\Shaders\TemporalAA.glsl" />
+    <None Include="Core\Shaders\Voxelizer\VoxelizationGeometry.geom" />
+    <None Include="Core\Shaders\Voxelizer\VoxelizationRadiance.glsl" />
+    <None Include="Core\Shaders\Voxelizer\VoxelizationVertex.glsl" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

@@ -144,6 +144,8 @@ void CalculateStatistics(ivec2 Pixel, vec4 Specular, float Roughness, out vec3 M
 
 vec3 Clip(ivec2 Pixel, bool LesserConservative, vec3 History, vec3 Specular, float Roughness, vec3 Mean, vec3 StandardDeviation, vec3 Min, vec3 Max) {
 
+    return History;
+
     bool UseNewClipping = true;
 
     if (UseNewClipping) {

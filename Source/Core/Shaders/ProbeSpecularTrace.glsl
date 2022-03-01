@@ -249,7 +249,7 @@ vec3 CosWeightedHemisphere(const vec3 n)
 
 
 const float EmissiveDesat = 0.925f;
-const float EmissionStrength = 9.5f;
+const float EmissionStrength = 3.5f;
 
 GBufferData Raytrace(vec3 WorldPosition, vec3 Direction, float ErrorTolerance, float Hash, int Steps, int BinarySteps) {
    

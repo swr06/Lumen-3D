@@ -23,6 +23,8 @@
 
 #include <string>
 
+#include "Voxelizer.h"
+
 // Camera
 Lumen::FPSCamera Camera(90.0f, 800.0f / 600.0f);
 
@@ -50,7 +52,7 @@ static bool SpecularCheckerboard = true;
 // AO 
 const float ScreenspaceOcclusionRes = 0.5f;
 static bool DoScreenspaceAO = true;
-static bool DoScreenspaceShadow = true;
+static bool DoScreenspaceShadow = false;
 static float ScreenspaceAOStrength = 0.75f;
 static bool ScreenspaceOcclusionCheckerboard = true;
 
@@ -181,6 +183,7 @@ public:
 		if (e.type == Lumen::EventTypes::KeyPress && e.key == GLFW_KEY_F2 && this->GetCurrentFrame() > 5)
 		{
 			Lumen::ShaderManager::RecompileShaders();
+			Lumen::Voxelizer::RecompileShaders();
 		}
 
 		if (e.type == Lumen::EventTypes::KeyPress && e.key == GLFW_KEY_V && this->GetCurrentFrame() > 5)
@@ -325,6 +328,39 @@ GLClasses::Framebuffer TAABuffers[2] = { GLClasses::Framebuffer(16, 16, {GL_RGB1
 
 // Spatial Buffers 
 GLClasses::Framebuffer SpatialFilterBuffers[2] = { GLClasses::Framebuffer(16, 16, { GL_RGBA16F, GL_RGBA, GL_FLOAT, true, true }, false, false), GLClasses::Framebuffer(16, 16, { GL_RGBA16F, GL_RGBA, GL_FLOAT, true, true }, false, false) };
+
+
+int GetUpdateCascade(int Frame) {
+
+	int Rand = rand() % 6000;
+	int Rand2 = rand() % 1000;
+	int Rand3 = rand() % 1000;
+
+	if (Rand < 3250) {
+		if (Rand2 < 600) {
+			return 0;
+		}
+
+		if (Rand2 < 920) {
+
+			if (Rand3 < 950) {
+				return 1;
+			}
+
+			return 2;
+		}
+
+		return 2;
+	}
+
+	if (Rand < 4300) { return 2; }
+	if (Rand < 5200) { return 3; }
+	if (Rand < 5600) { return 4; }
+
+	return 5;
+}
+
+
 
 
 // Main pipeline
@@ -495,6 +531,9 @@ void Lumen::StartPipeline()
 	glDrawBuffers(1, Buffers);
 	glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
+	// Create voxel cascades 
+
+	Voxelizer::CreateVolumes();
 
 	while (!glfwWindowShouldClose(app.GetWindow()))
 	{
@@ -608,6 +647,14 @@ void Lumen::StartPipeline()
 		// Screenspace AO + Direct shadows
 		auto& SSRTTemporal = FrameCheckerStep ? ScreenspaceOcclusionTemporalBuffers[0] : ScreenspaceOcclusionTemporalBuffers[1];
 		auto& PrevSSRTTemporal = FrameCheckerStep ? ScreenspaceOcclusionTemporalBuffers[1] : ScreenspaceOcclusionTemporalBuffers[0];
+
+		// Update cascades 
+
+		//for (int i = 0; i < 6; i++) {
+		//	Voxelizer::VoxelizeCascade(i, Camera.GetPosition(), Camera.GetProjectionMatrix(), Camera.GetViewMatrix(), EntityList);
+		//}
+
+		Voxelizer::VoxelizeCascade(GetUpdateCascade(app.GetCurrentFrame()), Camera.GetPosition(), Camera.GetProjectionMatrix(), Camera.GetViewMatrix(), EntityList);
 
 
 		// Render GBuffer
@@ -1092,6 +1139,7 @@ void Lumen::StartPipeline()
 			LightingShader.SetVector3f(name.c_str(), PlayerProbe.CapturePoints[i]);
 		}
 
+		
 		SetCommonUniforms(LightingShader, UniformBuffer);
 		
 		glActiveTexture(GL_TEXTURE0);
@@ -1126,6 +1174,30 @@ void Lumen::StartPipeline()
 		
 		glActiveTexture(GL_TEXTURE10);
 		glBindTexture(GL_TEXTURE_2D, SSRTTemporal.GetTexture(1));
+
+		// SLOTS 11 - 15 ARE USED FOR VOXEL VOLUME TEXTURES
+
+		// Bind voxel volumes 
+
+		int temp = 0;
+
+		for (int x = 11; x <= 11 + 5; x++) {
+			int t = temp;
+			std::string s = "u_VoxelVolumes[" + std::to_string(t) + "]";
+			std::string s2 = "u_VoxelRanges[" + std::to_string(t) + "]";
+			std::string s3 = "u_VoxelCenters[" + std::to_string(t) + "]";
+			LightingShader.SetInteger(s.c_str(), x);
+			LightingShader.SetFloat(s2.c_str(), Voxelizer::GetVolumeRanges()[t]);
+			LightingShader.SetVector3f(s3.c_str(), Voxelizer::GetVolumeCenters()[t]);
+
+			glActiveTexture(GL_TEXTURE0 + x);
+			glBindTexture(GL_TEXTURE_3D, Voxelizer::GetVolumes()[t]);
+
+			temp++;
+		}
+
+		LightingShader.SetInteger("u_VoxelVolume0", 12);
+
 
 		ScreenQuadVAO.Bind();
 		glDrawArrays(GL_TRIANGLES, 0, 6);
