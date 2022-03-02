@@ -6,7 +6,10 @@ namespace Lumen {
 
 	constexpr int CascadeCount = 6;
 
-	static float VoxelRanges[CascadeCount] = { 128.0f, 192.0f, 256.0f, 384.0f, 768.0f, 1024.0f };
+	static bool GenerateMips = false;
+
+
+	static float VoxelRanges[CascadeCount] = { 128.0f, 256.0f, 384.0f, 512.0f, 1024.0f, 2048.0f };
 	static GLuint VoxelVolumes[CascadeCount]{ 0, 0, 0, 0 };
 
 	static glm::vec3 VoxelCenters[6];
@@ -36,7 +39,16 @@ namespace Lumen {
 
 			glGenTextures(1, &VoxelVolumes[Volume]);
 			glBindTexture(GL_TEXTURE_3D, VoxelVolumes[Volume]);
-			glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+
+			if (GenerateMips)
+			{
+				glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+			}
+
+			else {
+				glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+
+			}
 			glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
 			glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
 			glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
@@ -60,7 +72,7 @@ namespace Lumen {
 		}
 	}
 
-	void Voxelizer::VoxelizeCascade(int Cascade, glm::vec3 Position, const glm::mat4& Projection, const glm::mat4& View, const std::vector<Entity*>& EntityList)
+	void Voxelizer::VoxelizeCascade(int Cascade, glm::vec3 Position, const glm::mat4& Projection, const glm::mat4& View, GLuint Shadowmap, const glm::mat4& LVP, const glm::vec3& SunDirection, const std::vector<Entity*>& EntityList)
 	{
 		if (Cascade >= CascadeCount) {
 			throw "wtf.";
@@ -100,7 +112,15 @@ namespace Lumen {
 		VoxelizeShader->SetVector3f("u_CoverageSize", glm::vec3(VoxelRanges[Cascade]));
 		VoxelizeShader->SetFloat("u_CoverageSizeF",(VoxelRanges[Cascade]));
 		VoxelizeShader->SetVector3f("u_VoxelGridCenter", Position);
+		VoxelizeShader->SetVector3f("u_VoxelGridCenterF", Position);
+		VoxelizeShader->SetVector3f("u_SunDir", SunDirection);
 		VoxelizeShader->SetInteger("u_VolumeSize", 128);
+		VoxelizeShader->SetInteger("u_Shadowmap", 10);
+		VoxelizeShader->SetInteger("u_CascadeNumber", Cascade);
+		VoxelizeShader->SetMatrix4("u_LightVP", LVP);
+
+		glActiveTexture(GL_TEXTURE10);
+		glBindTexture(GL_TEXTURE_2D, Shadowmap);
 
 		for (auto& e : EntityList) {
 
@@ -108,6 +128,17 @@ namespace Lumen {
 
 		}
 
+
+		if (GenerateMips)
+		{
+			// Generate mipmap levels 
+
+			glBindTexture(GL_TEXTURE_3D, VoxelVolumes[Cascade]);
+			glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+			glGenerateMipmap(GL_TEXTURE_3D);
+			glBindTexture(GL_TEXTURE_3D, 0);
+
+		}
 	}
 
 	GLuint* Voxelizer::GetVolumes()

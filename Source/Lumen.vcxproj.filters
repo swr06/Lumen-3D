@@ -46,6 +46,9 @@
     <Filter Include="Source Files\Lumen\Lumen-Core\BVH">
       <UniqueIdentifier>{38ae97c8-9f9b-4211-897f-03f5f1758a59}</UniqueIdentifier>
     </Filter>
+    <Filter Include="Source Files\Lumen\Lumen-Core\Lumen-Shaders\SVGF">
+      <UniqueIdentifier>{27124971-8222-48c9-a053-b6316b3bf50d}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Dependencies\imgui\imconfig.h">
@@ -343,7 +346,7 @@
     <None Include="Core\Shaders\GaussianBlur.glsl">
       <Filter>Source Files\Lumen\Lumen-Core\Lumen-Shaders</Filter>
     </None>
-    <None Include="Core\Shaders\SpecularCheckerboarder.glsl">
+    <None Include="Core\Shaders\IndirectCheckerboard.glsl">
       <Filter>Source Files\Lumen\Lumen-Core\Lumen-Shaders</Filter>
     </None>
     <None Include="Core\Shaders\ConeTraceConvolution.glsl">
@@ -384,6 +387,12 @@
     </None>
     <None Include="Core\Shaders\ClearVolume.comp">
       <Filter>Source Files\Lumen\Lumen-Core\Lumen-Shaders</Filter>
+    </None>
+    <None Include="Core\Shaders\DiffuseVXTrace.glsl">
+      <Filter>Source Files\Lumen\Lumen-Core\Lumen-Shaders</Filter>
+    </None>
+    <None Include="Core\Shaders\SVGF\Temporal.glsl">
+      <Filter>Source Files\Lumen\Lumen-Core\Lumen-Shaders\SVGF</Filter>
     </None>
   </ItemGroup>
 </Project>

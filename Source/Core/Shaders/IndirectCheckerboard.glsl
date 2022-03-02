@@ -1,12 +1,13 @@
 #version 330 core 
 
-layout (location = 0) out vec4 o_Data;
+layout (location = 0) out vec4 o_SpecularPacked;
+layout (location = 1) out vec4 o_Diffuse;
 
-uniform sampler2D u_Input;
+uniform sampler2D u_InputSpecular;
+uniform sampler2D u_InputDiffuse;
 
 uniform sampler2D u_Depth;
 uniform sampler2D u_Normals;
-
 
 uniform float u_zNear;
 uniform float u_zFar;
@@ -38,7 +39,8 @@ void main() {
 		vec3 BaseNormal = texelFetch(u_Normals, HighResPixel, 0).xyz;
 
 		float TotalWeight = 0.0f;
-		vec4 Total = vec4(0.0f);
+		vec4 TotalSpecular = vec4(0.0f);
+		vec4 TotalDiffuse = vec4(0.0f);
 		float TotalTraversal = 0.0f;
 
 		for (int i = 0 ; i < 4 ; i++) {
@@ -50,23 +52,28 @@ void main() {
 			float SampleDepth = linearizeDepth(texelFetch(u_Depth, HighResCoord, 0).x);
 			vec3 SampleNormal = texelFetch(u_Normals, HighResCoord, 0).xyz;
 
-			vec4 SampleData = texelFetch(u_Input, Coord, 0).xyzw;
+			vec4 SampleSpecular = texelFetch(u_InputSpecular, Coord, 0).xyzw;
+			vec4 SampleDiffuse = texelFetch(u_InputDiffuse, Coord, 0).xyzw;
 
-			float CurrentWeight = pow(exp(-(abs(SampleDepth - BaseDepth))), 54.0f) * pow(max(dot(SampleNormal, BaseNormal), 0.0f), 12.0f);
+			float CurrentWeight = pow(exp(-(abs(SampleDepth - BaseDepth))), 48.0f) * pow(max(dot(SampleNormal, BaseNormal), 0.0f), 12.0f);
 			CurrentWeight = clamp(CurrentWeight, 0.0000000001f, 1.0f);
 
-			Total += SampleData * CurrentWeight;
+			TotalSpecular += SampleSpecular * CurrentWeight;
+			TotalDiffuse += SampleDiffuse * CurrentWeight;
 			TotalWeight += CurrentWeight;
 		}
 
-		Total /= max(TotalWeight, 0.000001f);
+		TotalSpecular /= max(TotalWeight, 0.000001f);
+		TotalDiffuse /= max(TotalWeight, 0.000001f);
 		TotalTraversal /= max(TotalWeight, 0.000001f);
-		o_Data = Total;
+		o_SpecularPacked = TotalSpecular;
+		o_Diffuse = TotalDiffuse;
 	}
 
 	else {
 		ivec2 PixelHalvedX = Pixel;
 		PixelHalvedX.x /= 2;
-		o_Data = texelFetch(u_Input, PixelHalvedX, 0).xyzw;
+		o_SpecularPacked = texelFetch(u_InputSpecular, PixelHalvedX, 0).xyzw;
+		o_Diffuse = texelFetch(u_InputDiffuse, PixelHalvedX, 0).xyzw;
 	}
 }

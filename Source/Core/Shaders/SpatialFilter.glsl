@@ -7,6 +7,7 @@
 #define cuberoot(x) (pow(x,0.3333333f))
 
 layout (location = 0) out vec4 o_Specular;
+layout (location = 1) out vec4 o_Diffuse;
 
 
 //layout (location = 1) out vec4 o_Diffuse;
@@ -28,6 +29,9 @@ uniform sampler2D u_BlueNoise;
 
 // Frame counters 
 uniform sampler2D u_SpecularFrames;
+
+// Indirect lighting
+uniform sampler2D u_Diffuse;
 
 // Matrices
 uniform mat4 u_Projection;
@@ -183,7 +187,7 @@ float SpecularWeight(in float CenterDepth, in float SampleDepth, in float Center
 	// Handles the roughness transversal and normal weight!
 	float LobeWeight = GetLobeWeight(CenterRoughness, SampleRoughness, CenterNormal, SampleNormal, Incident);
 	float RawLobeWeight = clamp(LobeWeight, 0.0f, 1.0f);
-	LobeWeight = pow(LobeWeight, 4.0f);
+	LobeWeight = pow(LobeWeight, 1.5f);
 	LobeWeight = clamp(LobeWeight, 0.0f, 1.0f);
 
 	float RawTraversalWeight = pow(exp(-(abs(SampleTransversal-CenterTransversal))), 2.0f); 
@@ -197,7 +201,7 @@ float SpecularWeight(in float CenterDepth, in float SampleDepth, in float Center
 	if (DoLuminanceWeight) {
 		
 		// If LMax is higher, it results in sharper reflections 
-		float LMax = mix(32.0f, 12.0f, CenterRoughness * CenterRoughness); // Weight luminance factor with roughness
+		float LMax = mix(24.0f, 12.0f, CenterRoughness * CenterRoughness); // Weight luminance factor with roughness
 
 		float TransversalRadius = pow(Radius, 1.0f);
 		float Exponent = mix(1.0f, LMax, TransversalRadius);
@@ -212,7 +216,7 @@ float SpecularWeight(in float CenterDepth, in float SampleDepth, in float Center
 
 	// Combine and account for the framebias 
 	LuminanceWeight = mix(1.0f, LuminanceWeight, Framebias);
-	LobeWeight = mix(sqrt(LobeWeight), LobeWeight, pow(Framebias, 1.25f)); 
+
 	float CombinedWeight = clamp(LobeWeight * DepthWeight * Kernel * LuminanceWeight, 0.0f, 1.0f);
 
 	return CombinedWeight;
@@ -306,6 +310,9 @@ void main() {
 	vec4 SpecularSum = CenterSpecular;
 	float TotalSpecularWeight = 1.0f;
 
+	vec4 DiffuseSum = texelFetch(u_Diffuse, Pixel, 0).xyzw;
+	float TotalDiffuseWeight = 1.0f;
+
 	for (int x = -KernelX ; x <= KernelX ; x++)
 	{
 		for (int y = -KernelY ; y <= KernelY ; y++) 
@@ -335,10 +342,20 @@ void main() {
 
 			SpecularSum += SpecularSample * SpecularWeight;
 			TotalSpecularWeight += SpecularWeight;
+
+			vec4 DiffuseSample = texelFetch(u_Diffuse, SamplePixel, 0);
+
+			float DiffuseWeight = DiffuseWeightBasic(LinearDepth, SampleDepth, Normal, SampleNormal, KernelWeight);
+
+			DiffuseSum += DiffuseSample * DiffuseWeight;
+			TotalDiffuseWeight += DiffuseWeight;
+
 		}
 	}
 
 	SpecularSum /= max(TotalSpecularWeight, 0.000001f);
+	DiffuseSum /= max(TotalDiffuseWeight, 0.000001f);
 
 	o_Specular = SpecularSum;
+	o_Diffuse = DiffuseSum;
 }

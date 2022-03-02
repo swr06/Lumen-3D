@@ -116,7 +116,11 @@ void main()
 		float LinearExpectedDepth = linearizeDepth(PreviousCoord.z);
 
 		vec3 PrevColor = texture(u_PreviousColorTexture, PreviousCoord.xy).rgb;
-		PrevColor = ClampColor(PrevColor);
+		
+		if (u_InversePrevView != u_InverseView) {
+			PrevColor = ClampColor(PrevColor);
+		}
+
 		vec2 Dimensions = textureSize(u_CurrentColorTexture, 0).xy;
 		vec2 velocity = (v_TexCoords - PreviousCoord.xy) * Dimensions;
 		float BlendFactor = exp(-length(velocity)) * 0.9f + 0.6f;

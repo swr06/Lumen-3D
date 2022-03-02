@@ -236,11 +236,12 @@
     <None Include="Core\Shaders\BasicFrag.glsl" />
     <None Include="Core\Shaders\BasicVert.glsl" />
     <None Include="Core\Shaders\ClearVolume.comp" />
+    <None Include="Core\Shaders\DiffuseVXTrace.glsl" />
     <None Include="Core\Shaders\DownsampleGBuffer.glsl" />
     <None Include="Core\Shaders\InstanceCubemapUpdate\InstanceCubemapUpdateFrag.glsl" />
     <None Include="Core\Shaders\InstanceCubemapUpdate\InstanceCubemapUpdateVert.glsl" />
     <None Include="Core\Shaders\SpatialFilter.glsl" />
-    <None Include="Core\Shaders\SpecularCheckerboarder.glsl" />
+    <None Include="Core\Shaders\IndirectCheckerboard.glsl" />
     <None Include="Core\Shaders\ColorPass.glsl" />
     <None Include="Core\Shaders\ConeTraceConvolution.glsl" />
     <None Include="Core\Shaders\DebugRedOutput.glsl" />
@@ -261,6 +262,7 @@
     <None Include="Core\Shaders\ScreenspaceRaytracing.glsl" />
     <None Include="Core\Shaders\SSRTCheckerboarder.glsl" />
     <None Include="Core\Shaders\SSRTTemporal.glsl" />
+    <None Include="Core\Shaders\SVGF\Temporal.glsl" />
     <None Include="Core\Shaders\TemporalAA.glsl" />
     <None Include="Core\Shaders\Voxelizer\VoxelizationGeometry.geom" />
     <None Include="Core\Shaders\Voxelizer\VoxelizationRadiance.glsl" />
