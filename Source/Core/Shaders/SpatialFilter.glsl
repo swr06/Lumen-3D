@@ -6,8 +6,10 @@
 #define square(x) (x * x)
 #define cuberoot(x) (pow(x,0.3333333f))
 
+
 layout (location = 0) out vec4 o_Specular;
 layout (location = 1) out vec4 o_Diffuse;
+layout (location = 2) out float o_Variance;
 
 
 //layout (location = 1) out vec4 o_Diffuse;
@@ -32,6 +34,8 @@ uniform sampler2D u_SpecularFrames;
 
 // Indirect lighting
 uniform sampler2D u_Diffuse;
+uniform sampler2D u_Variance;
+uniform sampler2D u_TemporalUtility;
 
 // Matrices
 uniform mat4 u_Projection;
@@ -53,6 +57,7 @@ uniform int u_StepSize;
 uniform int u_Pass;
 uniform int u_TotalPasses;
 
+uniform bool u_SVGF;
 //
 
 // Spherical Gaussian 
@@ -89,12 +94,11 @@ bool InScreenSpace(in vec2 v)
 	return v.x > 0.0f && v.x < 1.0f && v.y > 0.0f && v.y < 1.0f;
 }
 
-float GaussianVariance(sampler2D VarianceTexture, out float BaseVariance)
+float GaussianVariance(ivec2 Pixel, out float BaseVariance)
 {
-	vec2 TexelSize = 1.0f / textureSize(VarianceTexture, 0);
+	vec2 TexelSize = 1.0f / textureSize(u_Variance, 0);
 	float VarianceSum = 0.0f;
 
-	const float Kernel[3] = float[3](1.0 / 4.0, 1.0 / 8.0, 1.0 / 16.0);
 	const float Gaussian[2] = float[2](0.60283f, 0.198585f); // gaussian kernel
 	float TotalKernel = 0.0f;
 
@@ -102,20 +106,20 @@ float GaussianVariance(sampler2D VarianceTexture, out float BaseVariance)
 	{
 		for (int y = -1 ; y <= 1 ; y++)
 		{
-			vec2 SampleCoord = v_TexCoords + vec2(x, y) * TexelSize;
-			if (!InScreenSpace(SampleCoord)) { continue ; }
-			float KernelValue = Gaussian[abs(x)] * Gaussian[abs(y)];
-			float V = texture(VarianceTexture, SampleCoord).r;
-			if (x == 0 && y == 0) { BaseVariance = V; }
-			VarianceSum += V * KernelValue;
-			TotalKernel += KernelValue;
+			ivec2 Coord = Pixel + ivec2(x, y);
+			float Kernel = Gaussian[abs(x)] * Gaussian[abs(y)];
+
+			float Var = texelFetch(u_Variance, Coord, 0).x;
+
+			if (x == 0 && y == 0) { BaseVariance = Var; }
+
+			VarianceSum += Var * Kernel;
+			TotalKernel += Kernel;
 		}
 	}
 
-	return VarianceSum / max(TotalKernel, 0.01f);
+	return VarianceSum / max(TotalKernel, 0.0000001f);
 }
-
-
 
 // Calculates a spherical gaussian whose sharpness and amplitude are similar to that of a specular lobe for a roughness value r
 // Based on UE4's implementation 
@@ -224,19 +228,16 @@ float SpecularWeight(in float CenterDepth, in float SampleDepth, in float Center
 	return CombinedWeight;
 }
 
-float DiffuseWeightSVGF(float CenterDepth, float SampleDepth, vec3 CenterNormal, vec3 SampleNormal, float CenterLuma, float SampleLuma, float Variance, float SqrtVariance, float Kernel) {
-
+float DiffuseWeightSVGF(float CenterDepth, float SampleDepth, vec3 CenterNormal, vec3 SampleNormal, float CenterLuma, float SampleLuma, float Variance, float PhiL, float PhiD, vec2 xy, float framebias, float Kernel) 
+{
 	float LumaDistance = abs(CenterLuma - SampleLuma);
 
-	float DepthWeight = clamp(pow(exp(-abs(CenterDepth - SampleDepth)), 128.0f), 0.0f, 1.0f);
+	float DepthWeight = clamp(pow(exp(-abs(CenterDepth - SampleDepth)), 32.0f), 0.0f, 1.0f);
 	float NormalWeight = clamp(pow(max(dot(CenterNormal, SampleNormal), 0.0f), 8.0f), 0.0f, 1.0f);
 
-	// SVGF 
-
-	float PhiL = SqrtVariance;
-	PhiL /= 2.0f;
-
 	float DetailWeight = clamp(exp(-(abs(CenterLuma - SampleLuma) / PhiL)), 0.0f, 1.0f);
+
+	DetailWeight = mix(1.0f, DetailWeight, framebias);
 
 	float TotalWeight = DetailWeight * DepthWeight * NormalWeight * clamp(Kernel, 0.0f, 1.0f);
 
@@ -249,6 +250,10 @@ float DiffuseWeightBasic(float CenterDepth, float SampleDepth, vec3 CenterNormal
 	float NormalWeight = clamp(pow(max(dot(CenterNormal, SampleNormal), 0.0f), 16.0f), 0.0f, 1.0f);
 	float TotalWeight = DepthWeight * NormalWeight * clamp(Kernel, 0.0f, 1.0f);
 	return TotalWeight;
+}
+
+float SVGFGetPhiL(float GaussianVariance) {
+	return exp(-pow(max(0.00000001f, GaussianVariance), 1.0f / 3.0f) * 310.0f) * 1.15f * mix(sqrt(GaussianVariance), 1.0f, 0.2f);
 }
 
 float Luminance(vec3 x) 
@@ -289,6 +294,14 @@ void main() {
 	vec3 ViewSpaceBase = vec3(u_View * vec4(WorldPosition.xyz, 1.0f));
 	float ViewLength = length(ViewSpaceBase);
 
+	// Variance 
+	float VarianceFetch = 0.0f;
+	float GaussianVar = u_SVGF ? GaussianVariance(Pixel, VarianceFetch) : 0.0f;
+	float PhiL = SVGFGetPhiL(GaussianVar);
+	float PhiDepth = 0.005f * float(u_StepSize);
+	vec4 UtilityFetch = texelFetch(u_TemporalUtility, Pixel, 0).xyzw;
+	float FramebiasDiffuse = clamp(UtilityFetch.z / 16.0f, 0.0f, 1.0f);
+
 	// Specular radius 
 	float ViewLengthWeight = 0.001f + (ViewLength /  64.0f);
 	float SpecularHitDistance = CenterSpecular.w * 64.0f;
@@ -308,14 +321,18 @@ void main() {
 	ivec2 JitterValue = ivec2(0);
 	JitterValue = ivec2((vec2(BlueNoiseSample.xy) - 0.5f) * float(u_StepSize));
 
-	// Sum 
+	// Total  
 	vec4 SpecularSum = CenterSpecular;
 	float TotalSpecularWeight = 1.0f;
 
+	// Diffuse 
 	vec4 CenterDiffuse = texelFetch(u_Diffuse, Pixel, 0).xyzw;
 	vec4 DiffuseSum = CenterDiffuse;
 	float TotalDiffuseWeight = 1.0f;
 
+	// Variance Sum
+	float VarianceSum = 0.0f;
+	
 	for (int x = -KernelX ; x <= KernelX ; x++)
 	{
 		for (int y = -KernelY ; y <= KernelY ; y++) 
@@ -330,40 +347,49 @@ void main() {
 				continue;
 			}
 
+			float KernelWeight = Atrous[abs(x)] * Atrous[abs(y)];
+
+			// Sample gbuffers 
 			float SampleDepth = LinearizeDepth(texelFetch(u_Depth, SamplePixel, 0).x);
 			vec3 SampleNormal = normalize(texelFetch(u_Normals, SamplePixel, 0).xyz); 
 			vec3 SamplePBR = texelFetch(u_PBR, SamplePixel, 0).xyz;
 
+			// Sample buffers 
 			vec4 SpecularSample = texelFetch(u_Specular, SamplePixel, 0).xyzw;
-
-			float KernelWeight = Atrous[abs(x)] * Atrous[abs(y)];
-
-			//float DiffuseWeightSimple = DiffuseWeightBasic(LinearDepth, SampleDepth, Normal, SampleNormal, KernelWeight);
-
-			float SpecularWeight = SpecularWeight(LinearDepth, SampleDepth, CenterSpecular.w, SpecularSample.w, PBR.x, SamplePBR.x, Normal, SampleNormal, Incident, vec2(Luminance(CenterSpecular.xyz), Luminance(SpecularSample.xyz)), CenterLobe, SpecularRadius, SpecularFrames, KernelWeight);
-
-			SpecularSum += SpecularSample * SpecularWeight;
-			TotalSpecularWeight += SpecularWeight;
-
 			vec4 DiffuseSample = texelFetch(u_Diffuse, SamplePixel, 0);
+			float VarianceSample = texelFetch(u_Variance, SamplePixel, 0).x;
 
-			float DiffuseWeight = DiffuseWeightBasic(LinearDepth, SampleDepth, Normal, SampleNormal, KernelWeight);
+			// Calculate weights 
+			float SpecularWeight = SpecularWeight(LinearDepth, SampleDepth, CenterSpecular.w, SpecularSample.w, PBR.x, SamplePBR.x, Normal, SampleNormal, Incident, vec2(Luminance(CenterSpecular.xyz), Luminance(SpecularSample.xyz)), CenterLobe, SpecularRadius, SpecularFrames, KernelWeight);
+			
+			float DiffuseWeight = u_SVGF ? DiffuseWeightSVGF(LinearDepth, SampleDepth, Normal, SampleNormal, Luminance(CenterDiffuse.xyz), Luminance(DiffuseSample.xyz), GaussianVar, PhiL, PhiDepth, vec2(x,y), FramebiasDiffuse, KernelWeight) :
+								  DiffuseWeightBasic(LinearDepth, SampleDepth, Normal, SampleNormal, KernelWeight);
 
 			DiffuseSum += DiffuseSample * DiffuseWeight;
 			TotalDiffuseWeight += DiffuseWeight;
+
+			VarianceSum += (DiffuseWeight * DiffuseWeight) * VarianceSample;
+
+			SpecularSum += SpecularSample * SpecularWeight;
+			TotalSpecularWeight += SpecularWeight;
 
 		}
 	}
 
 	SpecularSum /= max(TotalSpecularWeight, 0.000001f);
 	DiffuseSum /= max(TotalDiffuseWeight, 0.000001f);
+	VarianceSum /= max(TotalDiffuseWeight * TotalDiffuseWeight, 0.000001f);
 
 	o_Specular = SpecularSum;
 	o_Diffuse = DiffuseSum;
+	o_Variance = VarianceSum;
 
 	if (!(u_StepSize <= 4)) {
 
 		o_Diffuse.w = CenterDiffuse.w;
 
+
 	}
+
+	
 }

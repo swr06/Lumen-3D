@@ -394,5 +394,8 @@
     <None Include="Core\Shaders\SVGF\Temporal.glsl">
       <Filter>Source Files\Lumen\Lumen-Core\Lumen-Shaders\SVGF</Filter>
     </None>
+    <None Include="Core\Shaders\SVGF\Variance.glsl">
+      <Filter>Source Files\Lumen\Lumen-Core\Lumen-Shaders\SVGF</Filter>
+    </None>
   </ItemGroup>
 </Project>

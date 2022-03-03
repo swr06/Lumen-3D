@@ -42,14 +42,13 @@ static glm::vec3 SunDirection = glm::vec3(0.1f, -1.0f, 0.1f);
 static bool TAA = true;
 static bool FXAA = true;
 
+static const float IndirectRes = 0.5f;
+static bool SVGF = true;
+
 // Specular settings
-static const float SpecularIndirectRes = 0.5f;
 static bool SSCT = false;
 static bool RoughSpecular = true;
 static bool CheckerboardIndirect = true;
-
-// Diffuse settings 
-static const float DiffuseIndirectRes = 0.5f;
 
 // AO 
 const float ScreenspaceOcclusionRes = 0.5f;
@@ -135,15 +134,17 @@ public:
 
 		ImGui::NewLine();
 		
-		ImGui::Text("Specular Resolution : %f on each axis", SpecularIndirectRes);
-		ImGui::Text("Specular Upsample Resolution : %f on each axis", SpecularIndirectRes);
-		ImGui::Checkbox("Rough Specular?", &RoughSpecular);
-		ImGui::Checkbox("Screenspace cone tracing?", &SSCT);
+		ImGui::Text("Indirect Resolution : %f on each axis", IndirectRes);
 
 		ImGui::NewLine();
 
-		ImGui::Text("Indirect Diffuse Resolution : %f on each axis", DiffuseIndirectRes);
+		ImGui::Text("Specular Upsample Resolution : %f on each axis", IndirectRes);
+		ImGui::Checkbox("Rough Specular?", &RoughSpecular);
+
+		ImGui::NewLine();
+
 		ImGui::Checkbox("Indirect Checkerboarding? (Resolution effectively halved)", &CheckerboardIndirect);
+		ImGui::Checkbox("SVGF?", &SVGF);
 		ImGui::NewLine();
 
 		ImGui::Text("RTAO/Screenspace shadows resolve resolution : %f on each axis", ScreenspaceOcclusionRes);
@@ -328,7 +329,10 @@ GLClasses::Framebuffer SpecularIndirectConeTraced(16, 16, { GL_RGB16F, GL_RGB, G
 
 // Indirect diffuse 
 GLClasses::Framebuffer DiffuseIndirectTrace(16, 16, { GL_RGBA16F, GL_RGBA, GL_FLOAT, true, true }, false, false);
-GLClasses::Framebuffer DiffuseIndirectTemporalBuffers[2] = { GLClasses::Framebuffer(16, 16, {{GL_RGBA16F, GL_RGBA, GL_FLOAT, true, true},{GL_R16F, GL_RED, GL_FLOAT, false, false} }, false, false), GLClasses::Framebuffer(16, 16, { {GL_RGBA16F, GL_RGBA, GL_FLOAT, true, true},{GL_R16F, GL_RED, GL_FLOAT, false, false} }, false, false) };
+GLClasses::Framebuffer SVGFVarianceResolve(16, 16, { { GL_RGBA16F, GL_RGBA, GL_FLOAT, true, true }, {GL_R16F, GL_RED, GL_FLOAT, true, true} }, false, false);
+
+// 2 attachments : raw temporal filtered, moments/utility
+GLClasses::Framebuffer DiffuseIndirectTemporalBuffers[2] = { GLClasses::Framebuffer(16, 16, {{GL_RGBA16F, GL_RGBA, GL_FLOAT, true, true},{GL_RGBA16F, GL_RGBA, GL_FLOAT, false, false} }, false, false), GLClasses::Framebuffer(16, 16, { {GL_RGBA16F, GL_RGBA, GL_FLOAT, true, true},{GL_RGBA16F, GL_RGBA, GL_FLOAT, false, false}}, false, false) };
 
 // Common indirect buffers 
 GLClasses::Framebuffer IndirectCheckerUpscaled(16, 16, { {GL_RGBA16F, GL_RGBA, GL_FLOAT, true, true}, {GL_RGBA16F, GL_RGBA, GL_FLOAT, true, true} }, false, false);
@@ -337,7 +341,7 @@ GLClasses::Framebuffer IndirectCheckerUpscaled(16, 16, { {GL_RGBA16F, GL_RGBA, G
 GLClasses::Framebuffer TAABuffers[2] = { GLClasses::Framebuffer(16, 16, {GL_RGB16F, GL_RGB, GL_FLOAT, true, true}, false, false), GLClasses::Framebuffer(16, 16, {GL_RGB16F, GL_RGB, GL_FLOAT, true, true}, false, false) };
 
 // Spatial Buffers 
-GLClasses::Framebuffer SpatialFilterBuffers[2] = { GLClasses::Framebuffer(16, 16, {{ GL_RGBA16F, GL_RGBA, GL_FLOAT, true, true },{ GL_RGBA16F, GL_RGBA, GL_FLOAT, true, true }}, false, false), GLClasses::Framebuffer(16, 16, {{ GL_RGBA16F, GL_RGBA, GL_FLOAT, true, true },{ GL_RGBA16F, GL_RGBA, GL_FLOAT, true, true }}, false, false) };
+GLClasses::Framebuffer SpatialFilterBuffers[2] = { GLClasses::Framebuffer(16, 16, {{ GL_RGBA16F, GL_RGBA, GL_FLOAT, true, true },{ GL_RGBA16F, GL_RGBA, GL_FLOAT, true, true }, {GL_R16F, GL_RED, GL_FLOAT, true, true}}, false, false), GLClasses::Framebuffer(16, 16, {{ GL_RGBA16F, GL_RGBA, GL_FLOAT, true, true },{ GL_RGBA16F, GL_RGBA, GL_FLOAT, true, true }, {GL_R16F, GL_RED, GL_FLOAT, true, true}}, false, false) };
 
 
 int GetUpdateCascade(int Frame) {
@@ -518,6 +522,7 @@ void Lumen::StartPipeline()
 	GLClasses::Shader& SpatialFilter = ShaderManager::GetShader("SPATIAL");
 
 	GLClasses::Shader& SVGFTemporalShader = ShaderManager::GetShader("SVGF_TEMPORAL");
+	GLClasses::Shader& SVGFVarianceShader = ShaderManager::GetShader("SVGF_VARIANCE");
 
 	GLClasses::Shader& GBufferDownsampleShader = ShaderManager::GetShader("GBUFFER_DOWNSAMPLER");
 
@@ -582,33 +587,34 @@ void Lumen::StartPipeline()
 		TAABuffers[1].SetSize(app.GetWidth(), app.GetHeight());
 
 		// Specular 
-		SpecularIndirectBuffers[0].SetSize(app.GetWidth() * SpecularIndirectRes * (CheckerboardIndirect ? 0.5f : 1.0f), app.GetHeight() * SpecularIndirectRes);
-		SpecularIndirectBuffers[1].SetSize(app.GetWidth() * SpecularIndirectRes * (CheckerboardIndirect ? 0.5f : 1.0f), app.GetHeight() * SpecularIndirectRes);
-		SpecularIndirectTemporalBuffers[0].SetSize(app.GetWidth() * SpecularIndirectRes, app.GetHeight() * SpecularIndirectRes);
-		SpecularIndirectTemporalBuffers[1].SetSize(app.GetWidth() * SpecularIndirectRes, app.GetHeight() * SpecularIndirectRes);
+		SpecularIndirectBuffers[0].SetSize(app.GetWidth() * IndirectRes * (CheckerboardIndirect ? 0.5f : 1.0f), app.GetHeight() * IndirectRes);
+		SpecularIndirectBuffers[1].SetSize(app.GetWidth() * IndirectRes * (CheckerboardIndirect ? 0.5f : 1.0f), app.GetHeight() * IndirectRes);
+		SpecularIndirectTemporalBuffers[0].SetSize(app.GetWidth() * IndirectRes, app.GetHeight() * IndirectRes);
+		SpecularIndirectTemporalBuffers[1].SetSize(app.GetWidth() * IndirectRes, app.GetHeight() * IndirectRes);
 
 		// Indirect diffuse
-		DiffuseIndirectTrace.SetSize(app.GetWidth() * DiffuseIndirectRes * (CheckerboardIndirect ? 0.5f : 1.0f), app.GetHeight() * DiffuseIndirectRes);
-		DiffuseIndirectTemporalBuffers[0].SetSize(app.GetWidth() * DiffuseIndirectRes, app.GetHeight() * DiffuseIndirectRes);
-		DiffuseIndirectTemporalBuffers[1].SetSize(app.GetWidth() * DiffuseIndirectRes, app.GetHeight() * DiffuseIndirectRes);
+		DiffuseIndirectTrace.SetSize(app.GetWidth() * IndirectRes * (CheckerboardIndirect ? 0.5f : 1.0f), app.GetHeight() * IndirectRes);
+		DiffuseIndirectTemporalBuffers[0].SetSize(app.GetWidth() * IndirectRes, app.GetHeight() * IndirectRes);
+		DiffuseIndirectTemporalBuffers[1].SetSize(app.GetWidth() * IndirectRes, app.GetHeight() * IndirectRes);
+		SVGFVarianceResolve.SetSize(app.GetWidth() * IndirectRes, app.GetHeight() * IndirectRes);
 
-		IndirectCheckerUpscaled.SetSize(app.GetWidth() * DiffuseIndirectRes, app.GetHeight() * DiffuseIndirectRes);
+		// Checkerboard
+		IndirectCheckerUpscaled.SetSize(app.GetWidth() * IndirectRes, app.GetHeight() * IndirectRes);
+
+		// Denoiser inputs/output buffers 
+		SpatialFilterBuffers[0].SetSize(app.GetWidth() / 2, app.GetHeight() / 2);
+		SpatialFilterBuffers[1].SetSize(app.GetWidth() / 2, app.GetHeight() / 2);
 
 		// Buffers for SSCT 
-		SpecularIndirectConeTraced.SetSize(app.GetWidth() * SpecularIndirectRes, app.GetHeight() * SpecularIndirectRes);
-		SpecularIndirectConeTraceInput.SetSize(app.GetWidth() * SpecularIndirectRes, app.GetHeight() * SpecularIndirectRes);
-		SpecularIndirectConeTraceInputAlternate.SetSize(app.GetWidth() * SpecularIndirectRes, app.GetHeight() * SpecularIndirectRes);
+		SpecularIndirectConeTraced.SetSize(app.GetWidth() * IndirectRes, app.GetHeight() * IndirectRes);
+		SpecularIndirectConeTraceInput.SetSize(app.GetWidth() * IndirectRes, app.GetHeight() * IndirectRes);
+		SpecularIndirectConeTraceInputAlternate.SetSize(app.GetWidth() * IndirectRes, app.GetHeight() * IndirectRes);
 
 		// RTAO
 		ScreenspaceOcclusion.SetSize(app.GetWidth() * ScreenspaceOcclusionRes * (ScreenspaceOcclusionCheckerboard ? 0.5f : 1.0f), app.GetHeight() * ScreenspaceOcclusionRes);
 		ScreenspaceOcclusionTemporalBuffers[0].SetSize(app.GetWidth() * ScreenspaceOcclusionRes, app.GetHeight() * ScreenspaceOcclusionRes);
 		ScreenspaceOcclusionTemporalBuffers[1].SetSize(app.GetWidth() * ScreenspaceOcclusionRes, app.GetHeight() * ScreenspaceOcclusionRes);
 		ScreenspaceOcclusionCheckerboardConstruct.SetSize(app.GetWidth() * ScreenspaceOcclusionRes, app.GetHeight() * ScreenspaceOcclusionRes);
-
-		// Spatial 
-
-		SpatialFilterBuffers[0].SetSize(app.GetWidth() / 2, app.GetHeight() / 2);
-		SpatialFilterBuffers[1].SetSize(app.GetWidth() / 2, app.GetHeight() / 2);
 
 		// Generate mipmaps 
 		if (app.GetCurrentFrame() % 8 == 0) {
@@ -941,12 +947,13 @@ void Lumen::StartPipeline()
 
 		SVGFTemporalShader.SetInteger("u_Current", 0);
 		SVGFTemporalShader.SetInteger("u_History", 1);
-
 		SVGFTemporalShader.SetInteger("u_Depth", 2);
 		SVGFTemporalShader.SetInteger("u_PreviousDepth", 3);
 		SVGFTemporalShader.SetInteger("u_Normals", 4);
-		SVGFTemporalShader.SetInteger("u_Frames", 5);
+		SVGFTemporalShader.SetInteger("u_Utility", 5);
 		SVGFTemporalShader.SetInteger("u_PreviousNormals", 6);
+		SVGFTemporalShader.SetInteger("u_LowResDepth", 7);
+		SVGFTemporalShader.SetInteger("u_LowResNormals", 8);
 
 		SetCommonUniforms(SVGFTemporalShader, UniformBuffer);
 
@@ -970,12 +977,50 @@ void Lumen::StartPipeline()
 
 		glActiveTexture(GL_TEXTURE6);
 		glBindTexture(GL_TEXTURE_2D, PrevGBuffer.GetTexture(3));
+
+		glActiveTexture(GL_TEXTURE7);
+		glBindTexture(GL_TEXTURE_2D, DownsampledGBuffer.GetTexture());
+
+		glActiveTexture(GL_TEXTURE8);
+		glBindTexture(GL_TEXTURE_2D, DownsampledGBuffer.GetTexture(1));
+
 		
 		ScreenQuadVAO.Bind();
 		glDrawArrays(GL_TRIANGLES, 0, 6);
 		ScreenQuadVAO.Unbind();
 		
 		DiffuseTemporal.Unbind();
+
+
+		// SVGF Variance estimation ->
+
+		SVGFVarianceResolve.Bind();
+		SVGFVarianceShader.Use();
+
+		SVGFVarianceShader.SetInteger("u_LowResDepth", 0);
+		SVGFVarianceShader.SetInteger("u_LowResNormals", 1);
+		SVGFVarianceShader.SetInteger("u_Diffuse", 2);
+		SVGFVarianceShader.SetInteger("u_Utility", 3);
+
+		SetCommonUniforms(SVGFVarianceShader, UniformBuffer);
+
+		glActiveTexture(GL_TEXTURE0);
+		glBindTexture(GL_TEXTURE_2D, DownsampledGBuffer.GetTexture());
+
+		glActiveTexture(GL_TEXTURE1);
+		glBindTexture(GL_TEXTURE_2D, DownsampledGBuffer.GetTexture(1));
+
+		glActiveTexture(GL_TEXTURE2);
+		glBindTexture(GL_TEXTURE_2D, DiffuseTemporal.GetTexture());
+
+		glActiveTexture(GL_TEXTURE3);
+		glBindTexture(GL_TEXTURE_2D, DiffuseTemporal.GetTexture(1));
+
+		ScreenQuadVAO.Bind();
+		glDrawArrays(GL_TRIANGLES, 0, 6);
+		ScreenQuadVAO.Unbind();
+
+		SVGFVarianceResolve.Unbind();
 
 
 		// Wavelet filtering 
@@ -1007,9 +1052,12 @@ void Lumen::StartPipeline()
 				SpatialFilter.SetInteger("u_BlueNoise", 4);
 				SpatialFilter.SetInteger("u_SpecularFrames", 5);
 				SpatialFilter.SetInteger("u_Diffuse", 6);
+				SpatialFilter.SetInteger("u_Variance", 7);
+				SpatialFilter.SetInteger("u_TemporalUtility", 8);
 				SpatialFilter.SetInteger("u_StepSize", StepSizes[Pass]);
 				SpatialFilter.SetInteger("u_Pass", Pass);
 				SpatialFilter.SetInteger("u_TotalPasses", Passes);
+				SpatialFilter.SetBool("u_SVGF", SVGF);
 
 				SetCommonUniforms(SpatialFilter, UniformBuffer);
 
@@ -1032,8 +1080,13 @@ void Lumen::StartPipeline()
 				glBindTexture(GL_TEXTURE_2D, SpecularTemporal.GetTexture(1));
 
 				glActiveTexture(GL_TEXTURE6);
-				glBindTexture(GL_TEXTURE_2D, InitialPass ? DiffuseTemporal.GetTexture() : SpatialHistory.GetTexture(1));
+				glBindTexture(GL_TEXTURE_2D, InitialPass ? SVGFVarianceResolve.GetTexture() : SpatialHistory.GetTexture(1));
 
+				glActiveTexture(GL_TEXTURE7);
+				glBindTexture(GL_TEXTURE_2D, InitialPass ? SVGFVarianceResolve.GetTexture(1) : SpatialHistory.GetTexture(2));
+
+				glActiveTexture(GL_TEXTURE8);
+				glBindTexture(GL_TEXTURE_2D, DiffuseTemporal.GetTexture(1));
 
 				ScreenQuadVAO.Bind();
 				glDrawArrays(GL_TRIANGLES, 0, 6);

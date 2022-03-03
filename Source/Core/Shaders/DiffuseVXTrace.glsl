@@ -137,9 +137,11 @@ vec4 DecodeVolumeLighting(const vec4 Lighting) {
 	return vec4(RemappedLighting.xyz, AlphaMask);
 }
 
+bool USE_DETAILED_CASCADE = false;
+
 int GetCascadeNumber(vec3 P) {
 
-	for (int Cascade = 0 ; Cascade < 6 ; Cascade++) {
+	for (int Cascade = int(USE_DETAILED_CASCADE) ; Cascade < 6 ; Cascade++) {
 		
 		if (PositionInVolume(Cascade, P)) {
 			return Cascade;
@@ -213,13 +215,13 @@ vec4 RaymarchCascades(vec3 WorldPosition, vec3 Normal, vec3 Direction, float Con
 
 	}
 
-	SkyVisibility = pow(SkyVisibility, 64.0f);
+	SkyVisibility = pow(SkyVisibility, 2.0f);
 	vec3 SkySample = pow(texture(u_Skymap, Direction).xyz, vec3(1.4f));
 	vec3 SkyRadiance = SkySample * SkyVisibility * 3.7f;
 
 	float AO = clamp(distance(WorldPosition, RayPosition) / 48.0f, 0.0f, 1.0f);
 
-	return vec4(TotalGI.xyz + SkyRadiance, AO);
+	return vec4(SkyRadiance + TotalGI.xyz, AO);
 }
 
 float HASH2SEED = 0.0f;

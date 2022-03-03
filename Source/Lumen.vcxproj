@@ -263,6 +263,7 @@
     <None Include="Core\Shaders\SSRTCheckerboarder.glsl" />
     <None Include="Core\Shaders\SSRTTemporal.glsl" />
     <None Include="Core\Shaders\SVGF\Temporal.glsl" />
+    <None Include="Core\Shaders\SVGF\Variance.glsl" />
     <None Include="Core\Shaders\TemporalAA.glsl" />
     <None Include="Core\Shaders\Voxelizer\VoxelizationGeometry.geom" />
     <None Include="Core\Shaders\Voxelizer\VoxelizationRadiance.glsl" />

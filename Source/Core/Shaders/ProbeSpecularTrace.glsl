@@ -817,7 +817,7 @@ void main() {
     int SSBinarySteps = Roughness < 0.2f ? 16 : 12;
 
     // Calculate steps 
-    int ProbeSteps = int(mix(120.0f, 52.0f, BiasedRoughness * BiasedRoughness * 1.1f * mix(1.0f, 0.75f, float(BiasedRoughness < 0.2f))));
+    int ProbeSteps = int(mix(70.0f, 32.0f, BiasedRoughness * BiasedRoughness * 1.1f * mix(1.0f, 0.75f, float(BiasedRoughness < 0.2f))));
     int ProbeBinarySteps = (BiasedRoughness < 0.5f) ? 16 : 12;
 
 

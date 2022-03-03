@@ -28,6 +28,7 @@ void Lumen::ShaderManager::CreateShaders()
 	AddShader("SCREENSPACE_OCCLUSION_CHECKERBOARD", "Core/Shaders/FBOVert.glsl", "Core/Shaders/SSRTCheckerboarder.glsl");
 	AddShader("GBUFFER_DOWNSAMPLER", "Core/Shaders/FBOVert.glsl", "Core/Shaders/DownsampleGBuffer.glsl");
 	AddShader("VOXEL_DIFFUSE_GI", "Core/Shaders/FBOVert.glsl", "Core/Shaders/DiffuseVXTrace.glsl");
+	AddShader("SVGF_VARIANCE", "Core/Shaders/FBOVert.glsl", "Core/Shaders/SVGF/Variance.glsl");
 }
 
 void Lumen::ShaderManager::AddShader(const std::string& name, const std::string& vert, const std::string& frag, const std::string& geo)
