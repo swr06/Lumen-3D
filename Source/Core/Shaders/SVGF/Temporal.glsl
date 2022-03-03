@@ -8,6 +8,7 @@ in vec2 v_TexCoords;
 uniform sampler2D u_Depth;
 uniform sampler2D u_PreviousDepth;
 uniform sampler2D u_Normals;
+uniform sampler2D u_PreviousNormals;
 
 uniform sampler2D u_History;
 uniform sampler2D u_Current;
@@ -53,11 +54,25 @@ vec3 Reprojection(vec3 WorldPosition)
 	return ProjectedPosition.xyz;
 }
 
+ivec2 UpscaleCoordinate(ivec2 x) {
+	return x * 2;
+}
+
+ivec2 BilinearOffsets[4] = ivec2[4](ivec2(0, 0), ivec2(1, 0), ivec2(0, 1), ivec2(1, 1));
+
 void main() {
 
-	vec4 Sample = texture(u_Current, v_TexCoords);
+	ivec2 Pixel = ivec2(gl_FragCoord.xy);
+	ivec2 PixelHighRes = ivec2(gl_FragCoord.xy) * 2;
 
-    float Depth = texture(u_Depth, v_TexCoords).x;
+	vec4 CurrentSample = texture(u_Current, v_TexCoords);
+
+    float Depth = texelFetch(u_Depth, PixelHighRes, 0).x;
+
+	float CurrentDepth = linearizeDepth(Depth);
+
+	vec3 Normals = texelFetch(u_Normals, PixelHighRes, 0).xyz;
+
     vec3 WorldPosition = WorldPosFromDepth(Depth, v_TexCoords);
 
     vec3 Reprojected = Reprojection(WorldPosition);
@@ -74,34 +89,75 @@ void main() {
 		v_TexCoords.y > bias && v_TexCoords.y < 1.0f-bias)
 
 	{
-		float PreviousDepth = texture(u_PreviousDepth, PreviousCoord.xy).x;
-		float LinearPrevDepth = linearizeDepth(PreviousDepth);
+		// Bilateral/bilinear filter ->
+
+		vec2 Dims = textureSize(u_History, 0).xy;
+
+		vec2 PrevPixel = (Reprojected.xy * Dims) - 0.5f;
+		vec2 Interp = fract(PrevPixel);
+		vec2 UVInteger = ivec2(floor(PrevPixel));
+
+		// Raw bilinear weights 
+		float BilinearWeights[4] = {
+			(1.0 - Interp.x) * (1.0 - Interp.y),
+			(Interp.x) * (1.0 - Interp.y),
+			(1.0 - Interp.x) * (Interp.y),
+			(Interp.x) * (Interp.y)
+		};
+
+		// Depth weight 
 		float LinearExpectedDepth = linearizeDepth(Reprojected.z);
 
-		float Weights = 1.0f;
+		// Sum 
+		vec4 TemporalDiffuseSum = vec4(0.0f);
+		float FrameCount = 0.0f;
+		float TotalWeights = 0.0f;
 
-		float D = distance(WorldPosition, u_ViewerPosition);
+		float DepthDistanceBias = abs(CurrentDepth);
 
-		float DistanceExp = D < 128.0f ? 128.0f : 32.0f;
+		for (int Sample = 0 ; Sample < 4 ; Sample++) {
 
-		Weights *= pow(exp(-abs(LinearPrevDepth - LinearExpectedDepth)), DistanceExp);
+			ivec2 SampleCoord = ivec2(UVInteger + vec2(BilinearOffsets[Sample]));
+			ivec2 SampleCoordHighRes = SampleCoord * 2;
 
-		float Frames = texture(u_Frames, Reprojected.xy).x * 32.0f;
+			float PreviousDepth = texelFetch(u_PreviousDepth, SampleCoordHighRes, 0).x;
+			float LinearPrevDepth = linearizeDepth(PreviousDepth);
+			float DepthError = abs(LinearPrevDepth - LinearExpectedDepth) / DepthDistanceBias;
 
-		float SumFramesIncremented = (Frames * Weights) + 1.0f;
+			vec3 PreviousNormal = texelFetch(u_PreviousNormals, SampleCoordHighRes, 0).xyz;
+			float NormalDot = dot(Normals, PreviousNormal);
 
-		float BlendFactor = 1.0f - clamp(1.0f / SumFramesIncremented, 0.0f, 1.0f);
+			if (DepthError < 0.025f && NormalDot > 0.5f) {
+				float Weight = BilinearWeights[Sample];
 
-		vec4 History = texture(u_History, Reprojected.xy);
+				TemporalDiffuseSum += texelFetch(u_History, SampleCoord, 0).xyzw * Weight;
+				TotalWeights += Weight;
 
-		BlendFactor = clamp(BlendFactor, 0.01f, 0.99f);
-		o_Diffuse = mix(Sample, History, BlendFactor);
+				float Frames = texelFetch(u_Frames, SampleCoord, 0).x * 32.0f;
+				FrameCount += Frames * Weight;
+			}
+		}
+
+		if (TotalWeights > 0.00001f) {
+			TemporalDiffuseSum /= TotalWeights;
+			FrameCount /= TotalWeights;
+		}
+
+		else {
+			FrameCount = 0.0f;
+		}
+
+		float SumFramesIncremented = FrameCount + 1.0f;
+
+		float BlendFactor = 1.0f - (clamp(max(1.0f / max(SumFramesIncremented, 1.0f), 0.02f), 0.01f, 0.99f));
+
+		o_Diffuse = mix(CurrentSample, TemporalDiffuseSum, BlendFactor);
 		o_Frames = SumFramesIncremented;
 	}
 
 	else {
 
-		o_Diffuse = Sample;
+		o_Diffuse = CurrentSample;
 		o_Frames = 0.0f;
 	}
 

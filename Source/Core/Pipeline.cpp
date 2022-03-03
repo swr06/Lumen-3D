@@ -945,8 +945,8 @@ void Lumen::StartPipeline()
 		SVGFTemporalShader.SetInteger("u_Depth", 2);
 		SVGFTemporalShader.SetInteger("u_PreviousDepth", 3);
 		SVGFTemporalShader.SetInteger("u_Normals", 4);
-
 		SVGFTemporalShader.SetInteger("u_Frames", 5);
+		SVGFTemporalShader.SetInteger("u_PreviousNormals", 6);
 
 		SetCommonUniforms(SVGFTemporalShader, UniformBuffer);
 
@@ -967,6 +967,9 @@ void Lumen::StartPipeline()
 
 		glActiveTexture(GL_TEXTURE5);
 		glBindTexture(GL_TEXTURE_2D, PrevDiffuseTemporal.GetTexture(1));
+
+		glActiveTexture(GL_TEXTURE6);
+		glBindTexture(GL_TEXTURE_2D, PrevGBuffer.GetTexture(3));
 		
 		ScreenQuadVAO.Bind();
 		glDrawArrays(GL_TRIANGLES, 0, 6);
@@ -1005,6 +1008,8 @@ void Lumen::StartPipeline()
 				SpatialFilter.SetInteger("u_SpecularFrames", 5);
 				SpatialFilter.SetInteger("u_Diffuse", 6);
 				SpatialFilter.SetInteger("u_StepSize", StepSizes[Pass]);
+				SpatialFilter.SetInteger("u_Pass", Pass);
+				SpatialFilter.SetInteger("u_TotalPasses", Passes);
 
 				SetCommonUniforms(SpatialFilter, UniformBuffer);
 

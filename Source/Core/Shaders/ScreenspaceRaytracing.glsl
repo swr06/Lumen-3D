@@ -361,7 +361,7 @@ bool IsSky(float NonLinearDepth) {
 
 float ResolveAO(vec3 WorldPosition, vec3 Normal, vec3 Direction, float Bayer) {
 
-	const float Distance = 54.0f;
+	const float Distance = 48.0f;
 	
 	GBufferData Hit = ScreenspaceRaytrace(WorldPosition + (Normal * 1.0f) - (Direction * 0.6f), Direction, 0.004f, Bayer, 24, 4, Distance, 1.0f);
 

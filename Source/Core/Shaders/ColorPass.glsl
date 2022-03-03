@@ -414,12 +414,12 @@ void main()
 	vec3 R = normalize(reflect(-Lo, Normal));
 
 	// Spatial upscale ->
-	float AO;
+	float SSAO;
 	float ScreenspaceShadow;
 	vec3 SpecularIndirect;
 	vec4 DiffuseIndirect;
 
-	SpatialUpscale(LinearizeDepth(Depth), Normal, PBR.x, Lo, AO, ScreenspaceShadow, SpecularIndirect, DiffuseIndirect);
+	SpatialUpscale(LinearizeDepth(Depth), Normal, PBR.x, Lo, SSAO, ScreenspaceShadow, SpecularIndirect, DiffuseIndirect);
 	SpecularIndirect = SpecularIndirect * 1.25f;
 
 	// Direct lighting ->
@@ -434,11 +434,16 @@ void main()
 
 	// Combine indirect diffuse and specular using environment BRDF
 	
-	const float TEXTURE_AO_STRENGTH = 24.0f;
+	const float TEXTURE_AO_STRENGTH = 32.0f;
 	float TextureAO = pow(1.0f - PBR.z, TEXTURE_AO_STRENGTH);
 
-	AO =  clamp(pow(AO, u_RTAOStrength * 2.0f), 0.001f, 1.0f);
-	vec3 IndirectDiffuse = (AmbientTerm * AO * TextureAO);
+	SSAO =  clamp(pow(SSAO, u_RTAOStrength * 2.0f), 0.001f, 1.0f);
+
+	float VXAO = pow(DiffuseIndirect.w, 4.0f);
+
+	float AmbientOcclusion = SSAO * TextureAO * VXAO;
+
+	vec3 IndirectDiffuse = (AmbientTerm * AmbientOcclusion);
 
 	float Roughness = PBR.x;
 	

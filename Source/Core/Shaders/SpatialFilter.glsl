@@ -50,6 +50,8 @@ uniform float u_zNear;
 uniform float u_zFar;
 
 uniform int u_StepSize;
+uniform int u_Pass;
+uniform int u_TotalPasses;
 
 //
 
@@ -244,7 +246,7 @@ float DiffuseWeightSVGF(float CenterDepth, float SampleDepth, vec3 CenterNormal,
 float DiffuseWeightBasic(float CenterDepth, float SampleDepth, vec3 CenterNormal, vec3 SampleNormal, float Kernel) {
 
 	float DepthWeight = clamp(pow(exp(-abs(CenterDepth - SampleDepth)), 48.0f), 0.0f, 1.0f);
-	float NormalWeight = clamp(pow(max(dot(CenterNormal, SampleNormal), 0.0f), 8.0f), 0.0f, 1.0f);
+	float NormalWeight = clamp(pow(max(dot(CenterNormal, SampleNormal), 0.0f), 16.0f), 0.0f, 1.0f);
 	float TotalWeight = DepthWeight * NormalWeight * clamp(Kernel, 0.0f, 1.0f);
 	return TotalWeight;
 }
@@ -310,7 +312,8 @@ void main() {
 	vec4 SpecularSum = CenterSpecular;
 	float TotalSpecularWeight = 1.0f;
 
-	vec4 DiffuseSum = texelFetch(u_Diffuse, Pixel, 0).xyzw;
+	vec4 CenterDiffuse = texelFetch(u_Diffuse, Pixel, 0).xyzw;
+	vec4 DiffuseSum = CenterDiffuse;
 	float TotalDiffuseWeight = 1.0f;
 
 	for (int x = -KernelX ; x <= KernelX ; x++)
@@ -338,7 +341,6 @@ void main() {
 			//float DiffuseWeightSimple = DiffuseWeightBasic(LinearDepth, SampleDepth, Normal, SampleNormal, KernelWeight);
 
 			float SpecularWeight = SpecularWeight(LinearDepth, SampleDepth, CenterSpecular.w, SpecularSample.w, PBR.x, SamplePBR.x, Normal, SampleNormal, Incident, vec2(Luminance(CenterSpecular.xyz), Luminance(SpecularSample.xyz)), CenterLobe, SpecularRadius, SpecularFrames, KernelWeight);
-			
 
 			SpecularSum += SpecularSample * SpecularWeight;
 			TotalSpecularWeight += SpecularWeight;
@@ -358,4 +360,10 @@ void main() {
 
 	o_Specular = SpecularSum;
 	o_Diffuse = DiffuseSum;
+
+	if (!(u_StepSize <= 4)) {
+
+		o_Diffuse.w = CenterDiffuse.w;
+
+	}
 }

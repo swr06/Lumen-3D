@@ -214,10 +214,12 @@ vec4 RaymarchCascades(vec3 WorldPosition, vec3 Normal, vec3 Direction, float Con
 	}
 
 	SkyVisibility = pow(SkyVisibility, 64.0f);
-	vec3 SkySample = pow(texture(u_Skymap, Direction).xyz, vec3(1.75f));
-	vec3 SkyRadiance = SkySample * SkyVisibility * 2.0f;
+	vec3 SkySample = pow(texture(u_Skymap, Direction).xyz, vec3(1.4f));
+	vec3 SkyRadiance = SkySample * SkyVisibility * 3.7f;
 
-	return vec4(TotalGI.xyz + SkyRadiance, TotalGI.w);
+	float AO = clamp(distance(WorldPosition, RayPosition) / 48.0f, 0.0f, 1.0f);
+
+	return vec4(TotalGI.xyz + SkyRadiance, AO);
 }
 
 float HASH2SEED = 0.0f;
@@ -291,5 +293,7 @@ void main() {
 
 	vec3 Direction = CosWeightedHemisphere(Normal, Hash.xy);
 
-	o_Color.xyz = RaymarchCascades(WorldPosition, Normal, Direction, 1.0f, BayerHash, 200).xyz;
+	vec4 Diffuse = RaymarchCascades(WorldPosition, Normal, Direction, 1.0f, BayerHash, 200);
+	o_Color.xyz = Diffuse.xyz;
+	o_Color.w = Diffuse.w;
 }
