@@ -57,8 +57,9 @@ static bool DoScreenspaceShadow = false;
 static float ScreenspaceAOStrength = 0.75f;
 static bool ScreenspaceOcclusionCheckerboard = true;
 
-// Probe update rate 
+// Update rates
 static int ProbeUpdateRate = 1;
+static bool FullyDynamicVoxelization = false;
 
 // Spatial
 static bool SpatialFiltering = true;
@@ -84,7 +85,7 @@ public:
 		glfwSwapInterval((int)VSync);
 
 		GLFWwindow* window = GetWindow();
-		float camera_speed = 0.525f * 2.0f;
+		float camera_speed = 0.525f * 3.0f;
 
 		if (GetCursorLocked()) {
 			if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS)
@@ -125,6 +126,7 @@ public:
 		ImGui::NewLine();
 		
 		ImGui::SliderInt("Probe Update Rate", &ProbeUpdateRate, 1, 6);
+		ImGui::Checkbox("Fully Dynamic Voxelization?", &FullyDynamicVoxelization);
 
 		ImGui::NewLine();
 
@@ -681,14 +683,13 @@ void Lumen::StartPipeline()
 		// Update voxel cascades->
 
 		// Update voxel cascades for the first frames when everything is being updated
-		if (app.GetCurrentFrame() < 6) {
-			std::cout << "\nUpdating all voxel cascades!";
+		if (app.GetCurrentFrame() < 6 || FullyDynamicVoxelization) {
 			for (int i = 0; i < 6; i++) {
 				Voxelizer::VoxelizeCascade(GetUpdateCascade(i), Camera.GetPosition(), Camera.GetProjectionMatrix(), Camera.GetViewMatrix(), Shadowmap.GetDepthTexture(), GetLightViewProjection(SunDirection), SunDirection, EntityList);
 			}
 		}
 
-		if (app.GetCurrentFrame() % 1 == 0) {
+		if (!FullyDynamicVoxelization) {
 			Voxelizer::VoxelizeCascade(GetUpdateCascade(app.GetCurrentFrame()), Camera.GetPosition(), Camera.GetProjectionMatrix(), Camera.GetViewMatrix(), Shadowmap.GetDepthTexture(), GetLightViewProjection(SunDirection), SunDirection, EntityList);
 		}
 
@@ -811,8 +812,6 @@ void Lumen::StartPipeline()
 		ScreenQuadVAO.Bind();
 		glDrawArrays(GL_TRIANGLES, 0, 6);
 		ScreenQuadVAO.Unbind();
-
-
 
 
 		// Trace diffuse GI
@@ -992,35 +991,38 @@ void Lumen::StartPipeline()
 		DiffuseTemporal.Unbind();
 
 
-		// SVGF Variance estimation ->
+		if (SVGF) {
 
-		SVGFVarianceResolve.Bind();
-		SVGFVarianceShader.Use();
+			// SVGF Variance estimation ->
 
-		SVGFVarianceShader.SetInteger("u_LowResDepth", 0);
-		SVGFVarianceShader.SetInteger("u_LowResNormals", 1);
-		SVGFVarianceShader.SetInteger("u_Diffuse", 2);
-		SVGFVarianceShader.SetInteger("u_Utility", 3);
+			SVGFVarianceResolve.Bind();
+			SVGFVarianceShader.Use();
 
-		SetCommonUniforms(SVGFVarianceShader, UniformBuffer);
+			SVGFVarianceShader.SetInteger("u_LowResDepth", 0);
+			SVGFVarianceShader.SetInteger("u_LowResNormals", 1);
+			SVGFVarianceShader.SetInteger("u_Diffuse", 2);
+			SVGFVarianceShader.SetInteger("u_Utility", 3);
 
-		glActiveTexture(GL_TEXTURE0);
-		glBindTexture(GL_TEXTURE_2D, DownsampledGBuffer.GetTexture());
+			SetCommonUniforms(SVGFVarianceShader, UniformBuffer);
 
-		glActiveTexture(GL_TEXTURE1);
-		glBindTexture(GL_TEXTURE_2D, DownsampledGBuffer.GetTexture(1));
+			glActiveTexture(GL_TEXTURE0);
+			glBindTexture(GL_TEXTURE_2D, DownsampledGBuffer.GetTexture());
 
-		glActiveTexture(GL_TEXTURE2);
-		glBindTexture(GL_TEXTURE_2D, DiffuseTemporal.GetTexture());
+			glActiveTexture(GL_TEXTURE1);
+			glBindTexture(GL_TEXTURE_2D, DownsampledGBuffer.GetTexture(1));
 
-		glActiveTexture(GL_TEXTURE3);
-		glBindTexture(GL_TEXTURE_2D, DiffuseTemporal.GetTexture(1));
+			glActiveTexture(GL_TEXTURE2);
+			glBindTexture(GL_TEXTURE_2D, DiffuseTemporal.GetTexture());
 
-		ScreenQuadVAO.Bind();
-		glDrawArrays(GL_TRIANGLES, 0, 6);
-		ScreenQuadVAO.Unbind();
+			glActiveTexture(GL_TEXTURE3);
+			glBindTexture(GL_TEXTURE_2D, DiffuseTemporal.GetTexture(1));
 
-		SVGFVarianceResolve.Unbind();
+			ScreenQuadVAO.Bind();
+			glDrawArrays(GL_TRIANGLES, 0, 6);
+			ScreenQuadVAO.Unbind();
+
+			SVGFVarianceResolve.Unbind();
+		}
 
 
 		// Wavelet filtering 
@@ -1080,7 +1082,7 @@ void Lumen::StartPipeline()
 				glBindTexture(GL_TEXTURE_2D, SpecularTemporal.GetTexture(1));
 
 				glActiveTexture(GL_TEXTURE6);
-				glBindTexture(GL_TEXTURE_2D, InitialPass ? SVGFVarianceResolve.GetTexture() : SpatialHistory.GetTexture(1));
+				glBindTexture(GL_TEXTURE_2D, InitialPass ? (SVGF ? SVGFVarianceResolve.GetTexture() : DiffuseTemporal.GetTexture()) : SpatialHistory.GetTexture(1));
 
 				glActiveTexture(GL_TEXTURE7);
 				glBindTexture(GL_TEXTURE_2D, InitialPass ? SVGFVarianceResolve.GetTexture(1) : SpatialHistory.GetTexture(2));

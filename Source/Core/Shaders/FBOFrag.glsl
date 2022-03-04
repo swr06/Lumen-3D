@@ -38,6 +38,14 @@ vec4 ACESFitted(vec4 Color, float Exposure)
     return Color;
 }
 
+float Vignette() {
+	float dist = distance(vec2(0.5f), v_TexCoords) * sqrt(2.0f);
+	float vig = clamp((1.0f - dist) / (1.0f - 0.05f), 0.0, 1.0);
+	return clamp(vig + 0.2f, 0.0f, 1.0f);
+}
+
+
+
 vec3 FXAA311(vec3 color);
 
 void main()
@@ -48,6 +56,7 @@ void main()
 		o_Color = FXAA311(o_Color);
 	
     o_Color = ACESFitted(vec4(o_Color, 1.0f), 2.6f).xyz;
+	o_Color *= Vignette();
     o_Color = pow(o_Color, vec3(1.0f / 2.2f));
 }
 
@@ -66,7 +75,7 @@ vec3 FXAA311(vec3 color)
 
 	float edgeThresholdMin = 0.03125;
 	float edgeThresholdMax = 0.125;
-	float subpixelQuality = 0.75f;
+	float subpixelQuality = 0.6f;
 	int iterations = 12;
 	
 	vec2 view = 1.0 / textureSize(u_MainTexture, 0).xy;

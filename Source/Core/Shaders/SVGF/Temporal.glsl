@@ -50,6 +50,16 @@ vec3 WorldPosFromDepth(float depth, vec2 txc)
     return WorldPos.xyz;
 }
 
+vec3 WorldPosFromDepthPrev(float depth, vec2 txc)
+{
+    float z = depth * 2.0 - 1.0;
+    vec4 ClipSpacePosition = vec4(txc * 2.0 - 1.0, z, 1.0);
+    vec4 ViewSpacePosition = u_PrevInverseProjection * ClipSpacePosition;
+    ViewSpacePosition /= ViewSpacePosition.w;
+    vec4 WorldPos = u_PrevInverseView * ViewSpacePosition;
+    return WorldPos.xyz;
+}
+
 vec3 Reprojection(vec3 WorldPosition) 
 {
 	vec4 ProjectedPosition = u_PrevProjection * u_PrevView * vec4(WorldPosition, 1.0f);
@@ -92,9 +102,10 @@ void main() {
 	// Reproject 
     vec3 Reprojected = Reprojection(WorldPosition);
 	vec2 PreviousCoord = Reprojected.xy;
+	bool CameraMoved = u_InverseView[3].xyz != u_PrevInverseView[3].xyz;
 
 	// Screen space bias 
-	float bias = (u_InverseView != u_PrevInverseView) ? 0.001f : 0.0f;
+	float SSBias = (u_InverseView != u_PrevInverseView) ? 0.001f : 0.0f;
 
 	// Outputs 
 	float oFrameCount = 1.0f;
@@ -106,10 +117,10 @@ void main() {
 	vec2 Moments = vec2(CurrentL, CurrentL * CurrentL);
 
 	// Screenspace check
-	if (PreviousCoord.x > bias && PreviousCoord.x < 1.0f-bias &&
-		PreviousCoord.y > bias && PreviousCoord.y < 1.0f-bias && 
-		v_TexCoords.x > bias && v_TexCoords.x < 1.0f-bias &&
-		v_TexCoords.y > bias && v_TexCoords.y < 1.0f-bias)
+	if (PreviousCoord.x > SSBias && PreviousCoord.x < 1.0f-SSBias &&
+		PreviousCoord.y > SSBias && PreviousCoord.y < 1.0f-SSBias && 
+		v_TexCoords.x > SSBias && v_TexCoords.x < 1.0f-SSBias &&
+		v_TexCoords.y > SSBias && v_TexCoords.y < 1.0f-SSBias)
 
 	{
 		// Bilateral/bilinear filter ->
@@ -138,7 +149,7 @@ void main() {
 
 		uint SuccessfulSamples = 0;
 
-		float DepthDistanceBias = abs(CurrentDepth);
+		float ReprojectedDepthSample = 0.0f;
 
 		for (int Sample = 0 ; Sample < 4 ; Sample++) {
 
@@ -147,12 +158,16 @@ void main() {
 
 			float PreviousDepth = texelFetch(u_PreviousDepth, SampleCoordHighRes, 0).x;
 			float LinearPrevDepth = linearizeDepth(PreviousDepth);
-			float DepthError = abs(LinearPrevDepth - LinearExpectedDepth); // / (DepthDistanceBias / 3.0f);
+
+			ReprojectedDepthSample = Sample == 0 ? LinearPrevDepth : ReprojectedDepthSample;
+
+			float DepthError = abs(CurrentDepth-LinearPrevDepth+LinearExpectedDepth) / abs(CurrentDepth);
 
 			vec3 PreviousNormal = texelFetch(u_PreviousNormals, SampleCoordHighRes, 0).xyz;
 			float NormalDot = dot(Normals, PreviousNormal);
 
-			if (DepthError < 0.01f && NormalDot > 0.5f) {
+			if (DepthError < (CameraMoved ? 1.0f + 0.00001f : 3.0f) && NormalDot > (CameraMoved ? 0.5f : 0.25f)) 
+			{
 				float Weight = BilinearWeights[Sample];
 
 				TemporalDiffuseSum += texelFetch(u_History, SampleCoord, 0).xyzw * Weight;
@@ -177,12 +192,18 @@ void main() {
 
 			float SumFramesIncremented = FrameCount + 1.0f;
 
-			float BlendFactor = 1.0f - (clamp(max(1.0f / max(SumFramesIncremented, 1.0f), 0.02f), 0.01f, 0.99f));
+			float BlendFactor = 1.0f - (clamp(max(1.0f / max(SumFramesIncremented, 1.0f), 0.03f), 0.01f, 0.99f));
+
+			// Fix small artifacts
+			
+			//float DepthWeight = pow(exp(-abs(ReprojectedDepthSample-LinearExpectedDepth)), 12.0f);
+			//BlendFactor *= CameraMoved ? (DepthWeight > 0.1f ? 1.0f : 0.0f) : 1.0f;
 
 			o_Diffuse = mix(CurrentSample, TemporalDiffuseSum, BlendFactor);
 			oMoments = mix(Moments, HistoryMoments, BlendFactor);
 			oFrameCount = SumFramesIncremented;
 			oVariance = Variance(oMoments.x, oMoments.y);
+
 		}
 
 		else {

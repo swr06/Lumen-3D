@@ -439,7 +439,7 @@ void main()
 
 	SSAO =  clamp(pow(SSAO, u_RTAOStrength * 2.0f), 0.001f, 1.0f);
 
-	float VXAO = pow(DiffuseIndirect.w, 4.0f);
+	float VXAO = pow(DiffuseIndirect.w, 2.0f);
 
 	float AmbientOcclusion = SSAO * TextureAO * VXAO;
 
@@ -450,7 +450,8 @@ void main()
 	// Metalness is binary, so use a simple thresholding function
 	float Metalness = PBR.y > 0.04f ? 1.0f : 0.0f;
 
-	SpecularIndirect = mix(SpecularIndirect, SpecularIndirect * 1.8f, Metalness);
+	// boost specular 
+	SpecularIndirect *= 1.5f;
 
 	// F0 
 	vec3 F0 = mix(vec3(0.04f), Albedo, Metalness);

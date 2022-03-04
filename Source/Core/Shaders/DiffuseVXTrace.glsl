@@ -137,7 +137,8 @@ vec4 DecodeVolumeLighting(const vec4 Lighting) {
 	return vec4(RemappedLighting.xyz, AlphaMask);
 }
 
-bool USE_DETAILED_CASCADE = false;
+const bool USE_DETAILED_CASCADE = false;
+const bool CONE_TRACE = false;
 
 int GetCascadeNumber(vec3 P) {
 
@@ -151,6 +152,7 @@ int GetCascadeNumber(vec3 P) {
 
 	return 5;
 }
+
 
 vec4 RaymarchCascades(vec3 WorldPosition, vec3 Normal, vec3 Direction, float ConeWidth, float LowDiscrepHash, const int Steps) 
 {
@@ -186,13 +188,19 @@ vec4 RaymarchCascades(vec3 WorldPosition, vec3 Normal, vec3 Direction, float Con
 
 		if (InScreenspace(Voxel)) {
 
-			//float NormalizedStep = float(Step) / float(Steps);
-			//float ConeDistanceEstimate = (exp2(NormalizedStep * 4.0f) - 0.9f) / 8.0f;
-			//float ConeRadiusSize = ConeDistanceEstimate * 4.0f; 
-			//float NaiveMip = clamp(mix(0.0f, 6.0f, NormalizedStep * NormalizedStep));
-			float Mip = 0.0f; //ConeRadiusSize;
+			float Mip = 0.0f;
 
-			vec4 SampleLighting = texture3DLod(Volume, Voxel, Mip).xyzw;
+			if (CONE_TRACE) {
+				float NormalizedStep = float(Step) / float(Steps);
+				float ConeDistanceEstimate = (exp2(NormalizedStep * 4.0f) - 0.9f) / 8.0f;
+				float ConeRadiusSize = ConeDistanceEstimate * 4.0f; 
+				Mip = ConeRadiusSize * 4.0f;
+			}
+
+			float SampleMip = clamp(Mip, 0.0f, 6.0f);
+
+
+			vec4 SampleLighting = texture3DLod(Volume, Voxel, SampleMip).xyzw;
 			vec4 Decoded = DecodeVolumeLighting(SampleLighting);
 			TotalGI.xyz += Decoded.xyz * Decoded.w;
 			TotalGI.w *= 1.0f - SampleLighting.w;
@@ -209,10 +217,10 @@ vec4 RaymarchCascades(vec3 WorldPosition, vec3 Normal, vec3 Direction, float Con
 
 			StepSize = u_VoxelRanges[CurrentCascade] / 128.0f;
 			StepSize *= 1.1f;
+
 		}
 		
 		RayPosition += Direction * StepSize * HashScale;
-
 	}
 
 	SkyVisibility = pow(SkyVisibility, 2.0f);
@@ -298,4 +306,8 @@ void main() {
 	vec4 Diffuse = RaymarchCascades(WorldPosition, Normal, Direction, 1.0f, BayerHash, 200);
 	o_Color.xyz = Diffuse.xyz;
 	o_Color.w = Diffuse.w;
+
+	if (isnan(o_Color.x) || isnan(o_Color.y) || isnan(o_Color.z) || isinf(o_Color.x) || isinf(o_Color.y) || isinf(o_Color.z)) {
+        o_Color.xyz = vec3(0.0f);
+    }
 }

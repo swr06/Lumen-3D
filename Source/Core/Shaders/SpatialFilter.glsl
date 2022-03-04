@@ -235,9 +235,10 @@ float DiffuseWeightSVGF(float CenterDepth, float SampleDepth, vec3 CenterNormal,
 	float DepthWeight = clamp(pow(exp(-abs(CenterDepth - SampleDepth)), 32.0f), 0.0f, 1.0f);
 	float NormalWeight = clamp(pow(max(dot(CenterNormal, SampleNormal), 0.0f), 8.0f), 0.0f, 1.0f);
 
+	float LumaError = abs(CenterLuma - SampleLuma);
 	float DetailWeight = clamp(exp(-(abs(CenterLuma - SampleLuma) / PhiL)), 0.0f, 1.0f);
 
-	DetailWeight = mix(1.0f, DetailWeight, framebias);
+	DetailWeight = mix(1.0f, DetailWeight, pow(framebias, 100.0f));
 
 	float TotalWeight = DetailWeight * DepthWeight * NormalWeight * clamp(Kernel, 0.0f, 1.0f);
 
@@ -252,8 +253,21 @@ float DiffuseWeightBasic(float CenterDepth, float SampleDepth, vec3 CenterNormal
 	return TotalWeight;
 }
 
-float SVGFGetPhiL(float GaussianVariance) {
-	return exp(-pow(max(0.00000001f, GaussianVariance), 1.0f / 3.0f) * 310.0f) * 1.15f * mix(sqrt(GaussianVariance), 1.0f, 0.2f);
+float SVGFGetPhiL(float GaussianVariance, float RawVariance, float Frames) {
+
+	// Magic numbers to get a better luminance weighting factor 
+
+
+	GaussianVariance = clamp(GaussianVariance, 0.00000001f, 256.0f);
+	RawVariance = clamp(RawVariance, 0.00000001f, 256.0f);
+
+	//return sqrt(GaussianVariance);
+
+	float f = pow(clamp(Frames / 180.0f, 0.0f, 1.0f), 4.0f);
+	
+	float t = exp(-pow(max(0.00000001f, GaussianVariance), 1.0f / 3.0f) * 530.0f * mix(1.0f, 2.2f, f));
+
+	return t * mix(sqrt(GaussianVariance), 1.0f, 0.9f);
 }
 
 float Luminance(vec3 x) 
@@ -295,11 +309,11 @@ void main() {
 	float ViewLength = length(ViewSpaceBase);
 
 	// Variance 
-	float VarianceFetch = 0.0f;
-	float GaussianVar = u_SVGF ? GaussianVariance(Pixel, VarianceFetch) : 0.0f;
-	float PhiL = SVGFGetPhiL(GaussianVar);
-	float PhiDepth = 0.005f * float(u_StepSize);
+	float RawVar = 0.0f;
 	vec4 UtilityFetch = texelFetch(u_TemporalUtility, Pixel, 0).xyzw;
+	float GaussianVar = u_SVGF ? GaussianVariance(Pixel, RawVar) : 0.0f;
+	float PhiL = SVGFGetPhiL(GaussianVar,RawVar,UtilityFetch.z);
+	float PhiDepth = 0.005f * float(u_StepSize);
 	float FramebiasDiffuse = clamp(UtilityFetch.z / 16.0f, 0.0f, 1.0f);
 
 	// Specular radius 
@@ -381,8 +395,17 @@ void main() {
 	VarianceSum /= max(TotalDiffuseWeight * TotalDiffuseWeight, 0.000001f);
 
 	o_Specular = SpecularSum;
-	o_Diffuse = DiffuseSum;
 	o_Variance = VarianceSum;
+
+	o_Diffuse = DiffuseSum;
+
+
+
+	//if (GaussianVar < 0.0001f) {
+	//	o_Diffuse = vec4(1.0f, 0.0f, 0.0f, 1.0f);
+	//}
+
+
 
 	if (!(u_StepSize <= 4)) {
 
