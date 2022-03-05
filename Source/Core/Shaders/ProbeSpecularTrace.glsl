@@ -253,21 +253,15 @@ const float EmissionStrength = 3.5f;
 
 GBufferData Raytrace(vec3 WorldPosition, vec3 Direction, float ErrorTolerance, float Hash, int Steps, int BinarySteps) {
    
-    // If enabled, the raytracer returns the nearest hit which is approximated using a weighting factor 
-    const bool FALLBACK_ON_BEST_STEP = false;
-
     // Settings 
     const float Distance = 384.0f;
 
     float StepSize = Distance / float(Steps);
-    float UnditheredStepSize = StepSize;
 
-    vec3 ReflectionVector = Direction; //CosWeightedHemisphere(LFNormal); 
+    vec3 ReflectionVector = Direction; 
     
     vec3 RayPosition = WorldPosition + ReflectionVector * Hash;
     vec3 RayOrigin = RayPosition;
-
-    vec3 TraceColor = vec3(0.0f);
 
     vec3 PreviousSampleDirection = ReflectionVector;
 
@@ -277,14 +271,8 @@ GBufferData Raytrace(vec3 WorldPosition, vec3 Direction, float ErrorTolerance, f
     int ExponentialStepStart = Steps - (Steps / 4);
     float ExpStep = 1.05f;//mix(1.0f, 1.4f, mix(Hash, 1.0f, 0.2f));
 
-    // Approximate hits when we can't find an accurate intersection with the geometry 
-    vec3 BestSampleDirection = RayPosition;
-    float BestRayWeight = -10.0f;
-
     float PrevRayDepth = 0.0f;
     float PrevStepSampleDepth = 0.0f;
-
-    int NumExpSteps = 0;
 
     // Find intersection with geometry 
     // Todo : Account for geometrical thickness?
@@ -308,23 +296,15 @@ GBufferData Raytrace(vec3 WorldPosition, vec3 Direction, float ErrorTolerance, f
 
         bool AccurateishHit = DepthError < ThresholdCurr;
         bool DistanceHitWeight = DepthError < 8.0f;
-        //bool DistanceBasedHit = DepthError < ErrorTolerance * length(StepSize) * 2.5f;
 
         if (L > ProbeDepth && AccurateishHit) {
              FoundHit = true;
              break;
         }
 
-        if (FALLBACK_ON_BEST_STEP) {
-            // Compute ray weighting factor 
-            float RayWeight = pow(1.0f / float(CurrentStep + 1.0f), 6.0f) * pow(1.0f / max(abs(ProbeDepth - L), 0.00000001f), 8.725f);
-
-            // Weight rays
-            if (RayWeight > BestRayWeight) {
-                BestSampleDirection = SampleDirection;
-                BestRayWeight = RayWeight;
-            }
-        }
+        //if (L > ProbeDepth) {
+        //    break;
+        //}
 
         PrevRayDepth = L;
         PrevStepSampleDepth = ProbeDepth;
@@ -368,7 +348,9 @@ GBufferData Raytrace(vec3 WorldPosition, vec3 Direction, float ErrorTolerance, f
 
 
         float DepthFetch = textureLod(u_ProbeDepth, FinalSampleDirection, 0.0f).x * 128.0f;
-        vec4 AlbedoFetch = textureLod(u_ProbeAlbedo, FinalSampleDirection, 0.0f);
+
+        vec4 AlbedoFetch = textureLod(u_ProbeAlbedo, FinalSampleDirection, 0.0f) * 1.0f;
+
         vec4 NormalFetch = textureLod(u_ProbeNormals, FinalSampleDirection, 0.0f);
 
         float Fade = clamp(pow(exp(-(abs(DepthFetch-FinalLength))), 1.5f), 0.0f, 1.0f);
@@ -392,34 +374,6 @@ GBufferData Raytrace(vec3 WorldPosition, vec3 Direction, float ErrorTolerance, f
         ReturnValue.Depth = DepthFetch;
 
         return ReturnValue;
-
-    }
-
-    // Best error 
-    if (FALLBACK_ON_BEST_STEP) {
-
-        vec3 CapturePoint = GetCapturePoint(BestSampleDirection);
-        vec3 FinalSampleDirection = BestSampleDirection;
-        vec4 AlbedoFetch = textureLod(u_ProbeAlbedo, FinalSampleDirection, 0.0f);
-        vec4 NormalFetch = textureLod(u_ProbeNormals, FinalSampleDirection, 0.0f);
-        float DepthFetch = textureLod(u_ProbeDepth, FinalSampleDirection, 0.0f).x * 128.0f;
-
-        GBufferData ReturnValue;
-        ReturnValue.Position = (CapturePoint + DepthFetch * FinalSampleDirection);
-        ReturnValue.Normal = NormalFetch.xyz;
-        ReturnValue.Albedo = AlbedoFetch.xyz;
-        ReturnValue.Data = vec3(AlbedoFetch.w, 0.0f, 1.0f);
-
-        // Emission
-        ReturnValue.Emission = Saturation(ReturnValue.Albedo, EmissiveDesat) * NormalFetch.w * 8.0f * EmissionStrength;
-        ReturnValue.ValidMask = true;
-        ReturnValue.Approximated = true;
-        ReturnValue.SSR = false;
-
-        ReturnValue.Depth = -1.;
-
-        return ReturnValue;
-
 
     }
 
@@ -810,7 +764,7 @@ void main() {
    
     bool FilterShadowMap = Roughness <= 0.5 + 0.01f;
 
-    bool DoScreenspaceTrace = true;
+    bool DoScreenspaceTrace = false;
 
     // Screenspace tracing is only done if roughness < 0.425
     int SSSteps = Roughness < 0.2f ? 64 : (Roughness < 0.3f ? 40 : 24);

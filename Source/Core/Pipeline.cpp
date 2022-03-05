@@ -823,7 +823,19 @@ void Lumen::StartPipeline()
 		DiffuseVXTrace.SetInteger("u_LFNormals", 1);
 		DiffuseVXTrace.SetInteger("u_BlueNoise", 2);
 		DiffuseVXTrace.SetInteger("u_Skymap", 3);
+		DiffuseVXTrace.SetInteger("u_ProbeAlbedo", 4);
+		DiffuseVXTrace.SetInteger("u_ProbeDepth", 5);
+		DiffuseVXTrace.SetInteger("u_ProbeNormals", 6);
+		DiffuseVXTrace.SetInteger("u_Shadowmap", 7);
+
 		DiffuseVXTrace.SetBool("u_Checker", CheckerboardIndirect);
+		DiffuseVXTrace.SetVector3f("u_SunDirection", SunDirection);
+		DiffuseVXTrace.SetMatrix4("u_SunShadowMatrix", GetLightViewProjection(SunDirection));
+
+		for (int i = 0; i < 6; i++) {
+			std::string name = "u_ProbeCapturePoints[" + std::to_string(i) + "]";
+			DiffuseVXTrace.SetVector3f(name.c_str(), PlayerProbe.CapturePoints[i]);
+		}
 
 		SetCommonUniforms(DiffuseVXTrace, UniformBuffer);
 
@@ -838,6 +850,18 @@ void Lumen::StartPipeline()
 
 		glActiveTexture(GL_TEXTURE3);
 		glBindTexture(GL_TEXTURE_CUBE_MAP, Skymap.GetID());
+
+		glActiveTexture(GL_TEXTURE4);
+		glBindTexture(GL_TEXTURE_CUBE_MAP, PlayerProbe.m_CubemapTexture);
+
+		glActiveTexture(GL_TEXTURE5);
+		glBindTexture(GL_TEXTURE_CUBE_MAP, PlayerProbe.m_DepthCubemap);
+
+		glActiveTexture(GL_TEXTURE6);
+		glBindTexture(GL_TEXTURE_CUBE_MAP, PlayerProbe.NormalPBRPackedCubemap);
+
+		glActiveTexture(GL_TEXTURE7);
+		glBindTexture(GL_TEXTURE_2D, Shadowmap.GetDepthTexture());
 
 		{
 			int temp = 0;

@@ -152,13 +152,14 @@ void SpatialUpscale(float Depth, vec3 Normal, float Roughness, vec3 Incident, ou
 
 	const float Atrous[3] = float[3]( 1.0f, 2.0f / 3.0f, 1.0f / 6.0f );
 
-	const bool DoSpatialUpscaling = true;
+	const bool DoSpatialUpscaling = false;
 
 	if (!DoSpatialUpscaling) {
 
 		Specular = texture(u_ResolvedSpecular, v_TexCoords).xyz;
 		AO = texture(u_RTAO, v_TexCoords).x;
 		ContactShadow = texture(u_ScreenspaceShadows, v_TexCoords).x;
+		Diffuse = texture(u_IndirectDiffuse, v_TexCoords).xyzw;
 
 		return;
 	}
@@ -254,6 +255,7 @@ vec3 GetCapturePoint(vec3 Direction) {
 }
 
 
+
 vec3 TransformToVoxelSpace(int Volume, vec3 WorldPosition) {
 	WorldPosition = WorldPosition - u_VoxelCenters[Volume];
 	float Size = u_VoxelRanges[Volume];
@@ -291,11 +293,144 @@ vec4 DecodeVolumeLighting(const vec4 Lighting) {
 	return vec4(RemappedLighting.xyz, Lighting.w);
 }
 
+
+float RayBoxIntersection(vec3 raypos, vec3 raydir, vec3 boxmin, vec3 boxmax)
+{
+    float t1 = (boxmin.x - raypos.x) / raydir.x;
+    float t2 = (boxmax.x - raypos.x) / raydir.x;
+    float t3 = (boxmin.y - raypos.y) / raydir.y;
+    float t4 = (boxmax.y - raypos.y) / raydir.y;
+    float t5 = (boxmin.z - raypos.z) / raydir.z;
+    float t6 = (boxmax.z - raypos.z) / raydir.z;
+
+    float tmin = max(max(min(t1, t2), min(t3, t4)), min(t5, t6));
+    float tmax = min(min(max(t1, t2), max(t3, t4)), max(t5, t6));
+
+    if (tmax < 0.0) 
+    {
+        return -1.0f;
+    }
+
+    if (tmin > tmax) 
+    {
+        return -1.0f;
+    }
+
+    return tmin;
+}
+
+bool InScreenspace(vec3 x) {
+
+	if (x.x > 0.0f && x.x < 1.0f && x.y > 0.0f && x.y < 1.0f && x.z > 0.0f && x.z < 1.0f) { 
+		return true;
+	}
+
+	return false;
+}
+
+
+bool PositionInVolume(int Volume, vec3 WorldPosition) {
+
+	WorldPosition = WorldPosition - u_VoxelCenters[Volume];
+	float Size = u_VoxelRanges[Volume];
+	float HalfExtent = Size / 2.0f;
+	vec3 ScaledPos = WorldPosition / HalfExtent;
+	vec3 Voxel = ScaledPos;
+	Voxel = Voxel * 0.5f + 0.5f;
+	return InScreenspace(Voxel);
+}
+
+int GetCascadeNumber(vec3 P, int MinCascade) {
+
+	for (int Cascade = int(MinCascade) ; Cascade < 6 ; Cascade++) {
+		
+		if (PositionInVolume(Cascade, P)) {
+			return Cascade;
+		}
+
+	}
+
+	return 5;
+}
+
+vec3 cubenormal(vec3 v) 
+{
+    vec3 s = sign(v);
+    vec3 a = abs(v);
+
+    vec3 n = mix(
+        mix(vec3(0.0, 0.0, s.z), vec3(s.x, 0.0, 0.0), step(a.z, a.x)),
+        mix(vec3(0.0, s.y, 0.0), vec3(s.x, 0.0, 0.0), step(a.y, a.x)),
+        step(a.z, a.y));
+
+    return n;
+}
+
+const vec3 BLOCK_CALCULATED_NORMALS[6] = vec3[](vec3(1.0, 0.0, 0.0),vec3(-1.0, 0.0, 0.0),vec3(0.0, 1.0, 0.0),vec3(0.0, -1.0, 0.0),vec3(0.0, 0.0, 1.0),vec3(0.0, 0.0, -1.0));
+
+vec3 InferVoxelNormal(vec3 direction, vec3 world_pos) {
+	
+	world_pos -= direction * 0.00015f;
+
+	vec3 Temp;
+	Temp.x = direction.x > 0.0 ? 1.0 : 0.0;
+	Temp.y = direction.y > 0.0 ? 1.0 : 0.0;
+	Temp.z = direction.z > 0.0 ? 1.0 : 0.0;
+	
+	vec3 plane = floor(world_pos + Temp);
+	
+	vec3 Next = (plane - world_pos) / direction;
+	int side = 0;
+	
+	if (Next.x < min(Next.y, Next.z)) {
+		world_pos += direction * Next.x;
+		world_pos.x = plane.x;
+		plane.x += sign(direction.x);
+		side = 0;
+	}
+	
+	else if (Next.y < Next.z) {
+		world_pos += direction * Next.y;
+		world_pos.y = plane.y;
+		plane.y += sign(direction.y);
+		side = 1;
+	}
+	
+	else {
+		world_pos += direction * Next.z;
+		world_pos.z = plane.z;
+		plane.z += sign(direction.z);
+		side = 2;
+	}
+	
+	vec3 VoxelCoord = (plane - Temp);
+	int Side = ((side + 1) * 2) - 1;
+	if (side == 0) {
+		if (world_pos.x - VoxelCoord.x > 0.5){
+			Side = 0;
+		}
+	}
+	
+	else if (side == 1){
+		if (world_pos.y - VoxelCoord.y > 0.5){
+			Side = 2;
+		}
+	}
+	
+	else {
+		if (world_pos.z - VoxelCoord.z > 0.5){
+			Side = 4;
+		}
+	}
+	
+	return BLOCK_CALCULATED_NORMALS[Side];
+}
+
+
 bool DDA(int cascade, vec3 origin, vec3 direction, int dist, out vec4 data, out vec3 normal, out vec3 world_pos)
 {
 	origin = TransformToVoxelSpace(cascade, origin);
 
-	const vec3 BLOCK_CALCULATED_NORMALS[6] = vec3[](vec3(1.0, 0.0, 0.0),vec3(-1.0, 0.0, 0.0),vec3(0.0, 1.0, 0.0),vec3(0.0, -1.0, 0.0),vec3(0.0, 0.0, 1.0),vec3(0.0, 0.0, -1.0));
 	
 	world_pos = origin;
 
@@ -477,6 +612,7 @@ void main()
 
 	o_Color = DirectLighting + Emission + IndirectLighting;
 
+
 	if (ProbeDebug) {
 		vec3 sLo = -normalize(GetCapturePoint(Lo) - WorldPosition);
 		int FaceID = clamp(GetFaceID(sLo),0,5);
@@ -508,7 +644,9 @@ void main()
 		VoxelData = DecodeVolumeLighting(VoxelData);
 
 		if (HadHit) {
-			o_Color = VoxelData.xyz;
+
+			vec3 N = InferVoxelNormal(rD, VoxelPosition);
+			o_Color = N; ///VoxelData.xyz;
 		}
 		
 		else {

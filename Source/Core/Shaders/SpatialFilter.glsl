@@ -228,11 +228,12 @@ float SpecularWeight(in float CenterDepth, in float SampleDepth, in float Center
 	return CombinedWeight;
 }
 
-float DiffuseWeightSVGF(float CenterDepth, float SampleDepth, vec3 CenterNormal, vec3 SampleNormal, float CenterLuma, float SampleLuma, float Variance, float PhiL, float PhiD, vec2 xy, float framebias, float Kernel) 
+float DiffuseWeightSVGF(float CenterDepth, float SampleDepth, vec3 CenterNormal, vec3 SampleNormal, float CenterLuma, float SampleLuma, float Variance, float PhiL, float PhiD, vec2 xy, float framebias, vec2 DepthGradient, float Kernel) 
 {
 	float LumaDistance = abs(CenterLuma - SampleLuma);
 
 	float DepthWeight = clamp(pow(exp(-abs(CenterDepth - SampleDepth)), 32.0f), 0.0f, 1.0f);
+	//float DepthWeight = exp((-abs(CenterDepth - SampleDepth)) / (abs(dot(DepthGradient, xy)) + 0.00001f));
 	float NormalWeight = clamp(pow(max(dot(CenterNormal, SampleNormal), 0.0f), 8.0f), 0.0f, 1.0f);
 
 	float LumaError = abs(CenterLuma - SampleLuma);
@@ -261,11 +262,12 @@ float SVGFGetPhiL(float GaussianVariance, float RawVariance, float Frames) {
 	GaussianVariance = clamp(GaussianVariance, 0.00000001f, 256.0f);
 	RawVariance = clamp(RawVariance, 0.00000001f, 256.0f);
 
+
 	//return sqrt(GaussianVariance);
 
 	float f = pow(clamp(Frames / 180.0f, 0.0f, 1.0f), 4.0f);
 	
-	float t = exp(-pow(max(0.00000001f, GaussianVariance), 1.0f / 3.0f) * 530.0f * mix(1.0f, 2.2f, f));
+	float t = exp(-pow(max(0.00000001f, GaussianVariance), 1.0f / 3.0f) * 530.0f * mix(1.0f, 1.004f, f));
 
 	return t * mix(sqrt(GaussianVariance), 1.0f, 0.9f);
 }
@@ -301,6 +303,8 @@ void main() {
     float Depth = texelFetch(u_Depth, Pixel, 0).x;
 	vec3 Normal = normalize(texelFetch(u_Normals, Pixel, 0).xyz); 
     vec3 PBR = texelFetch(u_PBR, Pixel, 0).xyz;
+
+	vec2 DepthGradient = vec2(dFdx(Depth), dFdy(Depth));
 
 	// Calculate positions 
 	float LinearDepth = LinearizeDepth(Depth);
@@ -376,7 +380,7 @@ void main() {
 			// Calculate weights 
 			float SpecularWeight = SpecularWeight(LinearDepth, SampleDepth, CenterSpecular.w, SpecularSample.w, PBR.x, SamplePBR.x, Normal, SampleNormal, Incident, vec2(Luminance(CenterSpecular.xyz), Luminance(SpecularSample.xyz)), CenterLobe, SpecularRadius, SpecularFrames, KernelWeight);
 			
-			float DiffuseWeight = u_SVGF ? DiffuseWeightSVGF(LinearDepth, SampleDepth, Normal, SampleNormal, Luminance(CenterDiffuse.xyz), Luminance(DiffuseSample.xyz), GaussianVar, PhiL, PhiDepth, vec2(x,y), FramebiasDiffuse, KernelWeight) :
+			float DiffuseWeight = u_SVGF ? DiffuseWeightSVGF(LinearDepth, SampleDepth, Normal, SampleNormal, Luminance(CenterDiffuse.xyz), Luminance(DiffuseSample.xyz), GaussianVar, PhiL, PhiDepth, vec2(x,y), FramebiasDiffuse, DepthGradient, KernelWeight) :
 								  DiffuseWeightBasic(LinearDepth, SampleDepth, Normal, SampleNormal, KernelWeight);
 
 			DiffuseSum += DiffuseSample * DiffuseWeight;
