@@ -72,7 +72,7 @@ vec4 DecodeLighting(const vec4 Lighting) {
 //	return RGB * L;
 //}
 
-vec3 SunColor = vec3(12.5f);
+vec3 SunColor = vec3(8.0f);
 
 vec3 SampleLighting(vec3 Albedo, vec3 WorldPosition, vec3 Normal) {
 

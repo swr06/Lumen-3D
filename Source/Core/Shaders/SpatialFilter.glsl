@@ -186,7 +186,7 @@ float SpecularWeight(in float CenterDepth, in float SampleDepth, in float Center
 	CenterTransversal *= 64.0f;
 
 	// Depth weight 
-	float DepthWeight = clamp(pow(exp(-abs(CenterDepth - SampleDepth)), 40.0f), 0.0f, 1.0f);
+	float DepthWeight = clamp(pow(exp(-abs(CenterDepth - SampleDepth)), 32.0f), 0.0f, 1.0f);
 
 	// Specular lobe weight 
 

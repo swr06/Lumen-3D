@@ -396,14 +396,15 @@ void Lumen::StartPipeline()
 	const glm::mat4 ZOrientMatrix = glm::mat4(glm::vec4(1.0f, 0.0f, 0.0f, 0.0f), glm::vec4(0.0f, 0.0f, 1.0f, 0.0f), glm::vec4(0.0f, 1.0f, 0.0f, 0.0f), glm::vec4(1.0f));
 
 	Object SecondaryLargeModel;
-	FileLoader::LoadModelFile(&SecondaryLargeModel, "Models/Lucy/LucyModel.obj");
+	//FileLoader::LoadModelFile(&SecondaryLargeModel, "Models/Lucy/LucyModel.obj");
+	FileLoader::LoadModelFile(&SecondaryLargeModel, "Models/cube/Cube.gltf");
 
 	Object SecondaryModel;
 	FileLoader::LoadModelFile(&SecondaryModel, "Models/dragon/dragon.obj");
 	
 	Entity SecondaryEntity(&SecondaryLargeModel);
-	SecondaryEntity.m_Model = glm::scale(glm::mat4(1.0f), glm::vec3(0.6f));
-	SecondaryEntity.m_Model = glm::translate(SecondaryEntity.m_Model, glm::vec3(0.0f, 0.8f, 0.0f));
+	SecondaryEntity.m_Model = glm::scale(glm::mat4(1.0f), glm::vec3(16.0f));
+	SecondaryEntity.m_Model = glm::translate(SecondaryEntity.m_Model, glm::vec3(0.0f, 2.0f, 0.0f));
 	SecondaryEntity.m_EntityRoughness = 0.4f;
 	SecondaryEntity.m_EntityMetalness = 1.0f;
 

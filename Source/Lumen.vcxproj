@@ -236,7 +236,7 @@
     <None Include="Core\Shaders\BasicFrag.glsl" />
     <None Include="Core\Shaders\BasicVert.glsl" />
     <None Include="Core\Shaders\ClearVolume.comp" />
-    <None Include="Core\Shaders\DiffuseVXTrace.glsl" />
+    <None Include="Core\Shaders\DiffuseTrace.glsl" />
     <None Include="Core\Shaders\DownsampleGBuffer.glsl" />
     <None Include="Core\Shaders\InstanceCubemapUpdate\InstanceCubemapUpdateFrag.glsl" />
     <None Include="Core\Shaders\InstanceCubemapUpdate\InstanceCubemapUpdateVert.glsl" />

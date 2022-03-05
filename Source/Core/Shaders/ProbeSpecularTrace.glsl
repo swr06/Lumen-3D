@@ -1,3 +1,6 @@
+// Screenspace (clip/view space), probe space tracers implemented 
+// This was a fucking nightmare
+
 #version 400 core
 
 #define PI 3.14159265359
@@ -600,7 +603,7 @@ GBufferData ScreenspaceTrace_Clip(vec3 Origin, vec3 Direction, float ThresholdMu
 
 const vec3 SUN_COLOR = vec3(6.9f, 6.9f, 10.0f);
 
-vec3 IntegrateLighting(GBufferData Hit, vec3 Direction, const bool FilterShadow) {
+vec3 IntegrateLighting(GBufferData Hit, vec3 Direction, const bool FilterShadow, float R) {
     
     if (!Hit.ValidMask) {
         return vec3(0.0f);
@@ -662,7 +665,7 @@ vec3 IntegrateLighting(GBufferData Hit, vec3 Direction, const bool FilterShadow)
     // Todo : Switch to hammon diffuse brdf (ignore specular brdf to reduce variance)
     float Lambertian = max(0.0f, dot(Hit.Normal, -u_SunDirection));
     vec3 Direct = Lambertian * SUN_COLOR * 0.75f * Shadow * Hit.Albedo;
-    vec3 FakeIndirect = texture(u_EnvironmentMap, vec3(0.0f, 1.0f, 0.0f)).xyz * 0.2f * Hit.Albedo;
+    vec3 FakeIndirect = texture(u_EnvironmentMap, vec3(0.0f, 1.0f, 0.0f)).xyz * 0.2f * Hit.Albedo * mix(1.0f, 2.5f, float(R<0.2f));
     return Direct + FakeIndirect + Hit.Emission;
 }
 
@@ -771,9 +774,8 @@ void main() {
     int SSBinarySteps = Roughness < 0.2f ? 16 : 12;
 
     // Calculate steps 
-    int ProbeSteps = int(mix(70.0f, 32.0f, BiasedRoughness * BiasedRoughness * 1.1f * mix(1.0f, 0.75f, float(BiasedRoughness < 0.2f))));
-    int ProbeBinarySteps = (BiasedRoughness < 0.5f) ? 16 : 12;
-
+    int ProbeSteps = int(mix(64.0f, 32.0f, BiasedRoughness * BiasedRoughness));
+    int ProbeBinarySteps = (BiasedRoughness <= 0.51f) ? 16 : 12;
 
 
     for (int Sample ; Sample < SAMPLES ; Sample++) {
@@ -817,7 +819,7 @@ void main() {
         }
 
         // Integrate lighting for hit point
-        vec3 CurrentRadiance = IntegrateLighting(Intersection, Direction, FilterShadowMap);
+        vec3 CurrentRadiance = IntegrateLighting(Intersection, Direction, FilterShadowMap, BiasedRoughness);
 
         // Sum up radiance 
         TotalRadiance += CurrentRadiance;

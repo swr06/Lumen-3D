@@ -1,5 +1,5 @@
 #version 400 core 
-#extension ARB_bindless_texture : require
+#extension ARB_bindless_texture : require 
 
 #define PI 3.14159265359
 #define PHI 1.6180339
@@ -27,16 +27,17 @@ layout (location = 0) out vec4 o_Color;
 
 in vec2 v_TexCoords;
 
+// Voxel cascade info
 uniform sampler3D u_VoxelVolumes[6];
 uniform float u_VoxelRanges[6];
 uniform vec3 u_VoxelCenters[6];
 
+// GBuffer
 uniform sampler2D u_Depth;
 uniform sampler2D u_LFNormals;
 
 uniform float u_zNear;
 uniform float u_zFar;
-
 uniform mat4 u_Projection;
 uniform mat4 u_View;
 uniform mat4 u_InverseProjection;
@@ -44,7 +45,6 @@ uniform mat4 u_InverseView;
 
 uniform float u_Time;
 uniform int u_Frame;
-
 uniform bool u_Checker;
 
 uniform sampler2D u_BlueNoise;
@@ -64,9 +64,19 @@ uniform sampler2D u_Shadowmap;
 uniform mat4 u_SunShadowMatrix;
 uniform vec3 u_SunDirection;
 
+// Math functions 
+float remap(float x, float a, float b, float c, float d)
+{
+    return (((x - a) / (b - a)) * (d - c)) + c;
+}
 
+float GetLuminance(vec3 color) {
+	return dot(color, vec3(0.299, 0.587, 0.114));
+}
 
-// space conversions ->
+float Luminance(vec3 x) { return GetLuminance(x) ; } // wrapper 
+
+// Space conversions ->
 vec3 WorldPosFromDepth(float depth, vec2 txc)
 {
     float z = depth * 2.0 - 1.0;
@@ -75,29 +85,6 @@ vec3 WorldPosFromDepth(float depth, vec2 txc)
     ViewSpacePosition /= ViewSpacePosition.w;
     vec4 WorldPos = u_InverseView * ViewSpacePosition;
     return WorldPos.xyz;
-}
-
-bool InsideVolume(vec3 p) { float e = 128.0f; return abs(p.x) < e && abs(p.y) < e && abs(p.z) < e ; } 
-
-bool InScreenspace(vec3 x) {
-
-	if (x.x > 0.0f && x.x < 1.0f && x.y > 0.0f && x.y < 1.0f && x.z > 0.0f && x.z < 1.0f) { 
-		return true;
-	}
-
-	return false;
-}
-
-
-sampler3D GetCascadeVolume(int cascade) {
-
-	if (cascade == 0) { return u_VoxelVolumes[0]; }
-	if (cascade == 1) { return u_VoxelVolumes[1]; }
-	if (cascade == 2) { return u_VoxelVolumes[2]; }
-	if (cascade == 3) { return u_VoxelVolumes[3]; }
-	if (cascade == 4) { return u_VoxelVolumes[4]; }
-	if (cascade == 5) { return u_VoxelVolumes[5]; }
-	{ return u_VoxelVolumes[0]; }
 }
 
 vec3 TransformToVoxelSpace(int Volume, vec3 WorldPosition)
@@ -111,6 +98,30 @@ vec3 TransformToVoxelSpace(int Volume, vec3 WorldPosition)
 	return Voxel;
 }
 
+bool LiesInsideVolume(vec3 vp) { return abs(vp.x) < 128.0f && abs(vp.y) < 128.0f  && abs(vp.z) < 128.0f ; } 
+
+bool InScreenspace(vec3 x) {
+
+	if (x.x > 0.0f && x.x < 1.0f && x.y > 0.0f && x.y < 1.0f && x.z > 0.0f && x.z < 1.0f) { 
+		return true;
+	}
+
+	return false;
+}
+
+// FUCKING issue where you can't reference uniform texture arrays with a variable index (so this ugly fucking hack needed to be implemented)
+sampler3D GetCascadeVolume(int cascade) {
+
+	if (cascade == 0) { return u_VoxelVolumes[0]; }
+	if (cascade == 1) { return u_VoxelVolumes[1]; }
+	if (cascade == 2) { return u_VoxelVolumes[2]; }
+	if (cascade == 3) { return u_VoxelVolumes[3]; }
+	if (cascade == 4) { return u_VoxelVolumes[4]; }
+	if (cascade == 5) { return u_VoxelVolumes[5]; }
+	{ return u_VoxelVolumes[0]; }
+}
+
+// Returns whether a world position P lies inside a cascade
 bool PositionInVolume(int Volume, vec3 WorldPosition) {
 
 	WorldPosition = WorldPosition - u_VoxelCenters[Volume];
@@ -122,16 +133,6 @@ bool PositionInVolume(int Volume, vec3 WorldPosition) {
 	return InScreenspace(Voxel);
 }
 
-float remap(float x, float a, float b, float c, float d)
-{
-    return (((x - a) / (b - a)) * (d - c)) + c;
-}
-
-float GetLuminance(vec3 color) {
-	return dot(color, vec3(0.299, 0.587, 0.114));
-}
-
-float Luminance(vec3 x) { return GetLuminance(x) ; }
 
 const float ReinhardExp = 2.44002939f;
 
@@ -186,7 +187,7 @@ bool DDATraverse(int cascade, vec3 origin, vec3 direction, int dist, out vec4 da
 
 	for (int x = 0; x < dist; x++)
 	{
-		if (!InsideVolume(world_pos)) {
+		if (!LiesInsideVolume(world_pos)) {
 			break;
 		}
 
@@ -326,10 +327,12 @@ vec4 RaymarchCascades(vec3 WorldPosition, vec3 Normal, vec3 Direction, float Con
 	}
 
 	SkyVisibility = pow(SkyVisibility, 2.0f);
-	vec3 SkySample = pow(texture(u_Skymap, Direction).xyz, vec3(1.4f));
-	vec3 SkyRadiance = SkySample * SkyVisibility * 3.7f;
+	vec3 SkySample = pow(texture(u_Skymap, Direction).xyz, vec3(2.0f));
+	vec3 SkyRadiance = SkySample * SkyVisibility * 1.35f;
 
-	float AO = clamp(distance(WorldPosition, RayPosition) / 48.0f, 0.0f, 1.0f);
+	float AO = clamp(distance(WorldPosition, RayPosition) / 52.0f, 0.0f, 1.0f);
+
+	AO = pow(AO, 1.5f);
 
 	Intersection = vec4(RayPosition, float(IntersectionFound));
 
@@ -353,9 +356,9 @@ vec4 RaymarchCascades(vec3 WorldPosition, vec3 Normal, vec3 Direction, float Con
 	return vec4(SkyRadiance + TotalGI.xyz, AO);
 }
 
-// Samples lighting for a point 
+// Samples direct lighting for a point 
 vec3 SampleRadiance(vec3 P, vec3 N, vec3 A, vec3 E) {
-	const vec3 SUN_COLOR = vec3(12.5f);
+	const vec3 SUN_COLOR = vec3(8.0f);
 	vec4 ProjectionCoordinates = u_SunShadowMatrix * vec4(P + N * 0.5f, 1.0f);
 	ProjectionCoordinates.xyz = ProjectionCoordinates.xyz / ProjectionCoordinates.w;
     ProjectionCoordinates.xyz = ProjectionCoordinates.xyz * 0.5f + 0.5f;
@@ -366,8 +369,7 @@ vec3 SampleRadiance(vec3 P, vec3 N, vec3 A, vec3 E) {
 	return Direct + E;
 }
 
-
-// Camera centric probe raytracing
+// Camera centric probe raytracing -> ->
 
 int GetFaceID(vec3 Direction)
 {
@@ -388,14 +390,14 @@ int GetFaceID(vec3 Direction)
     return int(Index);
 }
 
+// Probe (per face) capture position 
 vec3 GetCapturePoint(vec3 Direction) {
     return u_ProbeCapturePoints[clamp(GetFaceID(Direction),0,5)];
 }
 
-// raytraces the camera centric probe 
+// Raytraces the camera centric probe 
 vec4 RaytraceProbe(vec3 WorldPosition, vec3 Direction, float Hash, int Steps, int BinarySteps, float ErrorTolerance) 
 {
-	
 	const float Distance = 384.0f;
 
     float StepSize = Distance / float(Steps);
@@ -508,16 +510,15 @@ vec3 CosWeightedHemisphere(const vec3 n, vec2 r)
     return normalize(rr);
 }
 
-float Lambert(float N, float D) {
-	
+float LambertianBRDF(float N, float D) {
 	return max(dot(N, D), 0.0f) / PI;
 }
 
-float InverseSchlick(float f0, float VoH) 
-{
+float InverseSchlick(float f0, float VoH) {
     return 1.0 - clamp(f0 + (1.0f - f0) * pow(1.0f - VoH, 5.0f), 0.0f, 1.0f);
 }
 
+// Hammon diffuse BRDF 
 float DiffuseHammon(vec3 normal, vec3 viewDir, vec3 lightDir, float roughness)
 {
     float nDotL = max(dot(normal, lightDir), 0.0f);
@@ -551,7 +552,6 @@ vec3 RayBRDF(vec3 N, vec3 I, vec3 D, float Roughness)
 // Second bounce settings 
 const bool DO_SECOND_BOUNCE = true;
 const bool VX_SECOND_BOUNCE = true;
-const float FAKE_SECOND_BOUNCE_BOOST = 1.2f;
 
 
 void main() {
@@ -559,6 +559,7 @@ void main() {
 	HASH2SEED = (v_TexCoords.x * v_TexCoords.y) * 64.0;
 	HASH2SEED += fract(u_Time) * 64.0f;
 
+	// Animate by golden ratio 
     float BayerHash = fract(fract(mod(float(u_Frame) + float(0.) * 2., 384.0f) * (1.0 / PHI)) + Bayer32(gl_FragCoord.xy));
 
 	const bool UseBlueNoise = true;
@@ -591,6 +592,7 @@ void main() {
 
     Pixel += ivec2(u_Jitter * 2.0f);
 	
+	// 1/2 res on each axis
     ivec2 HighResPixel = Pixel * 2;
     vec2 HighResUV = vec2(HighResPixel) / textureSize(u_Depth, 0).xy;
 
@@ -600,22 +602,16 @@ void main() {
     vec3 Normal = normalize(texelFetch(u_LFNormals, HighResPixel, 0).xyz); 
 
 	vec3 PlayerPosition = u_InverseView[3].xyz;
-	vec3 Lo = normalize(PlayerPosition - WorldPosition);
-	vec3 R = normalize(reflect(-Lo, Normal));
+	vec3 Incident = normalize(PlayerPosition - WorldPosition);
 
-
-	// Raytrace ->
+	// Raytrace and accumulate radians ->
 
 	vec4 TotalRadiance = vec4(0.0f);
-
-	vec3 Direction = CosWeightedHemisphere(Normal, Hash.xy);
-	float LambertPDF = clamp(dot(Normal, Direction), 0.0f, 1.0f) / PI;
+	vec3 CosineHemisphereDirection = CosWeightedHemisphere(Normal, Hash.xy);
 
 	vec4 IntersectionVX = vec4(0.0f);
-
 	vec3 VXNormal = vec3(0.0f);
-
-	vec4 DiffuseVX = RaymarchCascades(WorldPosition, Normal, Direction, 1.0f, BayerHash, 192, IntersectionVX, 1, VXNormal);
+	vec4 DiffuseVX = RaymarchCascades(WorldPosition, Normal, CosineHemisphereDirection, 1.0f, BayerHash, 192, IntersectionVX, 1, VXNormal);
 
 	TotalRadiance += DiffuseVX;
 
@@ -623,15 +619,21 @@ void main() {
 
 	if (DO_SECOND_BOUNCE && IntersectionVX.w > 0.5f) {
 		
-		vec3 SecondBounceDir = CosWeightedHemisphere(VXNormal, Hash.xy);
+		vec3 SecondCosineHemisphereDirection = CosWeightedHemisphere(VXNormal, Hash.xy);
 
-		vec3 SecondBounceWeight = clamp(FAKE_SECOND_BOUNCE_BOOST * vec3(1.0f) * (RayBRDF(VXNormal, Direction, SecondBounceDir, 0.9f) / LambertPDF), 0.0f, PI);
+		// Calculate ray throughput 
+		float CosinePDF = clamp(dot(VXNormal.xyz, SecondCosineHemisphereDirection) / PI, 0.000001f, 1.0f);
+
+		// I use Hammon brdf as the ray brdf. We divide the ray brdf by ray sampling brdf (lambert) to get the bounce ray weight 
+		// (throughput for the first bounce would be one so it doesn't matter)
+		vec3 SecondBounceWeight = clamp(vec3(1.0f) * (RayBRDF(VXNormal, CosineHemisphereDirection, SecondCosineHemisphereDirection, 0.99f) / CosinePDF), 0.0f, PI); 
 
 		vec3 SecondaryBounceRadiance = vec3(0.0f); 
 
 		if (!VX_SECOND_BOUNCE) {
 
-			vec4 ProbeTrace = RaytraceProbe(IntersectionVX.xyz + VXNormal * 2.8f, SecondBounceDir, BayerHash, 32, 12, 0.5f);
+			// Raytrace probe ->
+			vec4 ProbeTrace = RaytraceProbe(IntersectionVX.xyz + VXNormal * 3.f, SecondCosineHemisphereDirection, BayerHash, 32, 12, 0.5f);
 			
 			// Is the probe hit valid?
 			if (ProbeTrace.w > 0.5f) {
@@ -642,13 +644,13 @@ void main() {
 		}
 
 		else {
-
-			// THE NORMALS AND INTERSECTION POSITIONS ARE BEING WRITTEN HERE!
-
+			
+			// Raytrace voxel volume ->
+			
 			vec4 oPos = vec4(0.0f);
 			vec3 Nn = vec3(0.0f);
 
-			vec4 SecondBounceVX = RaymarchCascades(IntersectionVX.xyz, VXNormal, SecondBounceDir, 1.0f, BayerHash, 64, oPos, 3, Nn);
+			vec4 SecondBounceVX = RaymarchCascades(IntersectionVX.xyz, VXNormal, SecondCosineHemisphereDirection, 1.0f, BayerHash, 64, oPos, 3, Nn);
 
 			SecondaryBounceRadiance.xyz = SecondBounceVX.xyz;
 		}
@@ -656,12 +658,11 @@ void main() {
 		// Account for secondary bounce 
 
 		TotalRadiance.xyz += SecondaryBounceRadiance * SecondBounceWeight;
-
 	}
 
 	o_Color = TotalRadiance;
 	
-	if (isnan(o_Color.x) || isnan(o_Color.y) || isnan(o_Color.z) || isinf(o_Color.x) || isinf(o_Color.y) || isinf(o_Color.z)) {
-        o_Color.xyz = vec3(0.0f);
+	if (isnan(o_Color.x) || isnan(o_Color.y) || isnan(o_Color.z) || isnan(o_Color.w) || isinf(o_Color.x) || isinf(o_Color.y) || isinf(o_Color.z) || isinf(o_Color.w)) {
+        o_Color.xyzw = vec4(0.0f);
     }
 } 
