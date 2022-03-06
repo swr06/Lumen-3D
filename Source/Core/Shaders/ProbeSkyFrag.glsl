@@ -32,7 +32,7 @@ void main()
 		o_AlbedoRoughness.xyz = pow(texture(u_EnvironmentMap, rd).xyz, vec3(2.0f));
 		o_AlbedoRoughness.w = 0.0f;
 	
-		o_Depth = 1500.0f;
+		o_Depth = 10000.0f;
 	
 		o_NormalMetalness = vec4(0.0f);
 	}

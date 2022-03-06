@@ -221,7 +221,9 @@ float SpecularWeight(in float CenterDepth, in float SampleDepth, in float Center
 	float Framebias = clamp(float(Frames) / 24.0f, 0.0f, 1.0f);
 
 	// Combine and account for the framebias 
-	LuminanceWeight = mix(1.0f, LuminanceWeight, Framebias);
+	if (CenterRoughness > 0.2f) {
+		LuminanceWeight = mix(1.0f, LuminanceWeight, Framebias);
+	}
 
 	float CombinedWeight = clamp(LobeWeight * DepthWeight * Kernel * LuminanceWeight, 0.0f, 1.0f);
 

@@ -352,8 +352,8 @@ int GetUpdateCascade(int Frame) {
 	int Rand2 = rand() % 1000;
 	int Rand3 = rand() % 1000;
 
-	if (Rand < 3250) {
-		if (Rand2 < 600) {
+	if (Rand < 3550) {
+		if (Rand2 < 500) {
 			return 0;
 		}
 
@@ -395,18 +395,40 @@ void Lumen::StartPipeline()
 
 	const glm::mat4 ZOrientMatrix = glm::mat4(glm::vec4(1.0f, 0.0f, 0.0f, 0.0f), glm::vec4(0.0f, 0.0f, 1.0f, 0.0f), glm::vec4(0.0f, 1.0f, 0.0f, 0.0f), glm::vec4(1.0f));
 
-	Object SecondaryLargeModel;
+	Object Cube;
 	//FileLoader::LoadModelFile(&SecondaryLargeModel, "Models/Lucy/LucyModel.obj");
-	FileLoader::LoadModelFile(&SecondaryLargeModel, "Models/cube/Cube.gltf");
+	FileLoader::LoadModelFile(&Cube, "Models/cube/Cube.gltf");
+
+	Object RedCube;
+	FileLoader::LoadModelFile(&RedCube, "Models/redcube/Cube.gltf");
+
+	Object BlueCube;
+	FileLoader::LoadModelFile(&BlueCube, "Models/bluecube/Cube.gltf");
 
 	Object SecondaryModel;
 	FileLoader::LoadModelFile(&SecondaryModel, "Models/dragon/dragon.obj");
 	
-	Entity SecondaryEntity(&SecondaryLargeModel);
+	Entity SecondaryEntity(&Cube);
 	SecondaryEntity.m_Model = glm::scale(glm::mat4(1.0f), glm::vec3(16.0f));
 	SecondaryEntity.m_Model = glm::translate(SecondaryEntity.m_Model, glm::vec3(0.0f, 2.0f, 0.0f));
-	SecondaryEntity.m_EntityRoughness = 0.4f;
-	SecondaryEntity.m_EntityMetalness = 1.0f;
+
+	Entity RedCubeEntity(&RedCube);
+	RedCubeEntity.m_Model = glm::scale(glm::mat4(1.0f), glm::vec3(12.0f));
+	RedCubeEntity.m_Model = glm::translate(RedCubeEntity.m_Model, glm::vec3(230.0f, 97.0f, 10.0f) / 12.0f);
+
+	Entity BlueCubeEntity(&BlueCube);
+	BlueCubeEntity.m_Model = glm::scale(glm::mat4(1.0f), glm::vec3(12.0f));
+	BlueCubeEntity.m_Model = glm::translate(BlueCubeEntity.m_Model, glm::vec3(230.0f, 97.0f, -20.0f) / 12.0f);
+
+	Entity RedCubeEntity2(&RedCube);
+	RedCubeEntity2.m_Model = glm::scale(glm::mat4(1.0f), glm::vec3(12.0f));
+	RedCubeEntity2.m_Model = glm::translate(RedCubeEntity2.m_Model, glm::vec3(-230.0f, 97.0f, 10.0f) / 12.0f);
+
+	Entity BlueCubeEntity2(&BlueCube);
+	BlueCubeEntity2.m_Model = glm::scale(glm::mat4(1.0f), glm::vec3(12.0f));
+	BlueCubeEntity2.m_Model = glm::translate(BlueCubeEntity2.m_Model, glm::vec3(-230.0f, 97.0f, -20.0f) / 12.0f);
+
+
 
 	float EntityScale = 3.5f;
 	
@@ -445,11 +467,11 @@ void Lumen::StartPipeline()
 	//BVH::Node* SponzaRootBVHNode = BVH::BuildBVH(Sponza);
 
 	// Entity list
-	std::vector<Entity*> EntityRenderList = { &MainModel, &SecondaryEntity, &SecondaryEntity0, &SecondaryEntity1, &SecondaryEntity2, &SecondaryEntity3, &SecondaryEntity4, &SecondaryEntity5 };
+	std::vector<Entity*> EntityRenderList = { &MainModel, &SecondaryEntity, &SecondaryEntity0, &SecondaryEntity1, &SecondaryEntity2, &SecondaryEntity3, &SecondaryEntity4, &SecondaryEntity5, &RedCubeEntity, &BlueCubeEntity, &RedCubeEntity2, &BlueCubeEntity2 };
 	auto& EntityList = EntityRenderList;
 
 	// Clear CPU side vertex/index data (After bvh construction ofc.) 
-	std::vector<Object*> ObjectList = { &Sponza, &SecondaryLargeModel, &SecondaryModel };
+	std::vector<Object*> ObjectList = { &Sponza, &Cube, &SecondaryModel };
 	
 	for (auto& e : ObjectList) {
 		e->ClearCPUSideData();
@@ -556,6 +578,8 @@ void Lumen::StartPipeline()
 	// Create voxel cascades 
 
 	Voxelizer::CreateVolumes();
+
+	GLClasses::Framebuffer* FinalDenoiseBufferPtr = &SpatialFilterBuffers[0];
 
 	while (!glfwWindowShouldClose(app.GetWindow()))
 	{
@@ -762,6 +786,7 @@ void Lumen::StartPipeline()
 		ProbeSpecularShader.SetInteger("u_LFNormals", 9);
 		ProbeSpecularShader.SetInteger("u_Albedos", 11);
 		ProbeSpecularShader.SetInteger("u_LowResDepth", 12);
+		ProbeSpecularShader.SetInteger("u_PreviousFrameDiffuse", 15);
 		ProbeSpecularShader.SetInteger("u_Frame", app.GetCurrentFrame());
 		ProbeSpecularShader.SetBool("u_RoughSpecular", RoughSpecular);
 		ProbeSpecularShader.SetBool("u_Checker", CheckerboardIndirect);
@@ -809,6 +834,9 @@ void Lumen::StartPipeline()
 		
 		glActiveTexture(GL_TEXTURE12);
 		glBindTexture(GL_TEXTURE_2D, DownsampledGBuffer.GetTexture());
+
+		glActiveTexture(GL_TEXTURE15);
+		glBindTexture(GL_TEXTURE_2D, SpatialFiltering ? FinalDenoiseBufferPtr->GetTexture(1) : DiffuseTemporal.GetTexture(0));
 
 		ScreenQuadVAO.Bind();
 		glDrawArrays(GL_TRIANGLES, 0, 6);
@@ -1052,9 +1080,9 @@ void Lumen::StartPipeline()
 
 		// Wavelet filtering 
 
-		GLClasses::Framebuffer* FinalDenoiseBufferPtr = nullptr;
-
 		if (SpatialFiltering) {
+
+			FinalDenoiseBufferPtr = nullptr;
 
 			const int Passes = 4;
 			//const int StepSizes[5] = { 32, 16, 8, 4, 2 };

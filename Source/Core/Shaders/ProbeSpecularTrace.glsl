@@ -72,6 +72,12 @@ uniform mat4 u_SunShadowMatrix;
 uniform mat4 u_ViewProjection;
 uniform bool u_Checker;
 
+uniform mat4 u_PrevView;
+uniform mat4 u_PrevProjection;
+uniform sampler2D u_PreviousFrameDiffuse;
+
+
+
 // Contains all data necessary to integrate lighting for a point 
 struct GBufferData {
    vec3 Position;
@@ -83,6 +89,8 @@ struct GBufferData {
    bool ValidMask;
    bool Approximated;
    bool SSR;
+   vec3 Direction;
+   float SkyAmount;
 };
 
 float HASH2SEED = 0.0f;
@@ -107,6 +115,14 @@ float LinearizeDepth(float depth)
 vec3 ProjectToScreenSpace(vec3 WorldPos) 
 {
 	vec4 ProjectedPosition = u_ViewProjection * vec4(WorldPos, 1.0f);
+	ProjectedPosition.xyz /= ProjectedPosition.w;
+	ProjectedPosition.xyz = ProjectedPosition.xyz * 0.5f + 0.5f;
+	return ProjectedPosition.xyz;
+}
+
+vec3 ProjectToLastFrame(vec3 WorldPos) 
+{
+	vec4 ProjectedPosition = u_PrevProjection * u_PrevView * vec4(WorldPos, 1.0f);
 	ProjectedPosition.xyz /= ProjectedPosition.w;
 	ProjectedPosition.xyz = ProjectedPosition.xyz * 0.5f + 0.5f;
 	return ProjectedPosition.xyz;
@@ -251,12 +267,15 @@ vec3 CosWeightedHemisphere(const vec3 n)
 }
 
 
+
 const float EmissiveDesat = 0.925f;
 const float EmissionStrength = 3.5f;
+const bool Skylighting = true;
 
 GBufferData Raytrace(vec3 WorldPosition, vec3 Direction, float ErrorTolerance, float Hash, int Steps, int BinarySteps) {
    
     // Settings 
+
     const float Distance = 384.0f;
 
     float StepSize = Distance / float(Steps);
@@ -271,8 +290,9 @@ GBufferData Raytrace(vec3 WorldPosition, vec3 Direction, float ErrorTolerance, f
     bool FoundHit = false;
 
     // Exponential stepping 
-    int ExponentialStepStart = Steps - (Steps / 4);
-    float ExpStep = 1.05f;//mix(1.0f, 1.4f, mix(Hash, 1.0f, 0.2f));
+    float ExpStep = mix(1.01f, 1.015f, Hash);
+
+    float SkyAmount = 0.0f;
 
     float PrevRayDepth = 0.0f;
     float PrevStepSampleDepth = 0.0f;
@@ -281,9 +301,7 @@ GBufferData Raytrace(vec3 WorldPosition, vec3 Direction, float ErrorTolerance, f
     // Todo : Account for geometrical thickness?
     for (int CurrentStep = 0; CurrentStep < Steps ; CurrentStep++) 
     {
-        if (CurrentStep > Steps / 3) {
-            StepSize *= ExpStep;
-        }
+        StepSize *= ExpStep;
 
         vec3 CapturePoint = GetCapturePoint(PreviousSampleDirection);
         vec3 Diff = RayPosition - CapturePoint;
@@ -292,22 +310,26 @@ GBufferData Raytrace(vec3 WorldPosition, vec3 Direction, float ErrorTolerance, f
         PreviousSampleDirection = SampleDirection;
         float ProbeDepth = (texture(u_ProbeDepth, SampleDirection).x * 128.0f);
 
+        if (ProbeDepth < 0.00000001f || ProbeDepth == 0.0f) {
+            SkyAmount += 1.0f;
+            ProbeDepth = 10000.0f;
+        }
+
         float DepthError = abs(ProbeDepth - L);
 
         float ThresholdCurr = abs(L - PrevRayDepth); 
-        ThresholdCurr = (clamp(ThresholdCurr * 7.0f, 0.01f, Distance) * ErrorTolerance);
+        ThresholdCurr = (clamp(ThresholdCurr * 8.0f, 0.5f, Distance) * ErrorTolerance);
 
         bool AccurateishHit = DepthError < ThresholdCurr;
-        bool DistanceHitWeight = DepthError < 8.0f;
 
         if (L > ProbeDepth && AccurateishHit) {
              FoundHit = true;
              break;
         }
 
-        //if (L > ProbeDepth) {
-        //    break;
-        //}
+        if (L > ProbeDepth) {
+            break;
+        }
 
         PrevRayDepth = L;
         PrevStepSampleDepth = ProbeDepth;
@@ -339,6 +361,13 @@ GBufferData Raytrace(vec3 WorldPosition, vec3 Direction, float ErrorTolerance, f
                 PreviousSampleDirection = BR_SampleDirection;
 
                 float Depth = (texture(u_ProbeDepth, BR_SampleDirection).x * 128.0f);
+
+                
+                if (Depth < 0.00000001f || Depth == 0.0f) {
+                    SkyAmount += 1.0f;
+                    Depth = 10000.0f;
+                }
+
                 float RaySign = (Depth < L) ? -1.0f : 1.0f;
                 FinalBinaryRefinePos += ReflectionVector * BR_StepSize * RaySign;
             }
@@ -375,6 +404,8 @@ GBufferData Raytrace(vec3 WorldPosition, vec3 Direction, float ErrorTolerance, f
         ReturnValue.SSR = false;
 
         ReturnValue.Depth = DepthFetch;
+        ReturnValue.Direction = PreviousSampleDirection;
+        ReturnValue.SkyAmount = 0.0f;
 
         return ReturnValue;
 
@@ -393,6 +424,8 @@ GBufferData Raytrace(vec3 WorldPosition, vec3 Direction, float ErrorTolerance, f
     ReturnValue.SSR = false;
     ReturnValue.Depth = -1.;
     ReturnValue.Emission = vec3(0.0f);
+    ReturnValue.Direction = PreviousSampleDirection;
+    ReturnValue.SkyAmount = SkyAmount;
 
     return ReturnValue;
 }
@@ -415,6 +448,7 @@ GBufferData ScreenspaceRaytrace(vec3 Origin, vec3 Direction, float ThresholdMult
     ReturnValue.SSR = true;
     ReturnValue.Depth = -1.;
     ReturnValue.Emission = vec3(0.0f);
+    ReturnValue.SkyAmount = 0.0f;
 
     float StepSize = float(Distance) / float(Steps);
 	vec3 RayPosition = Origin + Direction * Hash; 
@@ -531,6 +565,7 @@ GBufferData ScreenspaceTrace_Clip(vec3 Origin, vec3 Direction, float ThresholdMu
     ReturnValue.SSR = true;
     ReturnValue.Depth = -1.;
     ReturnValue.Emission = vec3(0.0f);
+    ReturnValue.SkyAmount = 0.0f;
 
 
     vec3 ScreenOrigin = ProjectToScreenSpace(Origin);
@@ -599,15 +634,36 @@ GBufferData ScreenspaceTrace_Clip(vec3 Origin, vec3 Direction, float ThresholdMu
 
 }
 
+// Reproject position to previous frame and try to estimate indirect lighting 
+vec3 ReprojectIndirect(vec3 P, vec3 A, float R, float D, vec3 Bp) {
+
+    // Best case ->
+    vec3 Projected = ProjectToLastFrame(P);
+
+    if (SSRayValid(Projected.xy) && abs(LinearizeDepth(Projected.z) - D) < 7.0f) {
+        return texture(u_PreviousFrameDiffuse, Projected.xy).xyz * 1.0f * A;
+    }
+
+    // Approximate ->
+    vec3 ProjectedBase = ProjectToLastFrame(Bp);
+
+    if (SSRayValid(ProjectedBase.xy)) {
+        return texture(u_PreviousFrameDiffuse, ProjectedBase.xy).xyz * 0.9f * A;
+    }
+
+    // Severe approximate ->
+    return texture(u_PreviousFrameDiffuse, v_TexCoords).xyz * 0.5f * A;
+    return texture(u_EnvironmentMap, vec3(0.0f, 1.0f, 0.0f)).xyz * 0.2f * A * mix(1.0f, 2.5f, float(R<0.2f));
+}
 
 
-const vec3 SUN_COLOR = vec3(6.9f, 6.9f, 10.0f);
+const vec3 SUN_COLOR = vec3(8.0f);
 
-vec3 IntegrateLighting(GBufferData Hit, vec3 Direction, const bool FilterShadow, float R) {
+// Integrates lighting for a point
+vec3 IntegrateLighting(GBufferData Hit, vec3 Direction, const bool FilterShadow, float R, float D, vec3 Origin) {
     
     if (!Hit.ValidMask) {
-        return vec3(0.0f);
-       // return texture(u_EnvironmentMap, Direction).xyz * 0.3f;
+       return pow(texture(u_EnvironmentMap, Hit.Direction).xyz, vec3(1.5f)) * clamp(Hit.SkyAmount, 0.0f, 1.0f) * 1.5f * float(Skylighting);
     }
 
     // Sky 
@@ -665,8 +721,8 @@ vec3 IntegrateLighting(GBufferData Hit, vec3 Direction, const bool FilterShadow,
     // Todo : Switch to hammon diffuse brdf (ignore specular brdf to reduce variance)
     float Lambertian = max(0.0f, dot(Hit.Normal, -u_SunDirection));
     vec3 Direct = Lambertian * SUN_COLOR * 0.75f * Shadow * Hit.Albedo;
-    vec3 FakeIndirect = texture(u_EnvironmentMap, vec3(0.0f, 1.0f, 0.0f)).xyz * 0.2f * Hit.Albedo * mix(1.0f, 2.5f, float(R<0.2f));
-    return Direct + FakeIndirect + Hit.Emission;
+    vec3 Indirect = ReprojectIndirect(Hit.Position, Hit.Albedo, R, D, Origin);
+    return Direct + Indirect + Hit.Emission;
 }
 
 // Temporal upscale offsets 
@@ -767,21 +823,21 @@ void main() {
    
     bool FilterShadowMap = Roughness <= 0.5 + 0.01f;
 
-    bool DoScreenspaceTrace = false;
+    bool DoScreenspaceTrace = true;
 
     // Screenspace tracing is only done if roughness < 0.425
     int SSSteps = Roughness < 0.2f ? 64 : (Roughness < 0.3f ? 40 : 24);
     int SSBinarySteps = Roughness < 0.2f ? 16 : 12;
 
     // Calculate steps 
-    int ProbeSteps = int(mix(64.0f, 32.0f, BiasedRoughness * BiasedRoughness));
+    int ProbeSteps = int(mix(128.0f, 48.0f, pow(BiasedRoughness,2.5f)));
     int ProbeBinarySteps = (BiasedRoughness <= 0.51f) ? 16 : 12;
 
 
     for (int Sample ; Sample < SAMPLES ; Sample++) {
 
         
-        float BayerHash = fract(fract(mod(float(u_Frame) + float(Sample) * 2., 384.0f) * (1.0 / PHI)) + Bayer32(gl_FragCoord.xy));
+        float BayerHash =  1.0f; //fract(fract(mod(float(u_Frame) + float(Sample) * 2., 384.0f) * (1.0 / PHI)) + Bayer32(gl_FragCoord.xy));
 
         // Sample microfacet normal from VNDF
         vec3 Microfacet;
@@ -802,7 +858,7 @@ void main() {
         vec3 Direction = normalize(reflect(Incident, Microfacet));
         GBufferData Intersection;
 
-        if (DoScreenspaceTrace && BiasedRoughness <= 0.425f)
+        if (DoScreenspaceTrace && BiasedRoughness <= 0.2f)
         {
             // Trace in screen space 
             Intersection = ScreenspaceRaytrace(WorldPosition + LFNormal * Bias_n, Direction, ToleranceSS, BayerHash, SSSteps, SSBinarySteps);
@@ -819,7 +875,7 @@ void main() {
         }
 
         // Integrate lighting for hit point
-        vec3 CurrentRadiance = IntegrateLighting(Intersection, Direction, FilterShadowMap, BiasedRoughness);
+        vec3 CurrentRadiance = IntegrateLighting(Intersection, Direction, FilterShadowMap, BiasedRoughness, LinearizeDepth(Depth), WorldPosition);
 
         // Sum up radiance 
         TotalRadiance += CurrentRadiance;

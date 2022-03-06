@@ -144,29 +144,16 @@ void CalculateStatistics(ivec2 Pixel, vec4 Specular, float Roughness, out vec3 M
 
 vec3 Clip(ivec2 Pixel, bool LesserConservative, vec3 History, vec3 Specular, float Roughness, vec3 Mean, vec3 StandardDeviation, vec3 Min, vec3 Max) {
 
+    
     return History;
+
 
     bool UseNewClipping = true;
 
     if (UseNewClipping) {
 
-        float RoughnessWeight = Roughness < 0.1f ? 0.0f : mix(0.0f, 0.4f, clamp(pow(Roughness, 1.1f) * 1.45f, 0.0f, 1.0f)) * mix(1.0f, 0.85f, float(LesserConservative));
+        
 
-        vec3 VarianceClipped = ClipAABB(History, Specular, Mean, StandardDeviation + RoughnessWeight);
-        vec3 StrictClipped = ClipAABBMinMax(History, Min + 0.015f, Max + 0.015f);
-        vec3 StrictishClipped = clamp(VarianceClipped, Min - 0.075f, Max + 0.075f);
-        vec3 Unclipped = History;
-
-        vec3 Resolved = VarianceClipped;
-
-        if (Roughness < 0.1f) {
-            Resolved = StrictishClipped;
-            if (Roughness < 0.05f) {
-                Resolved = StrictClipped;
-            }
-        }
-
-        return Resolved;
     }
 
     else {
@@ -176,6 +163,17 @@ vec3 Clip(ivec2 Pixel, bool LesserConservative, vec3 History, vec3 Specular, flo
         return Clipped;
     }
 }
+
+
+vec3 ReprojectReflection(vec3 P, vec3 Incident, float Transversal) {
+
+    vec3 ReflectedPosition = (P.xyz) - Incident * Transversal;
+    vec3 Reprojected = Reprojection(ReflectedPosition).xyz;
+
+    return Reprojected;
+}
+
+
 
 void main() {
 
@@ -207,8 +205,7 @@ void main() {
 
     // Reproject 
     vec3 I = normalize((u_ViewerPosition) - WorldPosition.xyz);
-	vec3 ReflectedPosition = (WorldPosition.xyz) - I * Transversal;
-    vec3 Reprojected = Reprojection(ReflectedPosition).xyz;
+	vec3 Reprojected = ReprojectReflection(WorldPosition, I, Transversal);
 
     // Reprojected surface 
     vec3 ReprojectedSurface = Reprojection(WorldPosition);

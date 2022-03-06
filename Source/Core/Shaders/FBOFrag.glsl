@@ -55,7 +55,7 @@ void main()
 	if (u_FXAA)
 		o_Color = FXAA311(o_Color);
 	
-    o_Color = ACESFitted(vec4(o_Color, 1.0f), 2.6f).xyz;
+    o_Color = ACESFitted(vec4(o_Color, 1.0f), 2.0f).xyz;
 	o_Color *= Vignette();
     o_Color = pow(o_Color, vec3(1.0f / 2.2f));
 }
