@@ -143,10 +143,12 @@ vec3 InverseReinhard(vec3 RGB)
 
 vec4 DecodeVolumeLighting(const vec4 Lighting) {
 
-	vec3 RemappedLighting = InverseReinhard(Lighting.xyz);
-	RemappedLighting *= 2.0f;
-	float AlphaMask = 1.0f - pow(1.0f - Lighting.w, 5.0f);
-	return vec4(RemappedLighting.xyz, AlphaMask);
+	return vec4(Lighting.xyz * 5.0f, Lighting.w);
+
+	//vec3 RemappedLighting = InverseReinhard(Lighting.xyz);
+	//RemappedLighting *= 2.0f;
+	//float AlphaMask = 1.0f - pow(1.0f - Lighting.w, 5.0f);
+	//return vec4(RemappedLighting.xyz, AlphaMask);
 }
 
 // Voxel raytracing ->
@@ -247,7 +249,7 @@ bool DDATraverse(int cascade, vec3 origin, vec3 direction, int dist, out vec4 da
 }
 
 // Raytraces voxel cascades 
-vec4 RaymarchCascades(vec3 WorldPosition, vec3 Normal, vec3 Direction, float ConeWidth, float LowDiscrepHash, const int Steps, out vec4 Intersection, int MinCascade, out vec3 VoxelNormal) 
+vec4 RaymarchCascades(vec3 WorldPosition, vec3 Normal, vec3 Direction, float ConeWidth, float LowDiscrepHash, const int Steps, out vec4 Intersection, int MinCascade, out vec3 VoxelNormal, bool CalcNormal) 
 {
 	const float Diagonal = sqrt(2.0f);
 
@@ -302,6 +304,7 @@ vec4 RaymarchCascades(vec3 WorldPosition, vec3 Normal, vec3 Direction, float Con
 
 			vec4 SampleLighting = texture3DLod(Volume, VoxelPosition, SampleMip).xyzw;
 			vec4 Decoded = DecodeVolumeLighting(SampleLighting);
+			 
 			TotalGI.xyz += Decoded.xyz * Decoded.w;
 			TotalGI.w *= 1.0f - SampleLighting.w;
 			SkyVisibility *= 1.0f - SampleLighting.w;
@@ -340,7 +343,7 @@ vec4 RaymarchCascades(vec3 WorldPosition, vec3 Normal, vec3 Direction, float Con
 
 	// Accurately calculate the normal using DDA traversal 
 
-	const bool CALCULATE_NORMAL = true;
+	bool CALCULATE_NORMAL = CalcNormal;
 
 	if (CALCULATE_NORMAL) {
 		vec4 DDAd; vec3 DDAwp, DDAn;
@@ -556,6 +559,9 @@ const bool VX_SECOND_BOUNCE = true;
 
 void main() {
 
+	//o_Color = vec4(0.0f);
+	//return;
+	//
 	HASH2SEED = (v_TexCoords.x * v_TexCoords.y) * 64.0;
 	HASH2SEED += fract(u_Time) * 64.0f;
 
@@ -611,7 +617,7 @@ void main() {
 
 	vec4 IntersectionVX = vec4(0.0f);
 	vec3 VXNormal = vec3(0.0f);
-	vec4 DiffuseVX = RaymarchCascades(WorldPosition, Normal, CosineHemisphereDirection, 1.0f, BayerHash, 192, IntersectionVX, 1, VXNormal);
+	vec4 DiffuseVX = RaymarchCascades(WorldPosition, Normal, CosineHemisphereDirection, 1.0f, BayerHash, 192, IntersectionVX, 1, VXNormal, true);
 
 	TotalRadiance += DiffuseVX;
 
@@ -650,9 +656,10 @@ void main() {
 			vec4 oPos = vec4(0.0f);
 			vec3 Nn = vec3(0.0f);
 
-			vec4 SecondBounceVX = RaymarchCascades(IntersectionVX.xyz, VXNormal, SecondCosineHemisphereDirection, 1.0f, BayerHash, 64, oPos, 3, Nn);
+			vec4 SecondBounceVX = RaymarchCascades(IntersectionVX.xyz + SecondCosineHemisphereDirection, VXNormal, SecondCosineHemisphereDirection, 1.0f, BayerHash, 64, oPos, 3, Nn, false);
 
 			SecondaryBounceRadiance.xyz = SecondBounceVX.xyz;
+
 		}
 
 		// Account for secondary bounce 

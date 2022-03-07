@@ -10,7 +10,8 @@ namespace Lumen {
 
 
 	static float VoxelRanges[CascadeCount] = { 128.0f, 256.0f, 384.0f, 512.0f, 1024.0f, 2048.0f };
-	static GLuint VoxelVolumes[CascadeCount]{ 0, 0, 0, 0 };
+	static GLuint VoxelVolumes[CascadeCount]{ 0, 0, 0, 0, 0, 0 };
+	static GLuint VoxelVolumesNormals[CascadeCount]{ 0, 0, 0, 0, 0, 0 };
 
 	static glm::vec3 VoxelCenters[6];
 
@@ -53,7 +54,17 @@ namespace Lumen {
 			glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
 			glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
 			glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
-			glTexImage3D(GL_TEXTURE_3D, 0, GL_RGBA, 128, 128, 128, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+			glTexImage3D(GL_TEXTURE_3D, 0, GL_RGBA16F, 128, 128, 128, 0, GL_RGBA, GL_FLOAT, nullptr);
+
+			// Generate normal texture (ui16 with cube normal encoding)
+			glGenTextures(1, &VoxelVolumesNormals[Volume]);
+			glBindTexture(GL_TEXTURE_3D, VoxelVolumesNormals[Volume]);
+			glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+			glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+			glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+			glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+			glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
+			glTexImage3D(GL_TEXTURE_3D, 0, GL_R16UI, 128, 128, 128, 0, GL_RED_INTEGER, GL_UNSIGNED_SHORT, nullptr);
 		}
 
 
@@ -93,7 +104,7 @@ namespace Lumen {
 		int GROUP_SIZE = 8;
 
 		ClearShader->Use();
-		glBindImageTexture(0, VoxelVolumes[Cascade], 0, GL_TRUE, 0, GL_READ_WRITE, GL_RGBA8);
+		glBindImageTexture(0, VoxelVolumes[Cascade], 0, GL_TRUE, 0, GL_READ_WRITE, GL_RGBA16F);
 		glDispatchCompute(128 / GROUP_SIZE, 128 / GROUP_SIZE, 128 / GROUP_SIZE);
 		glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
 
@@ -102,7 +113,9 @@ namespace Lumen {
 		VoxelizeShader->Use();
 
 		glBindTexture(GL_TEXTURE_3D, VoxelVolumes[Cascade]);
-		glBindImageTexture(0, VoxelVolumes[Cascade], 0, GL_TRUE, 0, GL_READ_WRITE, GL_RGBA8);
+		//glBindImageTexture(0, VoxelVolumes[Cascade], 0, GL_TRUE, 0, GL_READ_WRITE, GL_RGBA8);
+		glBindImageTexture(0, VoxelVolumes[Cascade], 0, GL_TRUE, 0, GL_READ_WRITE, GL_RGBA16F);
+		glBindImageTexture(1, VoxelVolumesNormals[Cascade], 0, GL_TRUE, 0, GL_READ_WRITE, GL_R16UI);
 
 		glm::mat4 VP = Projection * View;
 

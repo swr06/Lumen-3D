@@ -288,8 +288,8 @@ vec3 InverseReinhard(vec3 RGB)
 
 vec4 DecodeVolumeLighting(const vec4 Lighting) {
 
-	vec3 RemappedLighting = InverseReinhard(Lighting.xyz);
-	RemappedLighting *= 2.0f;
+	vec3 RemappedLighting = (Lighting.xyz);
+	RemappedLighting *= 5.0f;
 	return vec4(RemappedLighting.xyz, Lighting.w);
 }
 
@@ -511,6 +511,7 @@ void main()
 
 	// Combine indirect diffuse and indirect specular 
     vec3 IndirectLighting = (kD * IndirectDiffuse) + IndirectSpecularFinal;
+
 
 	o_Color = DirectLighting + Emission + IndirectLighting;
 

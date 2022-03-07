@@ -1,6 +1,9 @@
 #version 450 core 
 
-layout(RG8, binding = 0) uniform image3D o_VoxelVolume;
+//layout(RGBA8, binding = 0) uniform image3D o_VoxelVolume;
+layout(RGBA16F, binding = 0) uniform image3D o_VoxelVolume;
+layout(r16ui, binding = 1) uniform uimage3D o_VoxelNormals;
+
 
 uniform sampler2D u_AlbedoMap;
 
@@ -51,28 +54,32 @@ vec3 InverseReinhard(vec3 RGB)
     return (RGB / (vec3(1.0f) - Luminance(RGB))) / ReinhardExp;
 }
 
+// By inigo quilez
+uint EncodeNormal(in vec3 nor)
+{
+    vec3 mor; uint  id;
+    if( abs(nor.y) > abs(mor.x) ) { mor = nor.yzx; id = 1u; }
+    if( abs(nor.z) > abs(mor.x) ) { mor = nor.zxy; id = 2u; }
+    uint is = (mor.x<0.0)?1u:0u;
+    vec2 uv = 0.5 + 0.5*mor.yz/abs(mor.x);
+    uvec2 iuv = uvec2(round(uv*vec2(127.0,63.0)));
+    return iuv.x | (iuv.y<<7u) | (id<<13u) | (is<<15u);
+}
+
+uint GetEncodedNormal(vec3 Normal) {
+
+	uint Encoded = EncodeNormal(Normal);
+	///float FloatBits = uintBitsToFloat(Encoded);
+	return Encoded;
+}
+
 vec4 EncodeLighting(vec3 Lighting) {
-	Lighting /= 2.0f;
-	vec3 MappedLighting = Reinhard(Lighting);
+	Lighting /= 5.0f;
+	vec3 MappedLighting = Lighting;
 	return vec4(MappedLighting, 1.0f);
 }
 
-vec4 DecodeLighting(const vec4 Lighting) {
-
-	vec3 RemappedLighting = InverseReinhard(Lighting.xyz);
-	RemappedLighting *= 2.0f;
-	return vec4(RemappedLighting.xyz, Lighting.w);
-}
-
-//vec3 DecodeLighting(vec4 Lighting) {
-//
-//	vec3 RGB = Lighting.xyz;
-//	float L = Lighting.w - 0.1f;
-//	L = remap(L, 0.0f, 0.98f, 0.0f, 8.0f);
-//	return RGB * L;
-//}
-
-vec3 SunColor = vec3(8.0f);
+vec3 SunColor = vec3(12.0f);
 
 vec3 SampleLighting(vec3 Albedo, vec3 WorldPosition, vec3 Normal) {
 
@@ -114,12 +121,15 @@ void main() {
 		vec3 Albedo = textureLod(u_AlbedoMap, g_UV, Mip).xyz;
 
 		vec3 Direct = SampleLighting(Albedo, g_WorldPosition + u_VoxelGridCenterF, normalize(g_Normal));
-		vec3 Emission = Albedo * u_ModelEmission * 12.0f;
+		vec3 Emission = Albedo * u_ModelEmission * 2.2f;
 		vec3 Combined = Direct + Emission;
 
 		vec3 HDR = Combined;
-		vec4 LDR = EncodeLighting(HDR);
+		vec4 EncodeHDR = EncodeLighting(HDR);
 
-		imageStore(o_VoxelVolume, VoxelSpaceCoord, LDR);
+		uint NormalEncoded = GetEncodedNormal(g_Normal);
+
+		imageStore(o_VoxelVolume, VoxelSpaceCoord, EncodeHDR);
+		imageStore(o_VoxelNormals, VoxelSpaceCoord, uvec4(NormalEncoded));
 	}
 }
