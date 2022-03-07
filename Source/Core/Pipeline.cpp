@@ -892,22 +892,30 @@ void Lumen::StartPipeline()
 		glActiveTexture(GL_TEXTURE7);
 		glBindTexture(GL_TEXTURE_2D, Shadowmap.GetDepthTexture());
 
+		// Bind voxel volumes and upload volume data 
 		{
 			int temp = 0;
+			int temp2 = 14;
 
 			for (int x = 8; x <= 8 + 5; x++) {
 				int t = temp;
+				int t2 = temp2;
 				std::string s = "u_VoxelVolumes[" + std::to_string(t) + "]";
 				std::string s2 = "u_VoxelRanges[" + std::to_string(t) + "]";
 				std::string s3 = "u_VoxelCenters[" + std::to_string(t) + "]";
+				std::string s4 = "u_VoxelVolumesNormals[" + std::to_string(t) + "]";
 				DiffuseVXTrace.SetInteger(s.c_str(), x);
 				DiffuseVXTrace.SetFloat(s2.c_str(), Voxelizer::GetVolumeRanges()[t]);
 				DiffuseVXTrace.SetVector3f(s3.c_str(), Voxelizer::GetVolumeCenters()[t]);
+				DiffuseVXTrace.SetInteger(s4.c_str(), temp2);
 
 				glActiveTexture(GL_TEXTURE0 + x);
 				glBindTexture(GL_TEXTURE_3D, Voxelizer::GetVolumes()[t]);
 
-				temp++;
+				glActiveTexture(GL_TEXTURE0 + temp2);
+				glBindTexture(GL_TEXTURE_3D, Voxelizer::GetVolumeNormals()[t]);
+
+				temp++; temp2++;
 			}
 		}
 

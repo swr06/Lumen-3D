@@ -29,6 +29,7 @@ in vec2 v_TexCoords;
 
 // Voxel cascade info
 uniform sampler3D u_VoxelVolumes[6];
+uniform usampler3D u_VoxelVolumesNormals[6];
 uniform float u_VoxelRanges[6];
 uniform vec3 u_VoxelCenters[6];
 
@@ -121,6 +122,17 @@ sampler3D GetCascadeVolume(int cascade) {
 	{ return u_VoxelVolumes[0]; }
 }
 
+usampler3D GetCascadeVolumeN(int cascade) {
+
+	if (cascade == 0) { return u_VoxelVolumesNormals[0]; }
+	if (cascade == 1) { return u_VoxelVolumesNormals[1]; }
+	if (cascade == 2) { return u_VoxelVolumesNormals[2]; }
+	if (cascade == 3) { return u_VoxelVolumesNormals[3]; }
+	if (cascade == 4) { return u_VoxelVolumesNormals[4]; }
+	if (cascade == 5) { return u_VoxelVolumesNormals[5]; }
+	{ return u_VoxelVolumesNormals[0]; }
+}
+
 // Returns whether a world position P lies inside a cascade
 bool PositionInVolume(int Volume, vec3 WorldPosition) {
 
@@ -151,6 +163,23 @@ vec4 DecodeVolumeLighting(const vec4 Lighting) {
 	//return vec4(RemappedLighting.xyz, AlphaMask);
 }
 
+vec3 DecodeNormal( uint data )
+{
+    uvec2 iuv = uvec2( data, data>>7u ) & uvec2(127u,63u);
+    vec2 uv = vec2(iuv)*2.0/vec2(127.0,63.0) - 1.0;
+    
+    uint is = (data>>15u)&1u;
+    vec3 nor = vec3((is==0u)?1.0:-1.0,uv.xy);
+
+    uint id = (data>>13u)&3u;
+         if(id==0u) nor = nor.xyz;
+    else if(id==1u) nor = nor.zxy;
+    else            nor = nor.yzx;
+    
+    return normalize(nor);
+}
+
+
 // Voxel raytracing ->
 
 const bool CONE_TRACE = false;
@@ -168,85 +197,8 @@ int GetCascadeNumber(vec3 P, int MinCascade) {
 	return 5;
 }
 
-
 const vec3 FACE_NORMALS[6] = vec3[](vec3(1.0, 0.0, 0.0),vec3(-1.0, 0.0, 0.0),vec3(0.0, 1.0, 0.0),vec3(0.0, -1.0, 0.0),vec3(0.0, 0.0, 1.0),vec3(0.0, 0.0, -1.0));
 const vec3 OTHER_NORMALS[6] = vec3[](vec3(1.0, 0.0, 0.0),vec3(0.0, 1.0, 0.0),vec3(0.0, 0.0, 1.0),vec3(0.0, -1.0, 0.0),vec3(0.0, 0.0, 1.0),vec3(0.0, 0.0, -1.0));
-
-bool DDATraverse(int cascade, vec3 origin, vec3 direction, int dist, out vec4 data, out vec3 normal, out vec3 world_pos)
-{
-	origin = TransformToVoxelSpace(cascade, origin) * 128.;
-
-	world_pos = origin;
-
-	vec3 Temp;
-	vec3 VoxelCoord; 
-	vec3 FractPosition;
-
-	Temp.x = direction.x > 0.0 ? 1.0 : 0.0;
-	Temp.y = direction.y > 0.0 ? 1.0 : 0.0;
-	Temp.z = direction.z > 0.0 ? 1.0 : 0.0;
-	vec3 plane = floor(world_pos + Temp);
-
-	for (int x = 0; x < dist; x++)
-	{
-		if (!LiesInsideVolume(world_pos)) {
-			break;
-		}
-
-		vec3 Next = (plane - world_pos) / direction;
-		int side = 0;
-
-		if (Next.x < min(Next.y, Next.z)) {
-			world_pos += direction * Next.x;
-			world_pos.x = plane.x;
-			plane.x += sign(direction.x);
-			side = 0;
-		}
-
-		else if (Next.y < Next.z) {
-			world_pos += direction * Next.y;
-			world_pos.y = plane.y;
-			plane.y += sign(direction.y);
-			side = 1;
-		}
-
-		else {
-			world_pos += direction * Next.z;
-			world_pos.z = plane.z;
-			plane.z += sign(direction.z);
-			side = 2;
-		}
-
-		VoxelCoord = (plane - Temp);
-		int Side = ((side + 1) * 2) - 1;
-		if (side == 0) {
-			if (world_pos.x - VoxelCoord.x > 0.5){
-				Side = 0;
-			}
-		}
-
-		else if (side == 1){
-			if (world_pos.y - VoxelCoord.y > 0.5){
-				Side = 2;
-			}
-		}
-
-		else {
-			if (world_pos.z - VoxelCoord.z > 0.5){
-				Side = 4;
-			}
-		}
-
-		normal = FACE_NORMALS[Side];
-		data = texelFetch(GetCascadeVolume(cascade), ivec3(VoxelCoord.xyz), 0).xyzw;
-		if (data.w > 0.95f)
-		{
-			return true; 
-		}
-	}
-
-	return false;
-}
 
 // Raytraces voxel cascades 
 vec4 RaymarchCascades(vec3 WorldPosition, vec3 Normal, vec3 Direction, float ConeWidth, float LowDiscrepHash, const int Steps, out vec4 Intersection, int MinCascade, out vec3 VoxelNormal, bool CalcNormal) 
@@ -340,21 +292,8 @@ vec4 RaymarchCascades(vec3 WorldPosition, vec3 Normal, vec3 Direction, float Con
 	Intersection = vec4(RayPosition, float(IntersectionFound));
 
 	// Normal calculation 
-
-	// Accurately calculate the normal using DDA traversal 
-
-	bool CALCULATE_NORMAL = CalcNormal;
-
-	if (CALCULATE_NORMAL) {
-		vec4 DDAd; vec3 DDAwp, DDAn;
-		bool IntersectionDDA = DDATraverse(CurrentCascade, RayPosition - Direction * StepSize * 3.0f, Direction, 4, DDAd, DDAn, DDAwp);
-		VoxelNormal = DDAn;
-	}
-
-	else {
-
-		VoxelNormal = -Direction;
-	}
+	uint EncodedNormal = texelFetch(GetCascadeVolumeN(CurrentCascade), ivec3(floor(VoxelPosition * 128.0f)), 0).x;
+	VoxelNormal = DecodeNormal(EncodedNormal);
 
 	return vec4(SkyRadiance + TotalGI.xyz, AO);
 }
@@ -609,6 +548,7 @@ void main() {
 
 	vec3 PlayerPosition = u_InverseView[3].xyz;
 	vec3 Incident = normalize(PlayerPosition - WorldPosition);
+	vec3 R = normalize(reflect(-Incident, Normal));
 
 	// Raytrace and accumulate radians ->
 

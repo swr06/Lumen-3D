@@ -159,6 +159,11 @@ namespace Lumen {
 		return VoxelVolumes;
 	}
 
+	GLuint* Voxelizer::GetVolumeNormals()
+	{
+		return VoxelVolumesNormals;
+	}
+
 	float* Voxelizer::GetVolumeRanges()
 	{
 		return VoxelRanges;

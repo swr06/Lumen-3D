@@ -512,7 +512,6 @@ void main()
 	// Combine indirect diffuse and indirect specular 
     vec3 IndirectLighting = (kD * IndirectDiffuse) + IndirectSpecularFinal;
 
-
 	o_Color = DirectLighting + Emission + IndirectLighting;
 
 	if (ProbeDebug) {

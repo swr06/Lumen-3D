@@ -1,5 +1,5 @@
 // Screenspace (clip/view space), probe space tracers implemented 
-// This was a fucking nightmare
+// This was a fucking nightmare to implement right 
 
 #version 400 core
 
@@ -634,25 +634,24 @@ GBufferData ScreenspaceTrace_Clip(vec3 Origin, vec3 Direction, float ThresholdMu
 
 }
 
-// Reproject position to previous frame and try to estimate indirect lighting 
+// Reproject intersection to previous frame and try to estimate indirect lighting 
 vec3 ReprojectIndirect(vec3 P, vec3 A, float R, float D, vec3 Bp) {
 
-    // Best case ->
     vec3 Projected = ProjectToLastFrame(P);
 
     if (SSRayValid(Projected.xy) && abs(LinearizeDepth(Projected.z) - D) < 7.0f) {
-        return texture(u_PreviousFrameDiffuse, Projected.xy).xyz * 1.0f * A;
+        vec4 Fetch = texture(u_PreviousFrameDiffuse, Projected.xy).xyzw;
+        return Fetch.xyz * 1.0f * A * pow(Fetch.w,4.5f);//mix(2.5f, 3.5f, clamp(R * 2.0f,0.,1.)));
     }
 
-    // Approximate ->
     vec3 ProjectedBase = ProjectToLastFrame(Bp);
 
     if (SSRayValid(ProjectedBase.xy)) {
         return texture(u_PreviousFrameDiffuse, ProjectedBase.xy).xyz * 0.9f * A;
     }
 
-    // Severe approximate ->
     return texture(u_PreviousFrameDiffuse, v_TexCoords).xyz * 0.5f * A;
+
     return texture(u_EnvironmentMap, vec3(0.0f, 1.0f, 0.0f)).xyz * 0.2f * A * mix(1.0f, 2.5f, float(R<0.2f));
 }
 

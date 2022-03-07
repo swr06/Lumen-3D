@@ -75,7 +75,7 @@ vec3 FXAA311(vec3 color)
 
 	float edgeThresholdMin = 0.03125;
 	float edgeThresholdMax = 0.125;
-	float subpixelQuality = 0.6f;
+	float subpixelQuality = 0.65f;
 	int iterations = 12;
 	
 	vec2 view = 1.0 / textureSize(u_MainTexture, 0).xy;

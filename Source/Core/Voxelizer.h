@@ -18,6 +18,7 @@ namespace Lumen {
 		void VoxelizeCascade(int Cascade, glm::vec3 Position, const glm::mat4& Projection, const glm::mat4& View, GLuint Shadowmap, const glm::mat4& LVP, const glm::vec3&, const std::vector<Entity*>& EntityList);
 
 		GLuint* GetVolumes();
+		GLuint* GetVolumeNormals();
 		float* GetVolumeRanges();
 		glm::vec3* GetVolumeCenters();
 
