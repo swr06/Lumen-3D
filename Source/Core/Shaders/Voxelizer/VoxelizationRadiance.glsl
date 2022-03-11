@@ -25,6 +25,7 @@ uniform vec3 u_VoxelGridCenterF;
 uniform vec3 u_SunDir;
 
 uniform int u_CascadeNumber;
+uniform float u_VoxelRanges[6];
 
 bool InsideCube(vec3 p, float e) { return abs(p.x) < e && abs(p.y) < e && abs(p.z) < e ; } 
 
@@ -54,17 +55,19 @@ vec3 InverseReinhard(vec3 RGB)
     return (RGB / (vec3(1.0f) - Luminance(RGB))) / ReinhardExp;
 }
 
+uint   packSnorm2x12(vec2 v) { uvec2 d = uvec2(round(2047.5 + v*2047.5)); return d.x|(d.y<<12u); }
+uint   packSnorm2x8( vec2 v) { uvec2 d = uvec2(round( 127.5 + v* 127.5)); return d.x|(d.y<< 8u); }
+vec2 unpackSnorm2x8( uint d) { return vec2(uvec2(d,d>> 8)& 255u)/ 127.5 - 1.0; }
+vec2 unpackSnorm2x12(uint d) { return vec2(uvec2(d,d>>12)&4095u)/2047.5 - 1.0; }
+
 // By inigo quilez
+
 uint EncodeNormal(in vec3 nor)
 {
-    vec3 mor; uint  id;
-    if( abs(nor.y) > abs(mor.x) ) { mor = nor.yzx; id = 1u; }
-    if( abs(nor.z) > abs(mor.x) ) { mor = nor.zxy; id = 2u; }
-    uint is = (mor.x<0.0)?1u:0u;
-    vec2 uv = 0.5 + 0.5*mor.yz/abs(mor.x);
-    uvec2 iuv = uvec2(round(uv*vec2(127.0,63.0)));
-    return iuv.x | (iuv.y<<7u) | (id<<13u) | (is<<15u);
+    vec2 v = vec2( atan(nor.z,nor.x)/3.141593, -1.0+2.0*acos(nor.y)/3.141593 );
+    return packSnorm2x8(v);
 }
+
 
 uint GetEncodedNormal(vec3 Normal) {
 
@@ -83,15 +86,36 @@ vec3 SunColor = vec3(12.0f);
 
 vec3 SampleLighting(vec3 Albedo, vec3 WorldPosition, vec3 Normal) {
 
+	const vec2 Poisson[6] = vec2[6](vec2(-0.613392, 0.617481),  vec2(0.751946, 0.453352),
+                                vec2(0.170019, -0.040254),  vec2(0.078707, -0.715323),
+                                vec2(-0.299417, 0.791925),  vec2(-0.075838, -0.529344));
+
+	//WorldPosition += Normal * (u_VoxelRanges[u_CascadeNumber] * (1.0f/128.0f) * sqrt(2.));
+
 	float Bias = 0.004f;  
 
 	float Shadow = 0.0f; 
 	vec4 ProjectionCoordinates = u_LightVP * vec4(WorldPosition, 1.0f);
 	ProjectionCoordinates.xyz = ProjectionCoordinates.xyz / ProjectionCoordinates.w;
 	ProjectionCoordinates.xyz = ProjectionCoordinates.xyz * 0.5f + 0.5f;
+        
+    float Depth = ProjectionCoordinates.z;
 
-    float ShadowFetch = texture(u_Shadowmap, ProjectionCoordinates.xy).x;
-    Shadow = float(ProjectionCoordinates.z - Bias > ShadowFetch);
+    if (true) {
+           
+        vec2 TexelSize = 1.0f / textureSize(u_Shadowmap, 0).xy;
+
+		int Steps = 5;
+
+        // pcf 
+        for (int i = 0 ; i < Steps ; i++) {
+            float Fetch = texture(u_Shadowmap, ProjectionCoordinates.xy + Poisson[i] * TexelSize * 2.4f).x;
+            Shadow += float(ProjectionCoordinates.z - Bias > Fetch);
+        }
+
+        Shadow /= float(Steps);
+
+    }
 
 	float Lambertian = clamp(dot(Normal, -u_SunDir), 0.0f, 1.0f);
 
@@ -115,19 +139,23 @@ void main() {
 
 	if (Voxel == clamp(Voxel, 0.0f, 1.0f)) {
 
+		vec3 Normal = normalize(g_Normal);
+
 		ivec3 VoxelSpaceCoord = ivec3(Voxel * float(u_VolumeSize));
 
 		float Mip = clamp(float(u_CascadeNumber - 1.0f), 2.0f, 6.0f);
-		vec3 Albedo = textureLod(u_AlbedoMap, g_UV, Mip).xyz;
+		vec3 RawAlbedo = textureLod(u_AlbedoMap, g_UV, Mip).xyz;
+		vec3 Albedo = RawAlbedo;
+		Albedo = pow(Albedo, vec3(1.5f)) * 1.7f;
 
-		vec3 Direct = SampleLighting(Albedo, g_WorldPosition + u_VoxelGridCenterF, normalize(g_Normal));
-		vec3 Emission = Albedo * u_ModelEmission * 2.2f;
+		vec3 Direct = SampleLighting(Albedo, g_WorldPosition + u_VoxelGridCenterF, Normal);
+		vec3 Emission = RawAlbedo * u_ModelEmission * 2.2f;
 		vec3 Combined = Direct + Emission;
 
 		vec3 HDR = Combined;
 		vec4 EncodeHDR = EncodeLighting(HDR);
 
-		uint NormalEncoded = GetEncodedNormal(g_Normal);
+		uint NormalEncoded = GetEncodedNormal(Normal);
 
 		imageStore(o_VoxelVolume, VoxelSpaceCoord, EncodeHDR);
 		imageStore(o_VoxelNormals, VoxelSpaceCoord, uvec4(NormalEncoded));

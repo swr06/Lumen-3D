@@ -472,9 +472,9 @@ void main()
 	// Combine indirect diffuse and specular using environment BRDF
 	
 	const float TEXTURE_AO_STRENGTH = 32.0f;
-	float TextureAO = pow(1.0f - PBR.z, TEXTURE_AO_STRENGTH);
+	float TextureAO = max(pow(1.0f - PBR.z, TEXTURE_AO_STRENGTH), 1.0f / 3.0f);
 
-	SSAO =  clamp(pow(SSAO, u_RTAOStrength * 2.7f), 0.001f, 1.0f);
+	SSAO = clamp(pow(SSAO, u_RTAOStrength * 2.0f), 0.001f, 1.0f);
 
 	float VXAO = pow(DiffuseIndirect.w, 2.8f);
 
@@ -488,13 +488,13 @@ void main()
 	float Metalness = PBR.y > 0.04f ? 1.0f : 0.0f;
 
 	// boost specular 
-	SpecularIndirect *= 1.5f;
+	SpecularIndirect *= 1.45f;
 
 	// F0 
 	vec3 F0 = mix(vec3(0.04f), Albedo, Metalness);
 
 	// Fresnel roughness 
-	vec3 FresnelTerm = FresnelSchlickRoughness(max(dot(Lo, Normal.xyz), 0.000001f), vec3(F0), Roughness); 
+	vec3 FresnelTerm = FresnelSchlickRoughness(max(dot(Lo, Normal.xyz), 0.000001f), vec3(F0), Roughness) * 1.25f; 
     FresnelTerm = clamp(FresnelTerm, 0.0f, 1.0f);
 
     vec3 kS = FresnelTerm;
@@ -536,7 +536,7 @@ void main()
 		int RandomCascade = clamp(int(mix(0.0f, 5.0f, hash2().x)), 0, 5);
 
 		bool HadHit = false;
-		for (int pass = 0 ; pass < 6 ; pass++) {
+		for (int pass = 3 ; pass < 6 ; pass++) {
 			HadHit = DDA(pass, u_ViewerPosition, rD, 256, VoxelData, VoxelNormal, VoxelPosition);
 			//HadHit = DDA(pass, WorldPosition + Normal * ((pass * 1.5f * sqrt(2.0f)) + 1.0f), R, 500, VoxelData, VoxelNormal, VoxelPosition);;
 			if (HadHit) { break; }

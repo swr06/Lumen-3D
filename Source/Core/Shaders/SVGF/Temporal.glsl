@@ -34,6 +34,8 @@ uniform vec3 u_ViewerPosition;
 uniform float u_zNear;
 uniform float u_zFar;
 
+uniform vec2 u_HaltonJitter;
+
 
 float linearizeDepth(float depth)
 {
@@ -91,7 +93,7 @@ void main() {
 	ivec2 PixelHighRes = ivec2(gl_FragCoord.xy) * 2;
 
 	// Sample gbuffers 
-	vec4 CurrentSample = texture(u_Current, v_TexCoords);
+	vec4 CurrentSample = texture(u_Current, v_TexCoords + u_HaltonJitter * (1./textureSize(u_Current,0).xy));
     float Depth = texelFetch(u_LowResDepth, Pixel, 0).x; //float Depth = texelFetch(u_Depth, PixelHighRes, 0).x;
 	float CurrentDepth = linearizeDepth(Depth);
 	vec3 Normals = texelFetch(u_LowResNormals, Pixel, 0).xyz;   //vec3 Normals = texelFetch(u_Normals, PixelHighRes, 0).xyz;
@@ -162,6 +164,8 @@ void main() {
 			ReprojectedDepthSample = Sample == 0 ? LinearPrevDepth : ReprojectedDepthSample;
 
 			float DepthError = abs(CurrentDepth-LinearPrevDepth+LinearExpectedDepth) / abs(CurrentDepth);
+			
+			//float DepthWeigher = exp(-abs(LinearPrevDepth - CurrentDepth) / CurrentDepth * 1.0f); // Replace 1.0 with some strength value
 
 			vec3 PreviousNormal = texelFetch(u_PreviousNormals, SampleCoordHighRes, 0).xyz;
 			float NormalDot = dot(Normals, PreviousNormal);
@@ -192,7 +196,9 @@ void main() {
 
 			float SumFramesIncremented = FrameCount + 1.0f;
 
-			float BlendFactor = 1.0f - (clamp(max(1.0f / max(SumFramesIncremented, 1.0f), 0.03f), 0.01f, 0.99f));
+			SumFramesIncremented = max(SumFramesIncremented, 1.);
+
+			float BlendFactor = (clamp(SumFramesIncremented / (SumFramesIncremented + 1.0f), 0.01f, 0.99f));
 
 			// Fix small artifacts
 			

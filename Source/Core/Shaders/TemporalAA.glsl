@@ -71,7 +71,14 @@ vec3 clipAABB(vec3 prevColor, vec3 minColor, vec3 maxColor)
     return denom > 1.0 ? pClip + vClip / denom : prevColor;
 }
 
-vec3 ClampColor(vec3 Color) 
+float GetHistoryContrast(float historyLuma, float minNeighbourLuma, float maxNeighbourLuma)
+{
+    float lumaContrast = max(maxNeighbourLuma - minNeighbourLuma, 0) / historyLuma;
+    float blendFactor = 1.0 / 20.0f;
+    return clamp(blendFactor * (1.0f / (1.0 + lumaContrast)), 0.0f, 1.0f);
+}
+
+vec3 ClampColor(vec3 Color, bool CameraMoved) 
 {
     vec3 MinColor = vec3(100.0);
 	vec3 MaxColor = vec3(-100.0); 
@@ -87,7 +94,9 @@ vec3 ClampColor(vec3 Color)
         }
     }
 
-    return clipAABB(Color, MinColor, MaxColor);
+    float Bias = CameraMoved ? 0.01f : 0.025f;
+
+    return clipAABB(Color, MinColor - Bias, MaxColor + Bias);
 }
 
 vec4 SampleHistory(vec2 uv) 
@@ -153,13 +162,15 @@ void main()
 
 	vec3 WorldPosition = WorldPosFromDepth(CurrentDepth, v_TexCoords).xyz;
 	vec3 PreviousCoord = Reprojection(WorldPosition.xyz); 
-	float bias = (u_InverseView != u_InversePrevView) ? 0.002f : 0.0f;
+	float bias = (u_InverseView != u_InversePrevView) ? 0.01f : 0.0f;
 
 	if (PreviousCoord.x > bias && PreviousCoord.x < 1.0f-bias &&
 		PreviousCoord.y > bias && PreviousCoord.y < 1.0f-bias && 
 		v_TexCoords.x > bias && v_TexCoords.x < 1.0f-bias &&
 		v_TexCoords.y > bias && v_TexCoords.y < 1.0f-bias)
 	{
+        bool CameraMoved = distance(u_InversePrevView[3].xyz, u_InverseView[3].xyz) > 0.0005f;
+
 		// Depth rejection
 		float PreviousDepth = texture(u_PreviousDepthTexture, PreviousCoord.xy).x;
 		float LinearPrevDepth = linearizeDepth(PreviousDepth);
@@ -167,8 +178,8 @@ void main()
 
 		vec3 PrevColor = SampleHistory(PreviousCoord.xy).rgb;
 		
-		if (u_InversePrevView != u_InverseView) {
-			PrevColor = ClampColor(PrevColor);
+		if (CameraMoved) {
+			PrevColor = ClampColor(PrevColor, CameraMoved);
 		}
 
 		vec2 Dimensions = textureSize(u_CurrentColorTexture, 0).xy;

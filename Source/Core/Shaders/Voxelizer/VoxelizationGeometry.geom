@@ -12,9 +12,13 @@ out vec3 g_WorldPosition;
 out vec3 g_Normal;
 out vec2 g_UV;
 
+flat out int g_DominantAxis;
+
 uniform vec3 u_CoverageSize;
 
 uniform vec3 u_VoxelGridCenter;
+
+
 
 int GetLargestAxis(in vec3 x) {
 	int Dominantaxis = x[1] > x[0] ? 1 : 0;
@@ -67,6 +71,8 @@ void main() {
 		g_WorldPosition = g_WorldPosition - u_VoxelGridCenter;
 
 		g_UV = v_UVs[Vertex];
+
+		g_DominantAxis = LargestAxis;
 
 
 		const bool Conservative = false;

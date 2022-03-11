@@ -6,7 +6,7 @@ namespace Lumen {
 
 	constexpr int CascadeCount = 6;
 
-	static bool GenerateMips = false;
+	static bool GenerateMips = true;
 
 
 	static float VoxelRanges[CascadeCount] = { 128.0f, 256.0f, 384.0f, 512.0f, 1024.0f, 2048.0f };
@@ -24,11 +24,13 @@ namespace Lumen {
 		return std::floor(value / size) * size;
 	}
 
-	glm::vec3 SnapPosition(glm::vec3 p) {
+	glm::vec3 SnapPosition(glm::vec3 p, int Cascade) {
 
-		p.x = Align(p.x, 4.0f);
-		p.y = Align(p.y, 4.0f);
-		p.z = Align(p.z, 4.0f);
+		float amts[6] = { 3.0f, 4.0f, 5.0f, 6.0f, 7.0f, 8.0f };
+
+		p.x = Align(p.x, amts[Cascade]);
+		p.y = Align(p.y, amts[Cascade]);
+		p.z = Align(p.z, amts[Cascade]);
 
 		return p;
 	}
@@ -89,7 +91,7 @@ namespace Lumen {
 			throw "wtf.";
 		}
 
-		Position = SnapPosition(Position);
+		Position = SnapPosition(Position,Cascade);
 
 		VoxelCenters[Cascade] = Position;
 
@@ -105,6 +107,7 @@ namespace Lumen {
 
 		ClearShader->Use();
 		glBindImageTexture(0, VoxelVolumes[Cascade], 0, GL_TRUE, 0, GL_READ_WRITE, GL_RGBA16F);
+		glBindImageTexture(1, VoxelVolumesNormals[Cascade], 0, GL_TRUE, 0, GL_READ_WRITE, GL_R16UI);
 		glDispatchCompute(128 / GROUP_SIZE, 128 / GROUP_SIZE, 128 / GROUP_SIZE);
 		glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
 
@@ -131,6 +134,11 @@ namespace Lumen {
 		VoxelizeShader->SetInteger("u_Shadowmap", 10);
 		VoxelizeShader->SetInteger("u_CascadeNumber", Cascade);
 		VoxelizeShader->SetMatrix4("u_LightVP", LVP);
+
+		for (int i = 0; i < 6; i++) {
+			std::string s = "u_VoxelRanges[" + std::to_string(i) + ("]");
+			VoxelizeShader->SetFloat(s.c_str(), (float)VoxelRanges[i]);
+		}
 
 		glActiveTexture(GL_TEXTURE10);
 		glBindTexture(GL_TEXTURE_2D, Shadowmap);

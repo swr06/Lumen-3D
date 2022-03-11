@@ -163,20 +163,16 @@ vec4 DecodeVolumeLighting(const vec4 Lighting) {
 	//return vec4(RemappedLighting.xyz, AlphaMask);
 }
 
-vec3 DecodeNormal( uint data )
-{
-    uvec2 iuv = uvec2( data, data>>7u ) & uvec2(127u,63u);
-    vec2 uv = vec2(iuv)*2.0/vec2(127.0,63.0) - 1.0;
-    
-    uint is = (data>>15u)&1u;
-    vec3 nor = vec3((is==0u)?1.0:-1.0,uv.xy);
+uint   packSnorm2x12(vec2 v) { uvec2 d = uvec2(round(2047.5 + v*2047.5)); return d.x|(d.y<<12u); }
+uint   packSnorm2x8( vec2 v) { uvec2 d = uvec2(round( 127.5 + v* 127.5)); return d.x|(d.y<< 8u); }
+vec2 unpackSnorm2x8( uint d) { return vec2(uvec2(d,d>> 8)& 255u)/ 127.5 - 1.0; }
+vec2 unpackSnorm2x12(uint d) { return vec2(uvec2(d,d>>12)&4095u)/2047.5 - 1.0; }
 
-    uint id = (data>>13u)&3u;
-         if(id==0u) nor = nor.xyz;
-    else if(id==1u) nor = nor.zxy;
-    else            nor = nor.yzx;
-    
-    return normalize(nor);
+vec3 DecodeNormal(uint data)
+{
+    vec2 v = unpackSnorm2x8(data);
+    v.y = 0.5+0.5*v.y; v *= 3.141593;
+    return normalize( vec3( sin(v.y)*cos(v.x), cos(v.y), sin(v.y)*sin(v.x) ));
 }
 
 
@@ -201,7 +197,7 @@ const vec3 FACE_NORMALS[6] = vec3[](vec3(1.0, 0.0, 0.0),vec3(-1.0, 0.0, 0.0),vec
 const vec3 OTHER_NORMALS[6] = vec3[](vec3(1.0, 0.0, 0.0),vec3(0.0, 1.0, 0.0),vec3(0.0, 0.0, 1.0),vec3(0.0, -1.0, 0.0),vec3(0.0, 0.0, 1.0),vec3(0.0, 0.0, -1.0));
 
 // Raytraces voxel cascades 
-vec4 RaymarchCascades(vec3 WorldPosition, vec3 Normal, vec3 Direction, float ConeWidth, float LowDiscrepHash, const int Steps, out vec4 Intersection, int MinCascade, out vec3 VoxelNormal, bool CalcNormal) 
+vec4 RaymarchCascades(vec3 WorldPosition, vec3 Normal, vec3 Direction, float Aperature, float LowDiscrepHash, const int Steps, out vec4 Intersection, int MinCascade, out vec3 VoxelNormal, bool CalcNormal) 
 {
 	const float Diagonal = sqrt(2.0f);
 
@@ -242,19 +238,7 @@ vec4 RaymarchCascades(vec3 WorldPosition, vec3 Normal, vec3 Direction, float Con
 
 		if (InScreenspace(VoxelPosition)) {
 
-			float Mip = 0.0f;
-
-			if (CONE_TRACE) {
-				float NormalizedStep = float(Step) / float(Steps);
-				float ConeDistanceEstimate = (exp2(NormalizedStep * 4.0f) - 0.9f) / 8.0f;
-				float ConeRadiusSize = ConeDistanceEstimate * 4.0f; 
-				Mip = ConeRadiusSize * 4.0f;
-			}
-
-			float SampleMip = clamp(Mip, 0.0f, 6.0f);
-
-
-			vec4 SampleLighting = texture3DLod(Volume, VoxelPosition, SampleMip).xyzw;
+			vec4 SampleLighting = texture3DLod(Volume, VoxelPosition, 0.).xyzw;
 			vec4 Decoded = DecodeVolumeLighting(SampleLighting);
 			 
 			TotalGI.xyz += Decoded.xyz * Decoded.w;
@@ -281,9 +265,14 @@ vec4 RaymarchCascades(vec3 WorldPosition, vec3 Normal, vec3 Direction, float Con
 		RayPosition += Direction * StepSize * HashScale;
 	}
 
-	SkyVisibility = pow(SkyVisibility, 2.0f);
+	// Normal calculation 
+	uint EncodedNormal = texelFetch(GetCascadeVolumeN(CurrentCascade), ivec3(floor(VoxelPosition * 128.0f)), 0).x;
+	VoxelNormal = DecodeNormal(EncodedNormal);
+
+	SkyVisibility = pow(SkyVisibility, 24.0f);
 	vec3 SkySample = pow(texture(u_Skymap, Direction).xyz, vec3(2.0f));
-	vec3 SkyRadiance = SkySample * SkyVisibility * 1.35f;
+	float LambertSky = pow(clamp(dot(VoxelNormal, vec3(0.0f, 1.0f, 0.0f)), 0.0f, 1.0f), 1.0f);
+	vec3 SkyRadiance = SkySample * 1.4f * LambertSky * SkyVisibility;
 
 	float AO = clamp(distance(WorldPosition, RayPosition) / 52.0f, 0.0f, 1.0f);
 
@@ -291,12 +280,10 @@ vec4 RaymarchCascades(vec3 WorldPosition, vec3 Normal, vec3 Direction, float Con
 
 	Intersection = vec4(RayPosition, float(IntersectionFound));
 
-	// Normal calculation 
-	uint EncodedNormal = texelFetch(GetCascadeVolumeN(CurrentCascade), ivec3(floor(VoxelPosition * 128.0f)), 0).x;
-	VoxelNormal = DecodeNormal(EncodedNormal);
-
 	return vec4(SkyRadiance + TotalGI.xyz, AO);
 }
+
+
 
 // Samples direct lighting for a point 
 vec3 SampleRadiance(vec3 P, vec3 N, vec3 A, vec3 E) {
@@ -484,12 +471,22 @@ float DiffuseHammon(vec3 normal, vec3 viewDir, vec3 lightDir, float roughness)
     return clamp((multi + single) * nDotL, 0.0f, 1.0f); // approximate for multi scattering as well
 }
 
-vec3 RayBRDF(vec3 N, vec3 I, vec3 D, float Roughness)
+vec3 RayBRDFHammon(vec3 N, vec3 I, vec3 D, float Roughness, vec3 Lighting)
 {
-	const vec3 Albedo = vec3(1.0f); // Assume constant albedo 
+	vec3 Albedo = vec3(0.5f); 
     vec3 BRDF = Albedo * DiffuseHammon(N, -I, D, Roughness);
     return BRDF;
 }
+
+bool IsSky(float NonLinearDepth) {
+    if (NonLinearDepth > 0.9999992f || NonLinearDepth == 1.0f) {
+        return true;
+	}
+
+    return false;
+}
+
+
 
 // Second bounce settings 
 const bool DO_SECOND_BOUNCE = true;
@@ -498,9 +495,6 @@ const bool VX_SECOND_BOUNCE = true;
 
 void main() {
 
-	//o_Color = vec4(0.0f);
-	//return;
-	//
 	HASH2SEED = (v_TexCoords.x * v_TexCoords.y) * 64.0;
 	HASH2SEED += fract(u_Time) * 64.0f;
 
@@ -543,6 +537,12 @@ void main() {
 
 	// Fetch 
     float Depth = texelFetch(u_Depth, HighResPixel, 0).x;
+
+	 if (IsSky(Depth)) {
+        o_Color = vec4(vec3(1.0f), 1.0f);
+        return;
+    }
+
 	vec3 WorldPosition = WorldPosFromDepth(Depth, HighResUV);
     vec3 Normal = normalize(texelFetch(u_LFNormals, HighResPixel, 0).xyz); 
 
@@ -561,9 +561,9 @@ void main() {
 
 	TotalRadiance += DiffuseVX;
 
-	//vec4 PrimaryProbe = RaytraceProbe(WorldPosition.xyz + Normal * 3.0f, Direction, BayerHash, 32, 12, 0.625f);
+	////TotalRadiance = RaytraceProbe(WorldPosition.xyz + Normal * 3.0f, CosineHemisphereDirection, BayerHash, 32, 12, 0.625f);
 
-	if (DO_SECOND_BOUNCE && IntersectionVX.w > 0.5f) {
+	if (DO_SECOND_BOUNCE && IntersectionVX.w > 0.6f) {
 		
 		vec3 SecondCosineHemisphereDirection = CosWeightedHemisphere(VXNormal, Hash.xy);
 
@@ -571,8 +571,8 @@ void main() {
 		float CosinePDF = clamp(dot(VXNormal.xyz, SecondCosineHemisphereDirection) / PI, 0.000001f, 1.0f);
 
 		// I use Hammon brdf as the ray brdf. We divide the ray brdf by ray sampling brdf (lambert) to get the bounce ray weight 
-		// (throughput for the first bounce would be one so it doesn't matter)
-		vec3 SecondBounceWeight = clamp(vec3(1.0f) * (RayBRDF(VXNormal, CosineHemisphereDirection, SecondCosineHemisphereDirection, 0.99f) / CosinePDF), 0.0f, PI); 
+		// this actually isn't perfectly correct, I assume a constant albedo which is wrong. But it's not feasible to store the albedo since we have limited memory 
+		vec3 SecondBounceWeight = clamp(vec3(1.0f) * (RayBRDFHammon(VXNormal, CosineHemisphereDirection, SecondCosineHemisphereDirection, 0.99f, TotalRadiance.xyz) / CosinePDF), 0.0f, PI); 
 
 		vec3 SecondaryBounceRadiance = vec3(0.0f); 
 
@@ -596,7 +596,7 @@ void main() {
 			vec4 oPos = vec4(0.0f);
 			vec3 Nn = vec3(0.0f);
 
-			vec4 SecondBounceVX = RaymarchCascades(IntersectionVX.xyz + SecondCosineHemisphereDirection, VXNormal, SecondCosineHemisphereDirection, 1.0f, BayerHash, 64, oPos, 3, Nn, false);
+			vec4 SecondBounceVX = RaymarchCascades(IntersectionVX.xyz, VXNormal, SecondCosineHemisphereDirection, 1.0f, BayerHash, 92, oPos, 3, Nn, false);
 
 			SecondaryBounceRadiance.xyz = SecondBounceVX.xyz;
 

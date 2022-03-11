@@ -219,6 +219,8 @@ void SetCommonUniforms(GLClasses::Shader& shader, CommonUniforms& uniforms) {
 	shader.SetMatrix4("u_PrevView", uniforms.PrevView);
 	shader.SetMatrix4("u_PrevInverseProjection", uniforms.InvPrevProj);
 	shader.SetMatrix4("u_PrevInverseView", uniforms.InvPrevView);
+	shader.SetMatrix4("u_InversePrevProjection", uniforms.InvPrevProj);
+	shader.SetMatrix4("u_InversePrevView", uniforms.InvPrevView);
 	shader.SetVector3f("u_ViewerPosition", glm::vec3(uniforms.InvView[3]));
 	shader.SetVector3f("u_Incident", glm::vec3(uniforms.InvView[3]));
 	shader.SetVector3f("u_SunDirection", SunDirection);
@@ -770,7 +772,10 @@ void Lumen::StartPipeline()
 
 		DownsampledGBuffer.Unbind();
 
-		// Specular Indirect lighting trace :
+
+
+
+		// Trace specular GI 
 
 		SpecularIndirect.Bind();
 		ProbeSpecularShader.Use();
@@ -841,6 +846,8 @@ void Lumen::StartPipeline()
 		ScreenQuadVAO.Bind();
 		glDrawArrays(GL_TRIANGLES, 0, 6);
 		ScreenQuadVAO.Unbind();
+
+
 
 
 		// Trace diffuse GI
@@ -923,7 +930,9 @@ void Lumen::StartPipeline()
 		glDrawArrays(GL_TRIANGLES, 0, 6);
 		ScreenQuadVAO.Unbind();
 
-		// Checkerboard reconstruction ->
+
+
+		// Checkerboard reconstruction 
 
 		if (CheckerboardIndirect) {
 			IndirectCheckerboarder.Use();
@@ -954,9 +963,9 @@ void Lumen::StartPipeline()
 		}
 
 
+		// --Spatio-temporal filtering passes--
 
-
-		// Specular temporal resolve :
+		// Temporally resolve lighting ->
 
 		SpecularTemporalShader.Use();
 		SpecularTemporal.Bind();
@@ -1052,6 +1061,9 @@ void Lumen::StartPipeline()
 		DiffuseTemporal.Unbind();
 
 
+
+		// -- Spatial Filtering Passes -- 
+		
 		if (SVGF) {
 
 			// SVGF Variance estimation ->
@@ -1159,7 +1171,8 @@ void Lumen::StartPipeline()
 
 		auto& FinalDenoisedBuffer = FinalDenoiseBufferPtr ? *FinalDenoiseBufferPtr : SpatialFilterBuffers[0];
 
-		// Screenspace raytracing ->
+
+		// Screenspace raytracing -> (SSRTAO & SS Contact Shadows)
 
 		// Screenspace RTAO / Screenspace direct shadows 
 
@@ -1192,7 +1205,7 @@ void Lumen::StartPipeline()
 
 		ScreenspaceOcclusion.Unbind();
 
-
+		// Checkerboard reconstruct 
 		if (ScreenspaceOcclusionCheckerboard) {
 
 			ScreenspaceOcclusionCheckerboardConstruct.Bind();
@@ -1220,6 +1233,7 @@ void Lumen::StartPipeline()
 			glDrawArrays(GL_TRIANGLES, 0, 6);
 			ScreenQuadVAO.Unbind();
 		}
+
 
 
 		// Temporal resolve : 
@@ -1390,7 +1404,7 @@ void Lumen::StartPipeline()
 		glDrawArrays(GL_TRIANGLES, 0, 6);
 		ScreenQuadVAO.Unbind();
 
-		// Tonemap + Gamma correct + Output :
+		// Tonemap + Gamma correct + Output
 
 		glBindFramebuffer(GL_FRAMEBUFFER, 0);
 		glViewport(0, 0, app.GetWidth(), app.GetHeight());

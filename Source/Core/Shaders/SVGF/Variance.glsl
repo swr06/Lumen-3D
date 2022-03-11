@@ -53,9 +53,9 @@ float Luminance(vec3 rgb)
 }
 
 const float FRAME_BIAS = 24.0f;
-const int VAR_KERNEL_X = 3;
-const int VAR_KERNEL_Y = 3;
-const float PhiL = 2.0f;
+
+const bool ALWAYS_DO_VARIANCE_SPATIAL = true;
+
 
 void main() {
 
@@ -67,7 +67,15 @@ void main() {
 
     float Frames = CenterUtilityFetch.z;
 
-    if (Frames < FRAME_BIAS) {
+    bool Disocclusion = Frames < FRAME_BIAS;
+
+    float PhiL = Disocclusion ? 1.0f : 0.07f;
+
+    if (ALWAYS_DO_VARIANCE_SPATIAL || Disocclusion) {
+
+        
+        int VAR_KERNEL_X = Disocclusion ? 3 : 1;
+        int VAR_KERNEL_Y = Disocclusion ? 4 : 2;
 
         float Depth = texelFetch(u_LowResDepth, Pixel, 0).x; 
         float CenterLinDepth = linearizeDepth(Depth);
@@ -101,7 +109,7 @@ void main() {
 
                 float DepthWeight = clamp(pow(exp(-abs(SampleDepth - CenterLinDepth)), 32.0f), 0.0f, 1.0f);
                 float NormalWeight = clamp(pow(max(dot(SampleNormals, Normals), 0.0f), 8.0f), 0.0f, 1.0f);
-                float DetailWeight = 1.0f;//clamp(exp(-(abs(L-CenterL) / PhiL)), 0.0f, 1.0f);
+                float DetailWeight = clamp(exp(-(abs(L-CenterL) / PhiL)), 0.0f, 1.0f);
 
                 const float KernelWeight = 1.0f;
 
@@ -125,7 +133,7 @@ void main() {
 
         Variance = TotalUtil.y - (TotalLuma * TotalLuma);
         
-        Variance = Variance * clamp((float(FRAME_BIAS) / Frames) * 1.0f, 0.0f, 10.0f);
+        Variance = Variance * mix(clamp((float(FRAME_BIAS) / Frames) * 1.0f, 0.0f, 10.0f), 1.0f, float(!Disocclusion));
 
         o_Variance = Variance;
     }

@@ -32,7 +32,9 @@ in mat3 v_TBNMatrix;
 
 void main()
 {
-	o_Albedo = u_UsesAlbedoTexture ? texture(u_AlbedoMap, v_TexCoords).xyz : u_ModelColor;
+	const bool Whiteworld = false;
+
+	o_Albedo = Whiteworld ? vec3(1.0f) : (u_UsesAlbedoTexture ? texture(u_AlbedoMap, v_TexCoords).xyz : u_ModelColor);
 
 	o_Albedo += o_Albedo * u_EmissiveColor * u_ModelEmission * 8.0f;
 

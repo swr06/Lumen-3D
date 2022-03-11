@@ -361,9 +361,9 @@ bool IsSky(float NonLinearDepth) {
 
 float ResolveAO(vec3 WorldPosition, vec3 Normal, vec3 Direction, float Bayer) {
 
-	const float Distance = 48.0f;
+	const float Distance = 32.0f;
 	
-	GBufferData Hit = ScreenspaceRaytrace(WorldPosition + (Normal * 1.0f) - (Direction * 0.6f), Direction, 0.004f, Bayer, 24, 4, Distance, 1.0f);
+	GBufferData Hit = ScreenspaceRaytrace(WorldPosition + (Normal * 1.0f) - (Direction * 0.6f), Direction, 0.005f, Bayer, 24, 0, Distance, 1.0f);
 
 	if (!Hit.ValidMask) { return 1.0f; }
 
@@ -423,7 +423,7 @@ void main() {
 
     float BayerHash = fract(fract(mod(float(u_Frame), 384.0f) * (1.0 / PHI)) + Bayer32(gl_FragCoord.xy));
 
-	const float AOScale = 0.8f;
+	const float AOScale = 0.675f;
 
 	vec3 AODirection = mix(CosWeightedHemisphere(Normal), Normal, 1.0f - AOScale);
 	AODirection = normalize(AODirection);

@@ -1,5 +1,7 @@
 // Screenspace (clip/view space), probe space tracers implemented 
 // This was a fucking nightmare to implement right 
+// P.S : This file has a bunch of code that isn't really needed to function solely because I used it as sort of a "playground" for custom screenspace/probespace raytracers 
+
 
 #version 400 core
 
@@ -641,7 +643,7 @@ vec3 ReprojectIndirect(vec3 P, vec3 A, float R, float D, vec3 Bp) {
 
     if (SSRayValid(Projected.xy) && abs(LinearizeDepth(Projected.z) - D) < 7.0f) {
         vec4 Fetch = texture(u_PreviousFrameDiffuse, Projected.xy).xyzw;
-        return Fetch.xyz * 1.0f * A * pow(Fetch.w,4.5f);//mix(2.5f, 3.5f, clamp(R * 2.0f,0.,1.)));
+        return Fetch.xyz * 1.0f * A * pow(Fetch.w,2.5f);//mix(2.5f, 3.5f, clamp(R * 2.0f,0.,1.)));
     }
 
     vec3 ProjectedBase = ProjectToLastFrame(Bp);
@@ -662,7 +664,7 @@ const vec3 SUN_COLOR = vec3(8.0f);
 vec3 IntegrateLighting(GBufferData Hit, vec3 Direction, const bool FilterShadow, float R, float D, vec3 Origin) {
     
     if (!Hit.ValidMask) {
-       return pow(texture(u_EnvironmentMap, Hit.Direction).xyz, vec3(1.5f)) * clamp(Hit.SkyAmount, 0.0f, 1.0f) * 1.5f * float(Skylighting);
+       return pow(texture(u_EnvironmentMap, Hit.Direction).xyz, vec3(1.5f)) * clamp(Hit.SkyAmount, 0.0f, 1.0f) * 2.0f * float(Skylighting);
     }
 
     // Sky 
