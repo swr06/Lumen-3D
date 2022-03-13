@@ -94,7 +94,7 @@ vec3 ClampColor(vec3 Color, bool CameraMoved)
         }
     }
 
-    float Bias = CameraMoved ? 0.01f : 0.025f;
+    float Bias = 0.005f;
 
     return clipAABB(Color, MinColor - Bias, MaxColor + Bias);
 }

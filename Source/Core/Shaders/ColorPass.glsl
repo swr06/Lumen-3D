@@ -36,6 +36,7 @@ uniform float u_Time;
 uniform int u_CurrentFrame;
 
 uniform bool u_DirectSSShadows;
+uniform bool u_VolumetricsEnabled;
 
 uniform float u_RTAOStrength;
 
@@ -46,6 +47,8 @@ uniform vec3 u_ProbeCapturePoints[6];
 uniform sampler3D u_VoxelVolumes[6];
 uniform float u_VoxelRanges[6];
 uniform vec3 u_VoxelCenters[6];
+
+uniform sampler2D u_Volumetrics;
 
 
 const vec3 SUN_COLOR = vec3(8.0f); //vec3(6.9f, 6.9f, 10.0f);
@@ -147,7 +150,7 @@ float Luminance(vec3 rgb)
 }
 
 // Spatial upscaler 
-void SpatialUpscale(float Depth, vec3 Normal, float Roughness, vec3 Incident, out float AO, out float ContactShadow, out vec3 Specular, out vec4 Diffuse) {
+void SpatialUpscale(float Depth, vec3 Normal, float Roughness, vec3 Incident, out float AO, out float ContactShadow, out vec3 Specular, out vec4 Diffuse, out vec4 Volumetrics) {
 
 
 	const float Atrous[3] = float[3]( 1.0f, 2.0f / 3.0f, 1.0f / 6.0f );
@@ -160,7 +163,7 @@ void SpatialUpscale(float Depth, vec3 Normal, float Roughness, vec3 Incident, ou
 		AO = texture(u_RTAO, v_TexCoords).x;
 		ContactShadow = texture(u_ScreenspaceShadows, v_TexCoords).x;
 		Diffuse = texture(u_IndirectDiffuse, v_TexCoords).xyzw;
-
+		Volumetrics = u_VolumetricsEnabled ? texture(u_Volumetrics, v_TexCoords).xyzw : vec4(0.);
 		return;
 	}
 
@@ -207,6 +210,8 @@ void SpatialUpscale(float Depth, vec3 Normal, float Roughness, vec3 Incident, ou
 
 			Diffuse += texture(u_IndirectDiffuse, SampleCoord) * Weight;
 
+			Volumetrics += u_VolumetricsEnabled ? texture(u_Volumetrics, SampleCoord) * Weight : vec4(0.);
+
 			if (u_DirectSSShadows) {
 				ContactShadow += texture(u_ScreenspaceShadows, SampleCoord).x * Weight;
 			}
@@ -221,6 +226,7 @@ void SpatialUpscale(float Depth, vec3 Normal, float Roughness, vec3 Incident, ou
 	Specular /= TotalSpecularWeight;
 	AO /= TotalWeight;
 	Diffuse /= TotalWeight;
+	Volumetrics /= TotalWeight;
 	//ContactShadow = texture(u_ScreenspaceShadows, v_TexCoords).x;
 
 	if (u_DirectSSShadows)
@@ -407,6 +413,7 @@ bool DDA(int cascade, vec3 origin, vec3 direction, int dist, out vec4 data, out 
 	return false;
 }
 
+
 float HASH2SEED = 0.0f;
 vec2 hash2() 
 {
@@ -428,7 +435,8 @@ void main()
 	// Sky check
 	if (Depth > 0.999995f && (!ProbeDebug)) {
 		vec3 Sample = texture(u_Skymap, rD).xyz;
-		o_Color = Sample*Sample;
+		Sample = Sample * Sample;
+		o_Color = Sample + texture(u_Volumetrics, v_TexCoords).xyz;
 
 		return;
 	}
@@ -455,8 +463,9 @@ void main()
 	float ScreenspaceShadow;
 	vec3 SpecularIndirect;
 	vec4 DiffuseIndirect;
+	vec4 Volumetrics;
 
-	SpatialUpscale(LinearizeDepth(Depth), Normal, PBR.x, Lo, SSAO, ScreenspaceShadow, SpecularIndirect, DiffuseIndirect);
+	SpatialUpscale(LinearizeDepth(Depth), Normal, PBR.x, Lo, SSAO, ScreenspaceShadow, SpecularIndirect, DiffuseIndirect, Volumetrics);
 	SpecularIndirect = SpecularIndirect * 1.25f;
 
 	// Direct lighting ->
@@ -478,7 +487,7 @@ void main()
 
 	float VXAO = pow(DiffuseIndirect.w, 2.8f);
 
-	float AmbientOcclusion = SSAO * TextureAO * VXAO;
+	float AmbientOcclusion = clamp((pow(SSAO * VXAO, 1.3f) * TextureAO) + 0.05f, 0.0f, 1.0f);
 
 	vec3 IndirectDiffuse = (AmbientTerm * AmbientOcclusion);
 
@@ -514,6 +523,10 @@ void main()
 
 	o_Color = DirectLighting + Emission + IndirectLighting;
 
+	// Volumetrics
+
+	o_Color += Volumetrics.xyz * float(u_VolumetricsEnabled);
+
 	if (ProbeDebug) {
 		vec3 sLo = -normalize(GetCapturePoint(Lo) - WorldPosition);
 		int FaceID = clamp(GetFaceID(sLo),0,5);
@@ -536,7 +549,7 @@ void main()
 		int RandomCascade = clamp(int(mix(0.0f, 5.0f, hash2().x)), 0, 5);
 
 		bool HadHit = false;
-		for (int pass = 3 ; pass < 6 ; pass++) {
+		for (int pass = 0; pass < 6 ; pass++) {
 			HadHit = DDA(pass, u_ViewerPosition, rD, 256, VoxelData, VoxelNormal, VoxelPosition);
 			//HadHit = DDA(pass, WorldPosition + Normal * ((pass * 1.5f * sqrt(2.0f)) + 1.0f), R, 500, VoxelData, VoxelNormal, VoxelPosition);;
 			if (HadHit) { break; }
@@ -545,6 +558,10 @@ void main()
 		VoxelData = DecodeVolumeLighting(VoxelData);
 
 		if (HadHit) {
+
+			if (Luminance(VoxelData.xyz) < Luminance(vec3(1.0f) * 0.01f)) {
+				VoxelData /= 0.2f;
+			}
 
 			o_Color = VoxelData.xyz;
 		}
@@ -575,7 +592,7 @@ float FilterShadows(vec3 WorldPosition, vec3 N)
 
     float ClosestDepth = texture(u_ShadowTexture, ProjectionCoordinates.xy).r; 
     float Depth = ProjectionCoordinates.z;
-	float Bias = max(0.00025f * (1.0f - dot(N, u_LightDirection)), 0.0008f);  
+	float Bias = clamp(max(0.00025f * (1.0f - dot(N, u_LightDirection)), 0.0005f), 0.0001f, 0.005f);  
 	vec2 TexelSize = 1.0 / textureSize(u_ShadowTexture, 0);
 	float noise = texture(u_BlueNoise, v_TexCoords * (u_Dims / textureSize(u_BlueNoise, 0).xy)).r;
 	noise = mod(noise + 1.61803f * mod(float(u_CurrentFrame), 100.0f), 1.0f);

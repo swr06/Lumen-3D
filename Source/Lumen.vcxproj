@@ -235,6 +235,7 @@
     <None Include="Core\Shaders\BasicBlit.glsl" />
     <None Include="Core\Shaders\BasicFrag.glsl" />
     <None Include="Core\Shaders\BasicVert.glsl" />
+    <None Include="Core\Shaders\BilateralFilter4x4.glsl" />
     <None Include="Core\Shaders\ClearVolume.comp" />
     <None Include="Core\Shaders\DiffuseTrace.glsl" />
     <None Include="Core\Shaders\DownsampleGBuffer.glsl" />
@@ -256,7 +257,7 @@
     <None Include="Core\Shaders\ProbeForwardVert.glsl" />
     <None Include="Core\Shaders\ProbeSkyFrag.glsl" />
     <None Include="Core\Shaders\ProbeSkyVert.glsl" />
-    <None Include="Core\Shaders\ProbeSpecularTrace.glsl" />
+    <None Include="Core\Shaders\SpecularTrace.glsl" />
     <None Include="Core\Shaders\ScreenspaceConeTracing.glsl" />
     <None Include="Core\Shaders\SpecularTemporal.glsl" />
     <None Include="Core\Shaders\ScreenspaceRaytracing.glsl" />
@@ -265,6 +266,7 @@
     <None Include="Core\Shaders\SVGF\Temporal.glsl" />
     <None Include="Core\Shaders\SVGF\Variance.glsl" />
     <None Include="Core\Shaders\TemporalAA.glsl" />
+    <None Include="Core\Shaders\Volumetrics.glsl" />
     <None Include="Core\Shaders\Voxelizer\VoxelizationGeometry.geom" />
     <None Include="Core\Shaders\Voxelizer\VoxelizationRadiance.glsl" />
     <None Include="Core\Shaders\Voxelizer\VoxelizationVertex.glsl" />

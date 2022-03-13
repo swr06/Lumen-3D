@@ -1,9 +1,9 @@
 // Screenspace (clip/view space), probe space tracers implemented 
 // This was a fucking nightmare to implement right 
-// P.S : This file has a bunch of code that isn't really needed to function solely because I used it as sort of a "playground" for custom screenspace/probespace raytracers 
+// P.S : This file has a bunch of code that isn't really needed to function solely because I used it as sort of a "playground" for custom screenspace/probespace/voxelspace raytracers 
 
-
-#version 400 core
+#version 430 core 
+#extension ARB_bindless_texture : require 
 
 #define PI 3.14159265359
 #define PHI 1.6180339
@@ -66,6 +66,12 @@ uniform sampler2D u_LFNormals;
 uniform sampler2D u_PBR;
 uniform sampler2D u_Albedos;
 
+// Voxel volumes
+uniform sampler3D u_VoxelVolumes[6];
+uniform usampler3D u_VoxelVolumesNormals[6];
+uniform float u_VoxelRanges[6];
+uniform vec3 u_VoxelCenters[6];
+
 uniform float u_zNear;
 uniform float u_zFar;
 
@@ -108,6 +114,11 @@ vec3 Saturation(vec3 Color, float Adjustment)
     return mix(Luminosity, Color, Adjustment);
 }
 
+float Luminance(vec3 rgb)
+{
+    const vec3 W = vec3(0.2125, 0.7154, 0.0721);
+    return dot(rgb, W);
+}
 
 float LinearizeDepth(float depth)
 {
@@ -637,11 +648,13 @@ GBufferData ScreenspaceTrace_Clip(vec3 Origin, vec3 Direction, float ThresholdMu
 }
 
 // Reproject intersection to previous frame and try to estimate indirect lighting 
-vec3 ReprojectIndirect(vec3 P, vec3 A, float R, float D, vec3 Bp) {
+vec3 ReprojectIndirect(vec3 P, vec3 A, float R, vec3 Bp) 
+{
 
     vec3 Projected = ProjectToLastFrame(P);
 
-    if (SSRayValid(Projected.xy) && abs(LinearizeDepth(Projected.z) - D) < 7.0f) {
+    // Todo : Add distance check
+    if (SSRayValid(Projected.xy)) {
         vec4 Fetch = texture(u_PreviousFrameDiffuse, Projected.xy).xyzw;
         return Fetch.xyz * 1.0f * A * pow(Fetch.w,2.5f);//mix(2.5f, 3.5f, clamp(R * 2.0f,0.,1.)));
     }
@@ -664,7 +677,7 @@ const vec3 SUN_COLOR = vec3(8.0f);
 vec3 IntegrateLighting(GBufferData Hit, vec3 Direction, const bool FilterShadow, float R, float D, vec3 Origin) {
     
     if (!Hit.ValidMask) {
-       return pow(texture(u_EnvironmentMap, Hit.Direction).xyz, vec3(1.5f)) * clamp(Hit.SkyAmount, 0.0f, 1.0f) * 2.0f * float(Skylighting);
+       return pow(texture(u_EnvironmentMap, Hit.Direction).xyz, vec3(1.2f)) * clamp(Hit.SkyAmount, 0.0f, 1.0f) * 2.7f * float(Skylighting);
     }
 
     // Sky 
@@ -722,11 +735,178 @@ vec3 IntegrateLighting(GBufferData Hit, vec3 Direction, const bool FilterShadow,
     // Todo : Switch to hammon diffuse brdf (ignore specular brdf to reduce variance)
     float Lambertian = max(0.0f, dot(Hit.Normal, -u_SunDirection));
     vec3 Direct = Lambertian * SUN_COLOR * 0.75f * Shadow * Hit.Albedo;
-    vec3 Indirect = ReprojectIndirect(Hit.Position, Hit.Albedo, R, D, Origin);
+    vec3 Indirect = ReprojectIndirect(Hit.Position, Hit.Albedo, R, Origin);
     return Direct + Indirect + Hit.Emission;
 }
 
-// Temporal upscale offsets 
+
+
+vec4 DecodeVolumeLighting(const vec4 Lighting) {
+
+	return vec4(Lighting.xyz * 5.0f, Lighting.w);
+}
+
+vec4 ResolveVoxelRadiance(vec4 Lighting, vec3 P, vec3 Bp, float R) {
+    
+    Lighting = DecodeVolumeLighting(Lighting);
+
+    const float Al = Luminance(vec3(1.0f) * vec3(0.01f));
+    float L = Luminance(Lighting.xyz);
+
+    // No lighting here, use approximate indirect 
+    if (L > 0.000001f && L < Al) {
+
+        vec3 Albedo = Lighting.xyz / 0.01f;
+        return vec4(ReprojectIndirect(P, Albedo, R, Bp), Lighting.w) * 0.6f;
+    }
+
+    return Lighting;
+}
+
+bool InScreenspace(vec3 x) {
+
+	if (x.x > 0.0f && x.x < 1.0f && x.y > 0.0f && x.y < 1.0f && x.z > 0.0f && x.z < 1.0f) { 
+		return true;
+	}
+
+	return false;
+}
+
+vec3 TransformToVoxelSpace(int Volume, vec3 WorldPosition)
+{
+	WorldPosition = WorldPosition - u_VoxelCenters[Volume];
+	float Size = u_VoxelRanges[Volume];
+	float HalfExtent = Size / 2.0f;
+	vec3 ScaledPos = WorldPosition / HalfExtent;
+	vec3 Voxel = ScaledPos;
+	Voxel = Voxel * 0.5f + 0.5f;
+	return Voxel;
+}
+
+bool PositionInVolume(int Volume, vec3 WorldPosition) {
+
+	WorldPosition = WorldPosition - u_VoxelCenters[Volume];
+	float Size = u_VoxelRanges[Volume];
+	float HalfExtent = Size / 2.0f;
+	vec3 ScaledPos = WorldPosition / HalfExtent;
+	vec3 Voxel = ScaledPos;
+	Voxel = Voxel * 0.5f + 0.5f;
+	return InScreenspace(Voxel);
+}
+
+bool LiesInsideVolume(vec3 vp) { return abs(vp.x) < 128.0f && abs(vp.y) < 128.0f  && abs(vp.z) < 128.0f ; } 
+
+sampler3D GetCascadeVolume(int cascade) {
+
+	if (cascade == 0) { return u_VoxelVolumes[0]; }
+	if (cascade == 1) { return u_VoxelVolumes[1]; }
+	if (cascade == 2) { return u_VoxelVolumes[2]; }
+	if (cascade == 3) { return u_VoxelVolumes[3]; }
+	if (cascade == 4) { return u_VoxelVolumes[4]; }
+	if (cascade == 5) { return u_VoxelVolumes[5]; }
+	{ return u_VoxelVolumes[0]; }
+}
+
+usampler3D GetCascadeVolumeN(int cascade) {
+
+	if (cascade == 0) { return u_VoxelVolumesNormals[0]; }
+	if (cascade == 1) { return u_VoxelVolumesNormals[1]; }
+	if (cascade == 2) { return u_VoxelVolumesNormals[2]; }
+	if (cascade == 3) { return u_VoxelVolumesNormals[3]; }
+	if (cascade == 4) { return u_VoxelVolumesNormals[4]; }
+	if (cascade == 5) { return u_VoxelVolumesNormals[5]; }
+	{ return u_VoxelVolumesNormals[0]; }
+}
+
+int GetCascadeNumber(vec3 P, int MinCascade) {
+
+	for (int Cascade = int(MinCascade) ; Cascade < 6 ; Cascade++) {
+		
+		if (PositionInVolume(Cascade, P)) {
+			return Cascade;
+		}
+
+	}
+
+	return 5;
+}
+
+vec4 RaymarchCascades(vec3 WorldPosition, vec3 Normal, vec3 Direction, float Aperature, float LowDiscrepHash, const int Steps, int MinCascade, out vec3 RayPositionO) 
+{
+	const float Diagonal = sqrt(2.0f);
+
+	float HashScale = mix(1.0f, 2.0f, LowDiscrepHash / 1.41f);
+
+	vec3 RayOrigin = WorldPosition;
+
+	int CurrentCascade = GetCascadeNumber(RayOrigin, MinCascade);
+
+	float Distance = (u_VoxelRanges[CurrentCascade] / 128.0f) * Diagonal;
+	RayOrigin += Direction * Distance;
+
+	vec3 RayPosition = RayOrigin + Direction * Distance * 2.0f * LowDiscrepHash;
+	float StepSize = u_VoxelRanges[CurrentCascade] / 128.0f;
+
+	vec4 TotalGI = vec4(0.0f);
+	TotalGI.w = 1.0f;
+
+	float SkyVisibility = 1.0f;
+
+	bool IntersectionFound = true;
+
+	vec3 VoxelPosition = vec3(0.0f);
+
+	for (int Step = 1 ; Step < Steps ; Step++) {
+
+		if (TotalGI.w < 0.06f) {
+			break;
+		}
+
+		VoxelPosition = TransformToVoxelSpace(CurrentCascade, RayPosition);
+
+		VoxelPosition = floor(VoxelPosition * 128.0f) / 128.0f;
+
+		sampler3D Volume = GetCascadeVolume(CurrentCascade);
+
+		if (InScreenspace(VoxelPosition)) {
+
+			vec4 SampleLighting = texture3DLod(Volume, VoxelPosition, 0.).xyzw;
+			vec4 Decoded = DecodeVolumeLighting(SampleLighting);
+			 
+			TotalGI.xyz += Decoded.xyz * Decoded.w;
+			TotalGI.w *= 1.0f - SampleLighting.w;
+			SkyVisibility *= 1.0f - SampleLighting.w;
+		}
+
+		else {
+
+			if (CurrentCascade == 5 || CurrentCascade > 5) {
+				
+				IntersectionFound = false;
+
+				break;
+			}
+
+			CurrentCascade++;
+
+			StepSize = u_VoxelRanges[CurrentCascade] / 128.0f;
+
+		}
+		
+		RayPosition += Direction * StepSize * HashScale;
+	}
+
+	// Normal calculation 
+	SkyVisibility = pow(SkyVisibility, 24.0f);
+	vec3 SkySample = pow(texture(u_EnvironmentMap, Direction).xyz, vec3(2.0f));
+	float LambertSky = 1.; //pow(clamp(dot(VoxelNormal, vec3(0.0f, 1.0f, 0.0f)), 0.0f, 1.0f), 1.0f);
+	vec3 SkyRadiance = SkySample * SkyVisibility * 0.8f;
+    RayPositionO = RayPosition;
+	return vec4(SkyRadiance + TotalGI.xyz, IntersectionFound ? distance(WorldPosition, RayPosition) : 64.0f);
+}
+
+
+// Temporal upscale offsets  
 ivec2 UpscaleOffsets2x2[] = ivec2[](
 	ivec2(1, 1),
 	ivec2(1, 0),
@@ -760,6 +940,14 @@ bool IsSky(float NonLinearDepth) {
 
     return false;
 }
+
+
+// Trace settings 
+
+// Do voxel raytracing when probe fails?
+const bool VX_TRACE = false;
+
+
 
 void main() {
     
@@ -831,14 +1019,14 @@ void main() {
     int SSBinarySteps = Roughness < 0.2f ? 16 : 12;
 
     // Calculate steps 
-    int ProbeSteps = int(mix(128.0f, 48.0f, pow(BiasedRoughness,2.5f)));
+    int ProbeSteps = int(mix(128.0f, 48.0f, BiasedRoughness < 0.25f ? pow(BiasedRoughness,1.5f) : BiasedRoughness));
     int ProbeBinarySteps = (BiasedRoughness <= 0.51f) ? 16 : 12;
 
 
     for (int Sample ; Sample < SAMPLES ; Sample++) {
 
         
-        float BayerHash =  1.0f; //fract(fract(mod(float(u_Frame) + float(Sample) * 2., 384.0f) * (1.0 / PHI)) + Bayer32(gl_FragCoord.xy));
+        float BayerHash = fract(fract(mod(float(u_Frame) + float(Sample) * 2., 384.0f) * (1.0 / PHI)) + Bayer32(gl_FragCoord.xy));
 
         // Sample microfacet normal from VNDF
         vec3 Microfacet;
@@ -857,33 +1045,64 @@ void main() {
         // Raytrace 
 
         vec3 Direction = normalize(reflect(Incident, Microfacet));
+
+
         GBufferData Intersection;
 
-        if (DoScreenspaceTrace && BiasedRoughness <= 0.2f)
-        {
-            // Trace in screen space 
-            Intersection = ScreenspaceRaytrace(WorldPosition + LFNormal * Bias_n, Direction, ToleranceSS, BayerHash, SSSteps, SSBinarySteps);
-            
-            // If that fails, trace in probe space  
-            if (!Intersection.ValidMask) {
+        if (!VX_TRACE) {
 
+
+            if (DoScreenspaceTrace && BiasedRoughness <= 0.125f)
+            {
+                // Trace in screen space 
+                Intersection = ScreenspaceRaytrace(WorldPosition + LFNormal * Bias_n, Direction, ToleranceSS, BayerHash, SSSteps, SSBinarySteps);
+                
+                // If that fails, trace in probe space  
+                if (!Intersection.ValidMask) {
+
+                    Intersection = Raytrace(WorldPosition + LFNormal * Bias_n, Direction, Tolerance, BayerHash, ProbeSteps, ProbeBinarySteps);
+                }
+            }
+            
+            else {
                 Intersection = Raytrace(WorldPosition + LFNormal * Bias_n, Direction, Tolerance, BayerHash, ProbeSteps, ProbeBinarySteps);
             }
+
+            // Integrate lighting for hit point
+            vec3 CurrentRadiance = IntegrateLighting(Intersection, Direction, FilterShadowMap, BiasedRoughness, LinearizeDepth(Depth), WorldPosition);
+
+            // Sum up radiance 
+            TotalRadiance += CurrentRadiance;
+
+            float CurrentTransversal = Intersection.ValidMask ? distance(Intersection.Position, WorldPosition) : 256.0f;
+            AverageTransversal += CurrentTransversal;
         }
-        
+
         else {
+
             Intersection = Raytrace(WorldPosition + LFNormal * Bias_n, Direction, Tolerance, BayerHash, ProbeSteps, ProbeBinarySteps);
+            
+            if (!Intersection.ValidMask) {
+
+                vec3 VXIntersection;
+                vec4 VXRadiance = RaymarchCascades(WorldPosition + LFNormal * 1.41414f, Normal, Direction, 1.0f, BayerHash, 192, 0, VXIntersection);
+                VXRadiance = ResolveVoxelRadiance(VXRadiance,VXIntersection,WorldPosition,Roughness);
+                float CurrentTransversal = VXRadiance.w;
+                AverageTransversal += CurrentTransversal;
+                TotalRadiance += VXRadiance.xyz;
+            }
+
+            else {
+
+                vec3 CurrentRadiance = IntegrateLighting(Intersection, Direction, FilterShadowMap, BiasedRoughness, LinearizeDepth(Depth), WorldPosition);
+                TotalRadiance += CurrentRadiance;
+
+                float CurrentTransversal = Intersection.ValidMask ? distance(Intersection.Position, WorldPosition) : 256.0f;
+                AverageTransversal += CurrentTransversal;
+            }
+
+
         }
-
-        // Integrate lighting for hit point
-        vec3 CurrentRadiance = IntegrateLighting(Intersection, Direction, FilterShadowMap, BiasedRoughness, LinearizeDepth(Depth), WorldPosition);
-
-        // Sum up radiance 
-        TotalRadiance += CurrentRadiance;
-
-        // Store transversal for filtering/reprojection
-        float CurrentTransversal = Intersection.ValidMask ? distance(Intersection.Position, WorldPosition) : 256.0f;
-        AverageTransversal += CurrentTransversal;
 
         // Add weight 
         TotalWeight += 1.0f;

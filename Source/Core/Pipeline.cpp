@@ -57,6 +57,13 @@ static bool DoScreenspaceShadow = false;
 static float ScreenspaceAOStrength = 0.75f;
 static bool ScreenspaceOcclusionCheckerboard = true;
 
+// Volumetrics
+const float VolumetricsResolution = 0.5f;
+static bool VolumetricLighting = true;
+static bool VolumetricsFilter = true;
+static bool VolumetricsTemporal = true;
+static float SunVolumetricsStrength = 1.0f;
+
 // Update rates
 static int ProbeUpdateRate = 1;
 static bool FullyDynamicVoxelization = false;
@@ -159,6 +166,15 @@ public:
 
 		ImGui::NewLine();
 		ImGui::NewLine();
+		ImGui::Checkbox("Volumetrics?", &VolumetricLighting);
+		ImGui::Text("Volumetrics Raymarch Resolution : %f", VolumetricsResolution);
+		ImGui::Checkbox("Temporal Filter Volumetrics?", &VolumetricsTemporal);
+		ImGui::Checkbox("Filter Volumetrics?", &VolumetricsFilter);
+		ImGui::SliderFloat("Volumetrics Strength", &SunVolumetricsStrength, 0.1f, 4.0f);
+
+		ImGui::NewLine();
+		ImGui::NewLine();
+
 		ImGui::Text("Antialiasing : ");
 		ImGui::NewLine();
 		ImGui::Checkbox("TAA", &TAA);
@@ -340,6 +356,10 @@ GLClasses::Framebuffer DiffuseIndirectTemporalBuffers[2] = { GLClasses::Framebuf
 
 // Common indirect buffers 
 GLClasses::Framebuffer IndirectCheckerUpscaled(16, 16, { {GL_RGBA16F, GL_RGBA, GL_FLOAT, true, true}, {GL_RGBA16F, GL_RGBA, GL_FLOAT, true, true} }, false, false);
+
+// Volumetrics
+GLClasses::Framebuffer VolumetricsBuffers[2] = { GLClasses::Framebuffer(16, 16, { {GL_RGBA16F, GL_RGBA, GL_FLOAT, true, true} }, false, false), GLClasses::Framebuffer(16, 16, { {GL_RGBA16F, GL_RGBA, GL_FLOAT, true, true} }, false, false) };
+GLClasses::Framebuffer VolumetricsFiltered(16, 16, { {GL_RGBA16F, GL_RGBA, GL_FLOAT, true, true} }, false, false);
 
 // TAA Buffers
 GLClasses::Framebuffer TAABuffers[2] = { GLClasses::Framebuffer(16, 16, {GL_RGB16F, GL_RGB, GL_FLOAT, true, true}, false, false), GLClasses::Framebuffer(16, 16, {GL_RGB16F, GL_RGB, GL_FLOAT, true, true}, false, false) };
@@ -530,7 +550,7 @@ void Lumen::StartPipeline()
 	GLClasses::Shader& FinalShader = ShaderManager::GetShader("FINAL");
 
 	GLClasses::Shader& ProbeForwardShader = ShaderManager::GetShader("PROBE_FORWARD");
-	GLClasses::Shader& ProbeSpecularShader = ShaderManager::GetShader("PROBE_SPECULAR");
+	GLClasses::Shader& SpecularTraceShader = ShaderManager::GetShader("SPECULAR_TRACE");
 	GLClasses::Shader& ScreenspaceConetraceShader = ShaderManager::GetShader("SPECULAR_CONE_TRACE");
 	GLClasses::Shader& SpecularTemporalShader = ShaderManager::GetShader("SPECULAR_TEMPORAL");
 	GLClasses::Shader& IndirectCheckerboarder = ShaderManager::GetShader("INDIRECT_CHECKER");
@@ -552,6 +572,8 @@ void Lumen::StartPipeline()
 	GLClasses::Shader& SVGFVarianceShader = ShaderManager::GetShader("SVGF_VARIANCE");
 
 	GLClasses::Shader& GBufferDownsampleShader = ShaderManager::GetShader("GBUFFER_DOWNSAMPLER");
+	GLClasses::Shader& VolumetricsShader = ShaderManager::GetShader("VOLUMETRICS");
+	GLClasses::Shader& BilateralFilter4x4 = ShaderManager::GetShader("BILATERAL_FILTER");
 
 
 	// History
@@ -585,6 +607,9 @@ void Lumen::StartPipeline()
 
 	while (!glfwWindowShouldClose(app.GetWindow()))
 	{
+		// Normalize 
+		SunDirection = glm::normalize(SunDirection);
+
 		// Matrices 
 		PreviousProjection = Camera.GetProjectionMatrix();
 		PreviousView = Camera.GetViewMatrix();
@@ -638,6 +663,11 @@ void Lumen::StartPipeline()
 		SpecularIndirectConeTraced.SetSize(app.GetWidth() * IndirectRes, app.GetHeight() * IndirectRes);
 		SpecularIndirectConeTraceInput.SetSize(app.GetWidth() * IndirectRes, app.GetHeight() * IndirectRes);
 		SpecularIndirectConeTraceInputAlternate.SetSize(app.GetWidth() * IndirectRes, app.GetHeight() * IndirectRes);
+
+		// Volumetrics
+		VolumetricsBuffers[0].SetSize(app.GetWidth() * VolumetricsResolution, app.GetHeight() * VolumetricsResolution);
+		VolumetricsBuffers[1].SetSize(app.GetWidth() * VolumetricsResolution, app.GetHeight() * VolumetricsResolution);
+		VolumetricsFiltered.SetSize(app.GetWidth() * VolumetricsResolution, app.GetHeight() * VolumetricsResolution);
 
 		// RTAO
 		ScreenspaceOcclusion.SetSize(app.GetWidth() * ScreenspaceOcclusionRes * (ScreenspaceOcclusionCheckerboard ? 0.5f : 1.0f), app.GetHeight() * ScreenspaceOcclusionRes);
@@ -707,6 +737,11 @@ void Lumen::StartPipeline()
 		auto& SSRTTemporal = FrameCheckerStep ? ScreenspaceOcclusionTemporalBuffers[0] : ScreenspaceOcclusionTemporalBuffers[1];
 		auto& PrevSSRTTemporal = FrameCheckerStep ? ScreenspaceOcclusionTemporalBuffers[1] : ScreenspaceOcclusionTemporalBuffers[0];
 
+		// Volumetrics
+		auto& Volumetrics = FrameCheckerStep ? VolumetricsBuffers[0] : VolumetricsBuffers[1];
+		auto& VolumetricsHistory = FrameCheckerStep ? VolumetricsBuffers[1] : VolumetricsBuffers[0];
+
+
 		// Update voxel cascades->
 
 		// Update voxel cascades for the first frames when everything is being updated
@@ -719,6 +754,9 @@ void Lumen::StartPipeline()
 		if (!FullyDynamicVoxelization) {
 			Voxelizer::VoxelizeCascade(GetUpdateCascade(app.GetCurrentFrame()), Camera.GetPosition(), Camera.GetProjectionMatrix(), Camera.GetViewMatrix(), Shadowmap.GetDepthTexture(), GetLightViewProjection(SunDirection), SunDirection, EntityList);
 		}
+
+		glm::vec3 PrevPosition = glm::vec3(UniformBuffer.InvPrevView[3]);
+		bool CameraMoved = Camera.GetPosition() != PrevPosition;
 
 		// Render GBuffer
 		glEnable(GL_CULL_FACE);
@@ -773,38 +811,57 @@ void Lumen::StartPipeline()
 		DownsampledGBuffer.Unbind();
 
 
-
-
 		// Trace specular GI 
 
 		SpecularIndirect.Bind();
-		ProbeSpecularShader.Use();
-		ProbeSpecularShader.SetVector3f("u_Incident", Camera.GetPosition());
-		ProbeSpecularShader.SetInteger("u_Depth", 0);
-		ProbeSpecularShader.SetInteger("u_Normals", 1);
-		ProbeSpecularShader.SetInteger("u_PBR", 2);
-		ProbeSpecularShader.SetInteger("u_ProbeAlbedo", 4);
-		ProbeSpecularShader.SetInteger("u_ProbeDepth", 5);
-		ProbeSpecularShader.SetInteger("u_ProbeNormals", 6);
-		ProbeSpecularShader.SetInteger("u_EnvironmentMap", 7);
-		ProbeSpecularShader.SetInteger("u_Shadowmap", 8);
-		ProbeSpecularShader.SetInteger("u_LFNormals", 9);
-		ProbeSpecularShader.SetInteger("u_Albedos", 11);
-		ProbeSpecularShader.SetInteger("u_LowResDepth", 12);
-		ProbeSpecularShader.SetInteger("u_PreviousFrameDiffuse", 15);
-		ProbeSpecularShader.SetInteger("u_Frame", app.GetCurrentFrame());
-		ProbeSpecularShader.SetBool("u_RoughSpecular", RoughSpecular);
-		ProbeSpecularShader.SetBool("u_Checker", CheckerboardIndirect);
-		ProbeSpecularShader.SetVector3f("u_SunDirection", SunDirection);
-		ProbeSpecularShader.SetMatrix4("u_SunShadowMatrix", GetLightViewProjection(SunDirection));
-		ProbeSpecularShader.SetVector2f("u_Jitter", GetTAAJitterSecondary(app.GetCurrentFrame()));
-		ProbeSpecularShader.SetVector2f("u_Dimensions", SpecularIndirect.GetDimensions());
-		SetCommonUniforms(ProbeSpecularShader, UniformBuffer);
+		SpecularTraceShader.Use();
+		SpecularTraceShader.SetVector3f("u_Incident", Camera.GetPosition());
+		SpecularTraceShader.SetInteger("u_Depth", 0);
+		SpecularTraceShader.SetInteger("u_Normals", 1);
+		SpecularTraceShader.SetInteger("u_PBR", 2);
+		SpecularTraceShader.SetInteger("u_ProbeAlbedo", 4);
+		SpecularTraceShader.SetInteger("u_ProbeDepth", 5);
+		SpecularTraceShader.SetInteger("u_ProbeNormals", 6);
+		SpecularTraceShader.SetInteger("u_EnvironmentMap", 7);
+		SpecularTraceShader.SetInteger("u_Shadowmap", 8);
+		SpecularTraceShader.SetInteger("u_LFNormals", 9);
+		SpecularTraceShader.SetInteger("u_Albedos", 11);
+		SpecularTraceShader.SetInteger("u_LowResDepth", 12);
+		SpecularTraceShader.SetInteger("u_PreviousFrameDiffuse", 15);
+		SpecularTraceShader.SetInteger("u_Frame", app.GetCurrentFrame());
+		SpecularTraceShader.SetBool("u_RoughSpecular", RoughSpecular);
+		SpecularTraceShader.SetBool("u_Checker", CheckerboardIndirect);
+		SpecularTraceShader.SetVector3f("u_SunDirection", SunDirection);
+		SpecularTraceShader.SetMatrix4("u_SunShadowMatrix", GetLightViewProjection(SunDirection));
+		SpecularTraceShader.SetVector2f("u_Jitter", GetTAAJitterSecondary(app.GetCurrentFrame()));
+		SpecularTraceShader.SetVector2f("u_Dimensions", SpecularIndirect.GetDimensions());
 
 		for (int i = 0; i < 6; i++) {
 			std::string name = "u_ProbeCapturePoints[" + std::to_string(i) + "]";
-			ProbeSpecularShader.SetVector3f(name.c_str(), PlayerProbe.CapturePoints[i]);
+			SpecularTraceShader.SetVector3f(name.c_str(), PlayerProbe.CapturePoints[i]);
 		}
+
+		// Bind voxel volumes and upload voxel volume info
+		{
+			int t = 0;
+
+			for (int x = 16; x <= 16 + 5; x++) {
+
+				std::string s = "u_VoxelVolumes[" + std::to_string(t) + "]";
+				std::string s2 = "u_VoxelRanges[" + std::to_string(t) + "]";
+				std::string s3 = "u_VoxelCenters[" + std::to_string(t) + "]";
+				SpecularTraceShader.SetInteger(s.c_str(), x);
+				SpecularTraceShader.SetFloat(s2.c_str(), Voxelizer::GetVolumeRanges()[t]);
+				SpecularTraceShader.SetVector3f(s3.c_str(), Voxelizer::GetVolumeCenters()[t]);
+
+				glActiveTexture(GL_TEXTURE0 + x);
+				glBindTexture(GL_TEXTURE_3D, Voxelizer::GetVolumes()[t]);
+				
+				t++; 
+			}
+		}
+
+		SetCommonUniforms(SpecularTraceShader, UniformBuffer);
 
 		glActiveTexture(GL_TEXTURE0);
 		glBindTexture(GL_TEXTURE_2D, GBuffer.GetDepthBuffer());
@@ -842,6 +899,8 @@ void Lumen::StartPipeline()
 
 		glActiveTexture(GL_TEXTURE15);
 		glBindTexture(GL_TEXTURE_2D, SpatialFiltering ? FinalDenoiseBufferPtr->GetTexture(1) : DiffuseTemporal.GetTexture(0));
+
+		// 16 -> 21 are used for the voxel volumes!
 
 		ScreenQuadVAO.Bind();
 		glDrawArrays(GL_TRIANGLES, 0, 6);
@@ -1276,6 +1335,68 @@ void Lumen::StartPipeline()
 
 		SSRTTemporal.Unbind();
 
+		// Volumetrics 
+
+		if (VolumetricLighting) {
+			Volumetrics.Bind();
+
+			VolumetricsShader.Use();
+			VolumetricsShader.SetInteger("u_LowResDepth", 0);
+			VolumetricsShader.SetInteger("u_LFNormals", 1);
+			VolumetricsShader.SetInteger("u_Shadowmap", 2);
+			VolumetricsShader.SetInteger("u_HistoryVolumetrics", 3);
+			VolumetricsShader.SetInteger("u_HistoryDepth", 4);
+			VolumetricsShader.SetVector3f("u_SunDirection", SunDirection);
+			VolumetricsShader.SetMatrix4("u_SunShadowMatrix", GetLightViewProjection(SunDirection));
+			VolumetricsShader.SetFloat("u_SunVLStrength", SunVolumetricsStrength);
+			VolumetricsShader.SetBool("u_VolumetricsTemporal", VolumetricsTemporal);
+			SetCommonUniforms(VolumetricsShader, UniformBuffer);
+
+			glActiveTexture(GL_TEXTURE0);
+			glBindTexture(GL_TEXTURE_2D, DownsampledGBuffer.GetTexture());
+
+			glActiveTexture(GL_TEXTURE1);
+			glBindTexture(GL_TEXTURE_2D, GBuffer.GetTexture(3));
+
+			glActiveTexture(GL_TEXTURE2);
+			glBindTexture(GL_TEXTURE_2D, Shadowmap.GetDepthTexture());
+
+			glActiveTexture(GL_TEXTURE3);
+			glBindTexture(GL_TEXTURE_2D, VolumetricsHistory.GetTexture());
+
+			glActiveTexture(GL_TEXTURE4);
+			glBindTexture(GL_TEXTURE_2D, PrevGBuffer.GetDepthBuffer());
+
+			ScreenQuadVAO.Bind();
+			glDrawArrays(GL_TRIANGLES, 0, 6);
+			ScreenQuadVAO.Unbind();
+
+			Volumetrics.Unbind();
+
+			// Filter volumetrics (4x4 bilateral atrous filter)
+
+			BilateralFilter4x4.Use();
+			VolumetricsFiltered.Bind();
+
+			BilateralFilter4x4.SetInteger("u_Input", 0);
+			BilateralFilter4x4.SetInteger("u_LowResDepth", 1);
+			BilateralFilter4x4.SetFloat("u_SigmaB", CameraMoved || !VolumetricsTemporal ? 1.414f : 0.8f);
+			SetCommonUniforms(BilateralFilter4x4, UniformBuffer);
+
+			glActiveTexture(GL_TEXTURE0);
+			glBindTexture(GL_TEXTURE_2D, Volumetrics.GetTexture());
+
+			glActiveTexture(GL_TEXTURE1);
+			glBindTexture(GL_TEXTURE_2D, DownsampledGBuffer.GetTexture());
+
+			ScreenQuadVAO.Bind();
+			glDrawArrays(GL_TRIANGLES, 0, 6);
+			ScreenQuadVAO.Unbind();
+
+			VolumetricsFiltered.Unbind();
+		}
+
+
 
 		// Lighting combine pass : 
 
@@ -1294,7 +1415,9 @@ void Lumen::StartPipeline()
 		LightingShader.SetInteger("u_RTAO", 9);
 		LightingShader.SetInteger("u_ScreenspaceShadows", 10);
 		LightingShader.SetInteger("u_IndirectDiffuse", 17);
+		LightingShader.SetInteger("u_Volumetrics", 18);
 		LightingShader.SetBool("u_DirectSSShadows", DoScreenspaceShadow);
+		LightingShader.SetBool("u_VolumetricsEnabled", VolumetricLighting);
 		LightingShader.SetFloat("u_RTAOStrength", ScreenspaceAOStrength);
 
 		LightingShader.SetMatrix4("u_LightVP", GetLightViewProjection(SunDirection));
@@ -1347,6 +1470,9 @@ void Lumen::StartPipeline()
 		
 		glActiveTexture(GL_TEXTURE17);
 		glBindTexture(GL_TEXTURE_2D, SpatialFiltering ? FinalDenoisedBuffer.GetTexture(1) : DiffuseTemporal.GetTexture());
+
+		glActiveTexture(GL_TEXTURE18);
+		glBindTexture(GL_TEXTURE_2D, VolumetricsFilter ? VolumetricsFiltered.GetTexture() : Volumetrics.GetTexture());
 
 		// SLOTS 11 - 15 ARE USED FOR VOXEL VOLUME TEXTURES
 
@@ -1404,6 +1530,8 @@ void Lumen::StartPipeline()
 		glDrawArrays(GL_TRIANGLES, 0, 6);
 		ScreenQuadVAO.Unbind();
 
+		
+
 		// Tonemap + Gamma correct + Output
 
 		glBindFramebuffer(GL_FRAMEBUFFER, 0);
@@ -1411,10 +1539,14 @@ void Lumen::StartPipeline()
 
 		FinalShader.Use();
 		FinalShader.SetInteger("u_MainTexture", 0);
+		FinalShader.SetInteger("u_Vol", 1);
 		FinalShader.SetBool("u_FXAA", FXAA);
 
 		glActiveTexture(GL_TEXTURE0);
 		glBindTexture(GL_TEXTURE_2D, TAATemporal.GetTexture(0));
+
+		glActiveTexture(GL_TEXTURE1);
+		glBindTexture(GL_TEXTURE_2D, Volumetrics.GetTexture(0));
 
 		ScreenQuadVAO.Bind();
 		glDrawArrays(GL_TRIANGLES, 0, 6);

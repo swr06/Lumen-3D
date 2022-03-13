@@ -322,7 +322,7 @@
     <None Include="Core\Shaders\ProbeForwardVert.glsl">
       <Filter>Source Files\Lumen\Lumen-Core\Lumen-Shaders</Filter>
     </None>
-    <None Include="Core\Shaders\ProbeSpecularTrace.glsl">
+    <None Include="Core\Shaders\SpecularTrace.glsl">
       <Filter>Source Files\Lumen\Lumen-Core\Lumen-Shaders</Filter>
     </None>
     <None Include="Core\Shaders\SpecularTemporal.glsl">
@@ -396,6 +396,12 @@
     </None>
     <None Include="Core\Shaders\SVGF\Variance.glsl">
       <Filter>Source Files\Lumen\Lumen-Core\Lumen-Shaders\SVGF</Filter>
+    </None>
+    <None Include="Core\Shaders\Volumetrics.glsl">
+      <Filter>Source Files\Lumen\Lumen-Core\Lumen-Shaders</Filter>
+    </None>
+    <None Include="Core\Shaders\BilateralFilter4x4.glsl">
+      <Filter>Source Files\Lumen\Lumen-Core\Lumen-Shaders</Filter>
     </None>
   </ItemGroup>
 </Project>

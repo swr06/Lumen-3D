@@ -4,6 +4,7 @@ in vec2 v_TexCoords;
 layout(location = 0) out vec3 o_Color;
 
 uniform sampler2D u_MainTexture;
+uniform sampler2D u_Vol;
 
 uniform bool u_FXAA;
 
@@ -50,11 +51,8 @@ vec3 FXAA311(vec3 color);
 
 void main()
 {
-    o_Color.xyz = texture(u_MainTexture, v_TexCoords).xyz;
-
-	if (u_FXAA)
-		o_Color = FXAA311(o_Color);
-	
+    o_Color.xyz = (texture(u_MainTexture, v_TexCoords).xyz);
+   
     o_Color = ACESFitted(vec4(o_Color, 1.0f), 2.0f).xyz;
 	o_Color *= Vignette();
     o_Color = pow(o_Color, vec3(1.0f / 2.2f));

@@ -13,7 +13,7 @@ void Lumen::ShaderManager::CreateShaders()
 	AddShader("PROBE_FORWARD", "Core/Shaders/ProbeForwardVert.glsl", "Core/Shaders/ProbeForwardFrag.glsl");
 	AddShader("PROBE_SKY", "Core/Shaders/ProbeSkyVert.glsl", "Core/Shaders/ProbeSkyFrag.glsl");
 
-	AddShader("PROBE_SPECULAR", "Core/Shaders/FBOVert.glsl", "Core/Shaders/ProbeSpecularTrace.glsl");
+	AddShader("SPECULAR_TRACE", "Core/Shaders/FBOVert.glsl", "Core/Shaders/SpecularTrace.glsl");
 	AddShader("SPATIAL", "Core/Shaders/FBOVert.glsl", "Core/Shaders/SpatialFilter.glsl");
 	AddShader("SPECULAR_TEMPORAL", "Core/Shaders/FBOVert.glsl", "Core/Shaders/SpecularTemporal.glsl");
 	AddShader("SPECULAR_CONE_TRACE", "Core/Shaders/FBOVert.glsl", "Core/Shaders/ScreenspaceConeTracing.glsl");
@@ -29,6 +29,8 @@ void Lumen::ShaderManager::CreateShaders()
 	AddShader("GBUFFER_DOWNSAMPLER", "Core/Shaders/FBOVert.glsl", "Core/Shaders/DownsampleGBuffer.glsl");
 	AddShader("VOXEL_DIFFUSE_GI", "Core/Shaders/FBOVert.glsl", "Core/Shaders/DiffuseTrace.glsl");
 	AddShader("SVGF_VARIANCE", "Core/Shaders/FBOVert.glsl", "Core/Shaders/SVGF/Variance.glsl");
+	AddShader("VOLUMETRICS", "Core/Shaders/FBOVert.glsl", "Core/Shaders/Volumetrics.glsl");
+	AddShader("BILATERAL_FILTER", "Core/Shaders/FBOVert.glsl", "Core/Shaders/BilateralFilter4x4.glsl");
 }
 
 void Lumen::ShaderManager::AddShader(const std::string& name, const std::string& vert, const std::string& frag, const std::string& geo)

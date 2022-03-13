@@ -152,7 +152,7 @@ void main() {
 		vec3 Emission = RawAlbedo * u_ModelEmission * 2.2f;
 		vec3 Combined = Direct + Emission;
 
-		vec3 HDR = Combined;
+		vec3 HDR = Combined + vec3(Albedo * 0.01f);
 		vec4 EncodeHDR = EncodeLighting(HDR);
 
 		uint NormalEncoded = GetEncodedNormal(Normal);
