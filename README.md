@@ -9,7 +9,6 @@
 - SVGF Denoising
 - TAA
 - Volumetric Lighting
-- 
 
 ## Planned 
 
