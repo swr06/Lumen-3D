@@ -149,6 +149,8 @@
   <ItemGroup>
     <ClInclude Include="Core\Application\Application.h" />
     <ClInclude Include="Core\Application\Logger.h" />
+    <ClInclude Include="Core\BloomFBO.h" />
+    <ClInclude Include="Core\BloomRenderer.h" />
     <ClInclude Include="Core\BVH\BVHConstructor.h" />
     <ClInclude Include="Core\Entity.h" />
     <ClInclude Include="Core\FpsCamera.h" />
@@ -192,6 +194,8 @@
   <ItemGroup>
     <ClCompile Include="Core\Application\Application.cpp" />
     <ClCompile Include="Core\Application\Logger.cpp" />
+    <ClCompile Include="Core\BloomFBO.cpp" />
+    <ClCompile Include="Core\BloomRenderer.cpp" />
     <ClCompile Include="Core\BVH\BVHConstructor.cpp" />
     <ClCompile Include="Core\FpsCamera.cpp" />
     <ClCompile Include="Core\GLClasses\ComputeShader.cpp" />
@@ -236,11 +240,14 @@
     <None Include="Core\Shaders\BasicFrag.glsl" />
     <None Include="Core\Shaders\BasicVert.glsl" />
     <None Include="Core\Shaders\BilateralFilter4x4.glsl" />
+    <None Include="Core\Shaders\BloomBlurTwoPass.glsl" />
+    <None Include="Core\Shaders\BloomMaskFrag.glsl" />
     <None Include="Core\Shaders\ClearVolume.comp" />
     <None Include="Core\Shaders\DiffuseTrace.glsl" />
     <None Include="Core\Shaders\DownsampleGBuffer.glsl" />
     <None Include="Core\Shaders\InstanceCubemapUpdate\InstanceCubemapUpdateFrag.glsl" />
     <None Include="Core\Shaders\InstanceCubemapUpdate\InstanceCubemapUpdateVert.glsl" />
+    <None Include="Core\Shaders\PostProcessCombine.glsl" />
     <None Include="Core\Shaders\SpatialFilter.glsl" />
     <None Include="Core\Shaders\IndirectCheckerboard.glsl" />
     <None Include="Core\Shaders\ColorPass.glsl" />
@@ -248,7 +255,7 @@
     <None Include="Core\Shaders\DebugRedOutput.glsl" />
     <None Include="Core\Shaders\DepthFrag.glsl" />
     <None Include="Core\Shaders\DepthVert.glsl" />
-    <None Include="Core\Shaders\FBOFrag.glsl" />
+    <None Include="Core\Shaders\Tonemap.glsl" />
     <None Include="Core\Shaders\FBOVert.glsl" />
     <None Include="Core\Shaders\GaussianBlur.glsl" />
     <None Include="Core\Shaders\GeometryFrag.glsl" />

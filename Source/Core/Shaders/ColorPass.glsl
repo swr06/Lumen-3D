@@ -451,7 +451,7 @@ void main()
 	vec4 PBR = texture(u_PBRTexture, v_TexCoords).xyzw;
 
 	// Model emission
-	vec3 Emission = PBR.w * 1.5f * Albedo;
+	vec3 Emission = PBR.w * 24.5f * Albedo;
 
 	// View vector 
     vec3 Lo = normalize(u_ViewerPosition - WorldPosition);

@@ -25,6 +25,9 @@
 
 #include "Voxelizer.h"
 
+#include "BloomRenderer.h"
+#include "BloomFBO.h"
+
 // Camera
 Lumen::FPSCamera Camera(90.0f, 800.0f / 600.0f);
 
@@ -63,6 +66,9 @@ static bool VolumetricLighting = true;
 static bool VolumetricsFilter = true;
 static bool VolumetricsTemporal = true;
 static float SunVolumetricsStrength = 1.0f;
+
+// Bloom
+static bool DoBloom = true;
 
 // Update rates
 static int ProbeUpdateRate = 1;
@@ -171,6 +177,11 @@ public:
 		ImGui::Checkbox("Temporal Filter Volumetrics?", &VolumetricsTemporal);
 		ImGui::Checkbox("Filter Volumetrics?", &VolumetricsFilter);
 		ImGui::SliderFloat("Volumetrics Strength", &SunVolumetricsStrength, 0.1f, 4.0f);
+
+		ImGui::NewLine();
+		ImGui::NewLine();
+
+		ImGui::Checkbox("Bloom?", &DoBloom);
 
 		ImGui::NewLine();
 		ImGui::NewLine();
@@ -363,6 +374,8 @@ GLClasses::Framebuffer VolumetricsFiltered(16, 16, { {GL_RGBA16F, GL_RGBA, GL_FL
 
 // TAA Buffers
 GLClasses::Framebuffer TAABuffers[2] = { GLClasses::Framebuffer(16, 16, {GL_RGB16F, GL_RGB, GL_FLOAT, true, true}, false, false), GLClasses::Framebuffer(16, 16, {GL_RGB16F, GL_RGB, GL_FLOAT, true, true}, false, false) };
+
+GLClasses::Framebuffer PostProcessCombined(16, 16, { GL_RGB16F, GL_RGB, GL_FLOAT, true, true }, false, false);
 
 // Spatial Buffers 
 GLClasses::Framebuffer SpatialFilterBuffers[2] = { GLClasses::Framebuffer(16, 16, {{ GL_RGBA16F, GL_RGBA, GL_FLOAT, true, true },{ GL_RGBA16F, GL_RGBA, GL_FLOAT, true, true }, {GL_R16F, GL_RED, GL_FLOAT, true, true}}, false, false), GLClasses::Framebuffer(16, 16, {{ GL_RGBA16F, GL_RGBA, GL_FLOAT, true, true },{ GL_RGBA16F, GL_RGBA, GL_FLOAT, true, true }, {GL_R16F, GL_RED, GL_FLOAT, true, true}}, false, false) };
@@ -573,7 +586,9 @@ void Lumen::StartPipeline()
 
 	GLClasses::Shader& GBufferDownsampleShader = ShaderManager::GetShader("GBUFFER_DOWNSAMPLER");
 	GLClasses::Shader& VolumetricsShader = ShaderManager::GetShader("VOLUMETRICS");
-	GLClasses::Shader& BilateralFilter4x4 = ShaderManager::GetShader("BILATERAL_FILTER");
+	GLClasses::Shader& BilateralFilter4x4Shader = ShaderManager::GetShader("BILATERAL_FILTER");
+
+	GLClasses::Shader& PostProcessCombineShader = ShaderManager::GetShader("POST_COMBINE");
 
 
 	// History
@@ -591,13 +606,19 @@ void Lumen::StartPipeline()
 	// Temporal jitter
 	GenerateJitterStuff();
 
-	// Conetracing framebuffer
+	// SS Conetracing framebuffer
 	GLuint GaussianMipFBO = 0;
 	glGenFramebuffers(1, &GaussianMipFBO);
 	glBindFramebuffer(GL_FRAMEBUFFER, GaussianMipFBO);
 	GLenum Buffers[1] = { GL_COLOR_ATTACHMENT0 };
 	glDrawBuffers(1, Buffers);
 	glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+	// Bloom Framebuffers 
+	const float BloomResolution = 0.2f;
+	BloomFBO BloomBuffer(16, 16);
+	BloomFBO BloomBufferB(16, 16);
+	BloomRenderer::Initialize();
 
 	// Create voxel cascades 
 
@@ -669,11 +690,18 @@ void Lumen::StartPipeline()
 		VolumetricsBuffers[1].SetSize(app.GetWidth() * VolumetricsResolution, app.GetHeight() * VolumetricsResolution);
 		VolumetricsFiltered.SetSize(app.GetWidth() * VolumetricsResolution, app.GetHeight() * VolumetricsResolution);
 
+		// Bloom 
+		BloomBuffer.SetSize(app.GetWidth() * BloomResolution, app.GetHeight() * BloomResolution);
+		BloomBufferB.SetSize(app.GetWidth() * BloomResolution, app.GetHeight() * BloomResolution);
+
 		// RTAO
 		ScreenspaceOcclusion.SetSize(app.GetWidth() * ScreenspaceOcclusionRes * (ScreenspaceOcclusionCheckerboard ? 0.5f : 1.0f), app.GetHeight() * ScreenspaceOcclusionRes);
 		ScreenspaceOcclusionTemporalBuffers[0].SetSize(app.GetWidth() * ScreenspaceOcclusionRes, app.GetHeight() * ScreenspaceOcclusionRes);
 		ScreenspaceOcclusionTemporalBuffers[1].SetSize(app.GetWidth() * ScreenspaceOcclusionRes, app.GetHeight() * ScreenspaceOcclusionRes);
 		ScreenspaceOcclusionCheckerboardConstruct.SetSize(app.GetWidth() * ScreenspaceOcclusionRes, app.GetHeight() * ScreenspaceOcclusionRes);
+
+		// Post-process combine 
+		PostProcessCombined.SetSize(app.GetWidth(), app.GetHeight());
 
 		// Generate mipmaps 
 		if (app.GetCurrentFrame() % 8 == 0) {
@@ -1375,13 +1403,13 @@ void Lumen::StartPipeline()
 
 			// Filter volumetrics (4x4 bilateral atrous filter)
 
-			BilateralFilter4x4.Use();
+			BilateralFilter4x4Shader.Use();
 			VolumetricsFiltered.Bind();
 
-			BilateralFilter4x4.SetInteger("u_Input", 0);
-			BilateralFilter4x4.SetInteger("u_LowResDepth", 1);
-			BilateralFilter4x4.SetFloat("u_SigmaB", CameraMoved || !VolumetricsTemporal ? 1.414f : 0.8f);
-			SetCommonUniforms(BilateralFilter4x4, UniformBuffer);
+			BilateralFilter4x4Shader.SetInteger("u_Input", 0);
+			BilateralFilter4x4Shader.SetInteger("u_LowResDepth", 1);
+			BilateralFilter4x4Shader.SetFloat("u_SigmaB", CameraMoved || !VolumetricsTemporal ? 1.414f : 0.8f);
+			SetCommonUniforms(BilateralFilter4x4Shader, UniformBuffer);
 
 			glActiveTexture(GL_TEXTURE0);
 			glBindTexture(GL_TEXTURE_2D, Volumetrics.GetTexture());
@@ -1530,7 +1558,54 @@ void Lumen::StartPipeline()
 		glDrawArrays(GL_TRIANGLES, 0, 6);
 		ScreenQuadVAO.Unbind();
 
-		
+		// Bloom 
+		GLuint BrightTex = 0;
+
+		if (DoBloom) {
+			BloomRenderer::RenderBloom(TAATemporal.GetTexture(), GBuffer.GetTexture(2), BloomBuffer, BloomBufferB, BrightTex, true);
+		}
+
+
+		// Combine post process
+
+		PostProcessCombineShader.Use();
+		PostProcessCombined.Bind();
+
+		PostProcessCombineShader.SetInteger("u_Texture", 0);
+		PostProcessCombineShader.SetInteger("u_BloomMips[0]", 1);
+		PostProcessCombineShader.SetInteger("u_BloomMips[1]", 2);
+		PostProcessCombineShader.SetInteger("u_BloomMips[2]", 3);
+		PostProcessCombineShader.SetInteger("u_BloomMips[3]", 4);
+		PostProcessCombineShader.SetInteger("u_BloomMips[4]", 5);
+		PostProcessCombineShader.SetInteger("u_BloomBrightTexture", 6);
+		PostProcessCombineShader.SetBool("u_BloomEnabled", DoBloom);
+
+		glActiveTexture(GL_TEXTURE0);
+		glBindTexture(GL_TEXTURE_2D, TAATemporal.GetTexture(0));
+
+		glActiveTexture(GL_TEXTURE1);
+		glBindTexture(GL_TEXTURE_2D, BloomBuffer.m_Mips[0]);
+
+		glActiveTexture(GL_TEXTURE2);
+		glBindTexture(GL_TEXTURE_2D, BloomBuffer.m_Mips[1]);
+
+		glActiveTexture(GL_TEXTURE3);
+		glBindTexture(GL_TEXTURE_2D, BloomBuffer.m_Mips[2]);
+
+		glActiveTexture(GL_TEXTURE4);
+		glBindTexture(GL_TEXTURE_2D, BloomBuffer.m_Mips[3]);
+
+		glActiveTexture(GL_TEXTURE5);
+		glBindTexture(GL_TEXTURE_2D, BloomBuffer.m_Mips[4]);
+
+		glActiveTexture(GL_TEXTURE6);
+		glBindTexture(GL_TEXTURE_2D, BrightTex);
+
+		ScreenQuadVAO.Bind();
+		glDrawArrays(GL_TRIANGLES, 0, 6);
+		ScreenQuadVAO.Unbind();
+
+		PostProcessCombined.Unbind();
 
 		// Tonemap + Gamma correct + Output
 
@@ -1539,14 +1614,10 @@ void Lumen::StartPipeline()
 
 		FinalShader.Use();
 		FinalShader.SetInteger("u_MainTexture", 0);
-		FinalShader.SetInteger("u_Vol", 1);
 		FinalShader.SetBool("u_FXAA", FXAA);
 
 		glActiveTexture(GL_TEXTURE0);
-		glBindTexture(GL_TEXTURE_2D, TAATemporal.GetTexture(0));
-
-		glActiveTexture(GL_TEXTURE1);
-		glBindTexture(GL_TEXTURE_2D, Volumetrics.GetTexture(0));
+		glBindTexture(GL_TEXTURE_2D, PostProcessCombined.GetTexture(0));
 
 		ScreenQuadVAO.Bind();
 		glDrawArrays(GL_TRIANGLES, 0, 6);

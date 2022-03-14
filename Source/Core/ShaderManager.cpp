@@ -7,7 +7,7 @@ void Lumen::ShaderManager::CreateShaders()
 {
 	AddShader("GBUFFER", "Core/Shaders/GeometryVert.glsl", "Core/Shaders/GeometryFrag.glsl");
 	AddShader("LIGHTING_PASS", "Core/Shaders/FBOVert.glsl", "Core/Shaders/ColorPass.glsl");
-	AddShader("FINAL", "Core/Shaders/FBOVert.glsl", "Core/Shaders/FBOFrag.glsl");
+	AddShader("FINAL", "Core/Shaders/FBOVert.glsl", "Core/Shaders/Tonemap.glsl");
 	AddShader("DEPTH", "Core/Shaders/DepthVert.glsl", "Core/Shaders/DepthFrag.glsl");
 
 	AddShader("PROBE_FORWARD", "Core/Shaders/ProbeForwardVert.glsl", "Core/Shaders/ProbeForwardFrag.glsl");
@@ -31,6 +31,7 @@ void Lumen::ShaderManager::CreateShaders()
 	AddShader("SVGF_VARIANCE", "Core/Shaders/FBOVert.glsl", "Core/Shaders/SVGF/Variance.glsl");
 	AddShader("VOLUMETRICS", "Core/Shaders/FBOVert.glsl", "Core/Shaders/Volumetrics.glsl");
 	AddShader("BILATERAL_FILTER", "Core/Shaders/FBOVert.glsl", "Core/Shaders/BilateralFilter4x4.glsl");
+	AddShader("POST_COMBINE", "Core/Shaders/FBOVert.glsl", "Core/Shaders/PostProcessCombine.glsl");
 }
 
 void Lumen::ShaderManager::AddShader(const std::string& name, const std::string& vert, const std::string& frag, const std::string& geo)
