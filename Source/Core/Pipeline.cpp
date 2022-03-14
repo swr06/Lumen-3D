@@ -629,7 +629,7 @@ void Lumen::StartPipeline()
 	while (!glfwWindowShouldClose(app.GetWindow()))
 	{
 		// Normalize 
-		SunDirection = glm::normalize(SunDirection);
+		//SunDirection = glm::normalize(SunDirection);
 
 		// Matrices 
 		PreviousProjection = Camera.GetProjectionMatrix();

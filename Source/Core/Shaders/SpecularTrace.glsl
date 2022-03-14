@@ -280,9 +280,8 @@ vec3 CosWeightedHemisphere(const vec3 n)
 }
 
 
-
-const float EmissiveDesat = 0.925f;
-const float EmissionStrength = 3.5f;
+const float EmissiveDesat = 0.9f;
+const float EmissionStrength = 11.f;
 const bool Skylighting = true;
 
 GBufferData Raytrace(vec3 WorldPosition, vec3 Direction, float ErrorTolerance, float Hash, int Steps, int BinarySteps) {
@@ -671,7 +670,7 @@ vec3 ReprojectIndirect(vec3 P, vec3 A, float R, vec3 Bp)
 }
 
 
-const vec3 SUN_COLOR = vec3(8.0f);
+const vec3 SUN_COLOR = vec3(20.0f);
 
 // Integrates lighting for a point
 vec3 IntegrateLighting(GBufferData Hit, vec3 Direction, const bool FilterShadow, float R, float D, vec3 Origin) {

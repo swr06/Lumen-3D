@@ -325,7 +325,7 @@ vec3 GetCapturePoint(vec3 Direction) {
 }
 
 // Raytraces the camera centric probe 
-vec4 RaytraceProbe(vec3 WorldPosition, vec3 Direction, float Hash, int Steps, int BinarySteps, float ErrorTolerance) 
+vec4 RaytraceProbe(const vec3 WorldPosition, vec3 Direction, float Hash, int Steps, int BinarySteps, float ErrorTolerance, out vec3 oNormal) 
 {
 	const float Distance = 384.0f;
 
@@ -408,13 +408,14 @@ vec4 RaytraceProbe(vec3 WorldPosition, vec3 Direction, float Hash, int Steps, in
         vec3 IntersectionPos = (CapturePoint + DepthFetch * FinalSampleDirection);
         vec3 IntersectNormal = NormalFetch.xyz;
         vec3 IntersectAlbedo = AlbedoFetch.xyz;
-		vec3 IntersectEmissive = mix(AlbedoFetch.xyz,vec3(Luminance(AlbedoFetch.xyz)),0.6f) * NormalFetch.w * 10.0f;
-
-		return vec4(SampleRadiance(IntersectionPos, IntersectNormal, IntersectAlbedo, IntersectEmissive), 1.0f) ;
+		vec3 IntersectEmissive = mix(AlbedoFetch.xyz,vec3(Luminance(AlbedoFetch.xyz)),0.1f) * NormalFetch.w * 16.0f;
+		oNormal = IntersectNormal.xyz;
+		return vec4(SampleRadiance(IntersectionPos, IntersectNormal, IntersectAlbedo, IntersectEmissive),
+					clamp(distance(WorldPosition, RayPosition) / 42.0f, 0.0f, 1.0f)) ;
     }
 
-
-    return vec4(vec3(0.0f), 0.0f);
+	oNormal = vec3(-1.);
+    return vec4(vec3(0.0f), 1.0f);
 }
 
 
@@ -486,11 +487,15 @@ bool IsSky(float NonLinearDepth) {
     return false;
 }
 
+// Trace settings 
 
+// First bounce settings 
+const bool VX_FIRST_BOUNCE = true;
 
 // Second bounce settings 
 const bool DO_SECOND_BOUNCE = true;
 const bool VX_SECOND_BOUNCE = true;
+
 
 
 void main() {
@@ -557,11 +562,19 @@ void main() {
 
 	vec4 IntersectionVX = vec4(0.0f);
 	vec3 VXNormal = vec3(0.0f);
-	vec4 DiffuseVX = RaymarchCascades(WorldPosition, Normal, CosineHemisphereDirection, 1.0f, BayerHash, 192, IntersectionVX, 1, VXNormal, true);
+	vec4 DiffuseVX = vec4(0.0f);
+	
+	if (VX_FIRST_BOUNCE) {
+		DiffuseVX = RaymarchCascades(WorldPosition, Normal, CosineHemisphereDirection, 1.0f, BayerHash, 192, IntersectionVX, 1, VXNormal, true);
+	}
+
+	else {
+		DiffuseVX = RaytraceProbe(WorldPosition.xyz + Normal * 3.f, CosineHemisphereDirection, BayerHash, 64, 32, 0.625f, VXNormal) * 2.;
+	}
+
 
 	TotalRadiance += DiffuseVX;
 
-	////TotalRadiance = RaytraceProbe(WorldPosition.xyz + Normal * 3.0f, CosineHemisphereDirection, BayerHash, 32, 12, 0.625f);
 
 	if (DO_SECOND_BOUNCE && IntersectionVX.w > 0.6f) {
 		
@@ -578,8 +591,10 @@ void main() {
 
 		if (!VX_SECOND_BOUNCE) {
 
+			vec3 In;
+
 			// Raytrace probe ->
-			vec4 ProbeTrace = RaytraceProbe(IntersectionVX.xyz + VXNormal * 3.f, SecondCosineHemisphereDirection, BayerHash, 32, 12, 0.5f);
+			vec4 ProbeTrace = RaytraceProbe(IntersectionVX.xyz + VXNormal * 2.f, SecondCosineHemisphereDirection, BayerHash, 32, 12, 0.5f, In);
 			
 			// Is the probe hit valid?
 			if (ProbeTrace.w > 0.5f) {

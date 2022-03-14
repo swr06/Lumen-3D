@@ -549,8 +549,9 @@ void main()
 		int RandomCascade = clamp(int(mix(0.0f, 5.0f, hash2().x)), 0, 5);
 
 		bool HadHit = false;
-		for (int pass = 0; pass < 6 ; pass++) {
+		for (int pass = 4; pass < 6 ; pass++) {
 			HadHit = DDA(pass, u_ViewerPosition, rD, 256, VoxelData, VoxelNormal, VoxelPosition);
+			
 			//HadHit = DDA(pass, WorldPosition + Normal * ((pass * 1.5f * sqrt(2.0f)) + 1.0f), R, 500, VoxelData, VoxelNormal, VoxelPosition);;
 			if (HadHit) { break; }
 		}
@@ -560,7 +561,7 @@ void main()
 		if (HadHit) {
 
 			if (Luminance(VoxelData.xyz) < Luminance(vec3(1.0f) * 0.01f)) {
-				VoxelData /= 0.2f;
+				VoxelData /= 0.4f;
 			}
 
 			o_Color = VoxelData.xyz;
