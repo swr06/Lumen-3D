@@ -137,10 +137,16 @@ float SimpleDirect(vec3 P)
 	ProjectionCoordinates.xyz = ProjectionCoordinates.xyz / ProjectionCoordinates.w;
     ProjectionCoordinates.xyz = ProjectionCoordinates.xyz * 0.5f + 0.5f;
 
-    float Depth = ProjectionCoordinates.z;
-	float Bias = 0.002f;  
-    float SimpleFetch = texture(u_Shadowmap, ProjectionCoordinates.xy).x;
-    return 1.0f - float(ProjectionCoordinates.z - Bias > SimpleFetch);
+    if (ProjectionCoordinates.xy == clamp(ProjectionCoordinates.xy, 0., 1.)) {
+        float Depth = ProjectionCoordinates.z;
+	    float Bias = 0.002f;  
+        float SimpleFetch = texture(u_Shadowmap, ProjectionCoordinates.xy).x;
+        return 1.0f - float(ProjectionCoordinates.z - Bias > SimpleFetch);
+    }
+
+    else {
+        return 0.;
+    }
 }
 
 // Density function 
@@ -204,31 +210,35 @@ vec4 Reproject(vec3 WorldPosition, vec4 Data, float Transversal, vec3 Direction)
     return Data;
 }
 
+vec2 g_TexCoords;
+
 void main() {
 
-    float HashAnimated = fract(fract(mod(float(u_Frame) + float(0.) * 2., 384.0f) * (1.0 / PHI)) + Bayer64(gl_FragCoord.xy));
+    g_TexCoords = v_TexCoords + (u_Jitter * (1.0f / textureSize(u_HistoryVolumetrics, 0).xy));
+    
+    float HashAnimated = fract(fract(mod(float(u_Frame) + float(0.) * 2., 384.0f) * (1.0 / PHI)) + Bayer16(gl_FragCoord.xy));
     
     bool Checkerstep = int(gl_FragCoord.x + gl_FragCoord.y) % 2 == (u_Frame % 2);
-    int Steps = 32;//int(mix(48.,32.,float(Checkerstep)));
+    int Steps = 32;//int(mix(32.,40.,float(Checkerstep)));
     const float MaxDistance = 384.0f;
 
-    float Hash = Bayer32(gl_FragCoord.xy);
+    float Hash = Bayer64(gl_FragCoord.xy);
 
-    float Depth = texture(u_LowResDepth, v_TexCoords).x;
-    vec3 Normals = texture(u_LFNormals, v_TexCoords).xyz;
+    float Depth = texture(u_LowResDepth, g_TexCoords).x;
+    vec3 Normals = texture(u_LFNormals, g_TexCoords).xyz;
 
-    vec3 WorldPosition = WorldPosFromDepth(Depth, v_TexCoords);  
+    vec3 WorldPosition = WorldPosFromDepth(Depth, g_TexCoords);  
     vec3 RawWorldPosition = WorldPosition;
 
     float Distance = IsSky(Depth) ? MaxDistance : distance(WorldPosition, u_ViewerPosition);
     Distance = clamp(Distance, 0.000001f, MaxDistance);
 
-    vec3 Direction = Incident(v_TexCoords);
+    vec3 Direction = Incident(g_TexCoords);
     vec3 EndPosition = u_ViewerPosition + Direction * Distance;
 
     float StepSize = Distance / float(Steps);
 
-    vec3 RayPosition = u_ViewerPosition + Direction * Hash;
+    vec3 RayPosition = u_ViewerPosition + Direction * HashAnimated;
 
     const float G = 0.7f;
 
@@ -251,9 +261,10 @@ void main() {
             continue;
         }
 
-        float Direct = SimpleDirect(RayPosition);
-
-        vec3 S = Direct * DirectPhase * StepSize * Density * Transmittance * SunColor;
+        float DirectVisibility = SimpleDirect(RayPosition);
+        vec3 Direct = DirectVisibility * DirectPhase * SunColor;
+        //vec3 Indirect = mix(0.0f, 1.0f, 1.0f - clamp(RayPosition.y / 300.0f, 0.0f, 1.0f)) * vec3(0.5f, 0.5f, 1.0f) * 0.0004f;
+        vec3 S = (Direct) * StepSize * Density * Transmittance;
 
         DirectScattering += S;
         Transmittance *= exp(-(StepSize * Density) * Extinction);
