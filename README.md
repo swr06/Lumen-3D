@@ -7,15 +7,16 @@
 - Cook torrance BRDF
 - Simple shadow maps with PCF
 - SVGF Denoising
-- TAA
+- TAA, FXAA 
 - Volumetric Lighting
+- Bloom
 
 ## Planned 
 
 ### Lighting 
 
 - PCSS, CSM, Omnidirectional contact-hardening shadows
-- LPV + Temporal GPU powered floodfill for fast indirect lighting + volumetrics
+- Indirect volumetrics
 - LTC Area lights 
 - Mesh tracing using SAH BVH
 - Surfel GI (at some point)
