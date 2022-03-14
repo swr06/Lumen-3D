@@ -1,5 +1,7 @@
 # Lumen Engine
 
+For the record, I came up with this name wayy before unreal did.
+
 ## Done
 
 - Voxelization
