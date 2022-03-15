@@ -1,6 +1,6 @@
 # Lumen Engine
 
-For the record, I came up with this name wayy before unreal did.
+For the record, I came up with this name much much before unreal did. 
 
 ## Done
 
