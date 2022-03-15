@@ -28,10 +28,7 @@ float Bayer2(vec2 a)
 }
 
 layout (location = 0) out vec4 o_SpecularIndirect;
-
-// Intersection transversal, used as an input to the temporal denoiser 
-// Can also be used to aid the spatial denoiser
-layout (location = 1) out float o_Transversal;
+layout (location = 1) out float o_HitValidity;
 
 in vec2 v_TexCoords;
 
@@ -734,7 +731,7 @@ vec3 IntegrateLighting(GBufferData Hit, vec3 Direction, const bool FilterShadow,
     // Todo : Switch to hammon diffuse brdf (ignore specular brdf to reduce variance)
     float Lambertian = max(0.0f, dot(Hit.Normal, -u_SunDirection));
     vec3 Direct = Lambertian * SUN_COLOR * 0.75f * Shadow * Hit.Albedo;
-    vec3 Indirect = ReprojectIndirect(Hit.Position, Hit.Albedo, R, Origin);
+    vec3 Indirect = ReprojectIndirect(Hit.Position, Hit.Albedo, R, Origin); /// + (IndirectAddon * Hit.Albedo);
     return Direct + Indirect + Hit.Emission;
 }
 
@@ -950,6 +947,8 @@ const bool VX_TRACE = false;
 
 void main() {
     
+    float oTransversal = 0.;
+
     vec2 TexCoordJittered = v_TexCoords;
 
     HASH2SEED = (TexCoordJittered.x * TexCoordJittered.y) * 64.0;
@@ -981,8 +980,8 @@ void main() {
 	// Sky check
     if (IsSky(Depth)) {
         o_SpecularIndirect.xyz = vec3(0.0f);
-        o_Transversal = 256.0f;
-        o_SpecularIndirect.w = o_Transversal;
+        oTransversal = 256.0f;
+        o_SpecularIndirect.w = oTransversal;
         return;
     }
 
@@ -1021,6 +1020,7 @@ void main() {
     int ProbeSteps = int(mix(128.0f, 48.0f, BiasedRoughness < 0.25f ? pow(BiasedRoughness,1.5f) : BiasedRoughness));
     int ProbeBinarySteps = (BiasedRoughness <= 0.51f) ? 16 : 12;
 
+    bool HadValidHit = false;
 
     for (int Sample ; Sample < SAMPLES ; Sample++) {
 
@@ -1058,13 +1058,25 @@ void main() {
                 
                 // If that fails, trace in probe space  
                 if (!Intersection.ValidMask) {
-
+                    
                     Intersection = Raytrace(WorldPosition + LFNormal * Bias_n, Direction, Tolerance, BayerHash, ProbeSteps, ProbeBinarySteps);
+                
+                    if (Intersection.ValidMask || Intersection.SkyAmount > 0.01f) { 
+                        HadValidHit = HadValidHit || true;
+                    }
+                }
+
+                // We found an intersection in screen space!
+                else {
+                    HadValidHit = HadValidHit || true;
                 }
             }
             
             else {
                 Intersection = Raytrace(WorldPosition + LFNormal * Bias_n, Direction, Tolerance, BayerHash, ProbeSteps, ProbeBinarySteps);
+                 if (Intersection.ValidMask || Intersection.SkyAmount > 0.01f) { 
+                        HadValidHit = HadValidHit || true;
+                 }
             }
 
             // Integrate lighting for hit point
@@ -1089,15 +1101,21 @@ void main() {
                 float CurrentTransversal = VXRadiance.w;
                 AverageTransversal += CurrentTransversal;
                 TotalRadiance += VXRadiance.xyz;
+
+                HadValidHit = HadValidHit || true; // we assume that the voxel trace always gives correct intersections 
             }
 
             else {
+                
+                // we hit 
 
                 vec3 CurrentRadiance = IntegrateLighting(Intersection, Direction, FilterShadowMap, BiasedRoughness, LinearizeDepth(Depth), WorldPosition);
                 TotalRadiance += CurrentRadiance;
 
                 float CurrentTransversal = Intersection.ValidMask ? distance(Intersection.Position, WorldPosition) : 256.0f;
                 AverageTransversal += CurrentTransversal;
+
+                HadValidHit = HadValidHit || true;
             }
 
 
@@ -1111,17 +1129,19 @@ void main() {
     AverageTransversal /= max(TotalWeight, 1.0f);
 
     o_SpecularIndirect.xyz = TotalRadiance;
-    o_Transversal = AverageTransversal / 64.0f;
+    oTransversal = AverageTransversal / 64.0f;
 
     // Nan/inf check
     if (isnan(o_SpecularIndirect.x) || isnan(o_SpecularIndirect.y) || isnan(o_SpecularIndirect.z) || isinf(o_SpecularIndirect.x) || isinf(o_SpecularIndirect.y) || isinf(o_SpecularIndirect.z)) {
         o_SpecularIndirect.xyz = vec3(0.0f);
     }
 
-    if (isnan(o_Transversal) || isinf(o_Transversal)) {
-        o_Transversal = 0.0f;
+    if (isnan(oTransversal) || isinf(oTransversal)) {
+        oTransversal = 0.0f;
         o_SpecularIndirect.w = 0.0f;
     }
 
-    o_SpecularIndirect.w = o_Transversal;
+    o_SpecularIndirect.w = oTransversal;
+
+    o_HitValidity = float(HadValidHit);
 }

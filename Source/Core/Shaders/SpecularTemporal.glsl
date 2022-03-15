@@ -12,6 +12,8 @@ uniform sampler2D u_HistorySpecular;
 uniform sampler2D u_Normals;
 uniform sampler2D u_PrevTransversals;
 uniform sampler2D u_PBR;
+uniform sampler2D u_HitMask;
+
 
 uniform sampler2D u_Frames;
 
@@ -33,7 +35,13 @@ uniform float u_zNear;
 uniform float u_zFar;
 
 uniform bool u_RoughSpecular;
+uniform bool u_SpecularChecker;
 
+float Luminance(vec3 rgb)
+{
+    const vec3 W = vec3(0.2125, 0.7154, 0.0721);
+    return dot(rgb, W);
+}
 
 float linearizeDepth(float depth)
 {
@@ -109,8 +117,10 @@ void CalculateStatistics(ivec2 Pixel, vec4 Specular, float Roughness, out vec3 M
     Mean = Specular.xyz;
     StandardDeviation = Mean * Mean;
 
-    int KernelX = Roughness > 0.3f ? 2 : 2; 
-    int KernelY = Roughness > 0.3f ? 4 : 2; 
+    // Larger search area for higher roughness
+    int KernelX = Roughness > 0.275f ? 1 : 1; 
+    int KernelY = Roughness > 0.275f ? 2 : 1; 
+
     float TotalWeight = 1.0f;
 
     AverageTraversal = Specular.w;
@@ -142,26 +152,41 @@ void CalculateStatistics(ivec2 Pixel, vec4 Specular, float Roughness, out vec3 M
 
 }
 
-vec3 Clip(ivec2 Pixel, bool LesserConservative, vec3 History, vec3 Specular, float Roughness, vec3 Mean, vec3 StandardDeviation, vec3 Min, vec3 Max) {
+// This check is used to make the temporal filter more aggressive when hits are not found 
+// Since we update only a single face the probe every frame, there are flickering artifacts when moving
+// This massively helps with that as well 
+bool GetDisocclusion(vec3 History, vec3 Specular, vec2 PBR) {
 
+    ivec2 RawPixel = ivec2(gl_FragCoord.xy);
+    ivec2 Downscaled = RawPixel / (u_SpecularChecker ? ivec2(2, 1) : ivec2(1));
+
+    // Mask is 1 when there was a hit and 0 when there wasnt
+    float Mask = texelFetch(u_HitMask,Downscaled,0).x; 
+    bool MaskCheck = Mask < 0.1f; 
+
+    float Delta = distance(Specular, History); // Flicker detection 
+    bool LuminanceChk = Delta > 0.1f && Luminance(Specular) < 0.003f; //Luminance(Specular) < 0.003f;
     
-    return History;
+    bool IsMetal = PBR.y > 0.07f;
+    bool DisocclusionBias = (PBR.x < (IsMetal ? 0.25f : 0.11f)) ? (MaskCheck || LuminanceChk) : MaskCheck;
+    return DisocclusionBias;
+}
 
+// Clips specular (reduces ghosting)
+vec3 Clip(ivec2 Pixel, bool LesserConservative, vec3 History, vec3 Specular, float Roughness, float Metalness, vec3 Mean, vec3 StandardDeviation, vec3 Min, vec3 Max, bool DisocclusionBias) {
+    bool Metal = Metalness > 0.06f;
 
-    bool UseNewClipping = true;
-
-    if (UseNewClipping) {
-
-        
-
+    if (DisocclusionBias) {
+        return History;
     }
 
-    else {
-
-        float Bias = mix(0.0f, 0.5f, pow(Roughness, 1.25f));
-        vec3 Clipped = ClipAABBMinMax(History, Min - Bias, Max + Bias);
-        return Clipped;
+    if (Roughness > (Metal ? 0.6f : 0.325f)) {
+        return History;
     }
+    
+    float Bias = mix(0.0f, 0.25f, clamp(pow(Roughness * (Metal ? 1.25f : 1.6), 1.0f),0.,1.));
+    vec3 Clipped = ClipAABBMinMax(History, Min - Bias, Max + Bias);
+    return Clipped;
 }
 
 
@@ -183,7 +208,8 @@ void main() {
 
     vec2 NormalizedJitter = u_HaltonJitter / textureSize(u_Specular, 0).xy;
 
-    float Roughness = !u_RoughSpecular ? 0.05f : texture(u_PBR, v_TexCoords).x;
+    vec3 PBRFetch = texture(u_PBR, v_TexCoords).xyz;
+    float Roughness = !u_RoughSpecular ? 0.05f : PBRFetch.x;
 
     float Depth = texture(u_Depth, v_TexCoords).x;
     float LinearizedDepth = linearizeDepth(Depth);
@@ -217,8 +243,6 @@ void main() {
     if (Reprojected.x > Cutoff && Reprojected.x < 1.0f - Cutoff && Reprojected.y > Cutoff && Reprojected.y < 1.0f - Cutoff &&
         ReprojectedSurface.x > Cutoff && ReprojectedSurface.x < 1.0f - Cutoff && ReprojectedSurface.y > Cutoff && ReprojectedSurface.y < 1.0f - Cutoff && (!BE_USELESS)) 
     {
-        
-
         // Depth rejection
         float ReprojectedDepth = linearizeDepth(texture(u_PreviousDepth, Reprojected.xy).x);
         float ReprojectedSurfaceDepth = linearizeDepth(texture(u_PreviousDepth, ReprojectedSurface.xy).x);
@@ -236,8 +260,10 @@ void main() {
         // Sample History 
         vec3 History = texture(u_HistorySpecular, Reprojected.xy).xyz;
 
+        bool DisocclusionDetected = GetDisocclusion(History.xyz, Current.xyz, PBRFetch.xy);
+
         // Clip specular 
-        vec3 ClippedSpecular = Clip(Pixel, MovedCamera, History, Current.xyz, Roughness, Mean, StandardDeviation, Min, Max);
+        vec3 ClippedSpecular = Clip(Pixel, MovedCamera, History, Current.xyz, Roughness, PBRFetch.y, Mean, StandardDeviation, Min, Max, DisocclusionDetected);
         vec4 RawHistory = texture(u_HistorySpecular, Reprojected.xy).xyzw;
         History = MovedCamera ? ClippedSpecular : RawHistory.xyz; 
 
@@ -253,6 +279,8 @@ void main() {
         float Framerejection = (DepthRejection < 0.25f ? 0.0f : (DepthRejection <= 0.5 ? 0.5f : (DepthRejection <= 0.8f ? 0.75f : 1.0f))) * mix(1.0f, MovedBlurFactor, float(MovedCamera));
         o_Frames = (Frames * Framerejection) + 1;
         float TemporalBlur = (1.0f / max(o_Frames, 1.0f));
+
+       
 
         // Blur
         o_Color.xyz = mix(History.xyz, Current.xyz, TemporalBlur);

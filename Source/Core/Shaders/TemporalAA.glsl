@@ -94,7 +94,7 @@ vec3 ClampColor(vec3 Color, bool CameraMoved)
         }
     }
 
-    float Bias = 0.005f;
+    float Bias = CameraMoved ? 0.006f : 0.0125f;
 
     return clipAABB(Color, MinColor - Bias, MaxColor + Bias);
 }
@@ -178,9 +178,7 @@ void main()
 
 		vec3 PrevColor = SampleHistory(PreviousCoord.xy).rgb;
 		
-		if (CameraMoved) {
-			PrevColor = ClampColor(PrevColor, CameraMoved);
-		}
+	    PrevColor = ClampColor(PrevColor, CameraMoved);
 
 		vec2 Dimensions = textureSize(u_CurrentColorTexture, 0).xy;
 		vec2 velocity = (v_TexCoords - PreviousCoord.xy) * Dimensions;

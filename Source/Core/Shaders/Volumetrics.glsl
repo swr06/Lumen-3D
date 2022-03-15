@@ -216,16 +216,19 @@ void main() {
 
     g_TexCoords = v_TexCoords + (u_Jitter * (1.0f / textureSize(u_HistoryVolumetrics, 0).xy));
     
+    ivec2 Pixel = ivec2(gl_FragCoord).xy;
+    ivec2 HighResPixel = ivec2(gl_FragCoord).xy * 2;
+    
     float HashAnimated = fract(fract(mod(float(u_Frame) + float(0.) * 2., 384.0f) * (1.0 / PHI)) + Bayer16(gl_FragCoord.xy));
     
     bool Checkerstep = int(gl_FragCoord.x + gl_FragCoord.y) % 2 == (u_Frame % 2);
-    int Steps = 32;//int(mix(32.,40.,float(Checkerstep)));
+    int Steps = 32;
     const float MaxDistance = 384.0f;
 
     float Hash = Bayer64(gl_FragCoord.xy);
 
-    float Depth = texture(u_LowResDepth, g_TexCoords).x;
-    vec3 Normals = texture(u_LFNormals, g_TexCoords).xyz;
+    float Depth = texelFetch(u_LowResDepth, Pixel, 0).x; //texture(u_LowResDepth, g_TexCoords).x;
+    vec3 Normals = texelFetch(u_LFNormals, HighResPixel, 0).xyz; //texture(u_LFNormals, g_TexCoords).xyz;
 
     vec3 WorldPosition = WorldPosFromDepth(Depth, g_TexCoords);  
     vec3 RawWorldPosition = WorldPosition;
@@ -238,7 +241,8 @@ void main() {
 
     float StepSize = Distance / float(Steps);
 
-    vec3 RayPosition = u_ViewerPosition + Direction * HashAnimated;
+    // Use animated hash to utilize TAA a bit
+    vec3 RayPosition = u_ViewerPosition + Direction * HashAnimated * 1.0f; 
 
     const float G = 0.7f;
 

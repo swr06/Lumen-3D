@@ -352,7 +352,7 @@ GLClasses::Framebuffer ScreenspaceOcclusionCheckerboardConstruct(16, 16, { { GL_
 GLClasses::Framebuffer ScreenspaceOcclusionTemporalBuffers[2] = { GLClasses::Framebuffer(16, 16, { { GL_RED, GL_RED, GL_UNSIGNED_BYTE, true, true } , { GL_RED, GL_RED, GL_UNSIGNED_BYTE, true, true }}, false, false), GLClasses::Framebuffer(16, 16, { { GL_RED, GL_RED, GL_UNSIGNED_BYTE, true, true } , { GL_RED, GL_RED, GL_UNSIGNED_BYTE, true, true } }, false, false) };
 
 // Specular Indirect 
-GLClasses::Framebuffer SpecularIndirectBuffers[2]{ GLClasses::Framebuffer(16, 16, { {GL_RGBA16F, GL_RGBA, GL_FLOAT, true, true} }, false, false), GLClasses::Framebuffer(16, 16, { {GL_RGBA16F, GL_RGBA, GL_FLOAT, true, true} }, false, false) };
+GLClasses::Framebuffer SpecularIndirectBuffers[2]{ GLClasses::Framebuffer(16, 16, { {GL_RGBA16F, GL_RGBA, GL_FLOAT, true, true}, { GL_RED, GL_RED, GL_UNSIGNED_BYTE, true, true }  }, false, false), GLClasses::Framebuffer(16, 16, { {GL_RGBA16F, GL_RGBA, GL_FLOAT, true, true}, { GL_RED, GL_RED, GL_UNSIGNED_BYTE, true, true } }, false, false) };
 GLClasses::Framebuffer SpecularIndirectTemporalBuffers[2] = { GLClasses::Framebuffer(16, 16, {{GL_RGBA16F, GL_RGBA, GL_FLOAT, true, true}, {GL_R16F, GL_RED, GL_FLOAT, false, false} }, false, false), GLClasses::Framebuffer(16, 16, {{GL_RGBA16F, GL_RGBA, GL_FLOAT, true, true},{GL_R16F, GL_RED, GL_FLOAT, false, false}}, false, false) };
 GLClasses::Framebuffer SpecularIndirectConeTraceInput(16, 16, { GL_RGB16F, GL_RGB, GL_FLOAT, true, true }, false, false);
 GLClasses::Framebuffer SpecularIndirectConeTraceInputAlternate(16, 16, { GL_RGB16F, GL_RGB, GL_FLOAT, true, true }, false, false);
@@ -442,6 +442,10 @@ void Lumen::StartPipeline()
 
 	Object SecondaryModel;
 	FileLoader::LoadModelFile(&SecondaryModel, "Models/dragon/dragon.obj");
+
+	Object Suzanne;
+	//FileLoader::LoadModelFile(&Suzanne, "Models/suzanne/Suzanne.gltf");
+	FileLoader::LoadModelFile(&Suzanne, "Models/suzanneglass/Suzanne.gltf");
 	
 	Entity SecondaryEntity(&Cube);
 	SecondaryEntity.m_Model = glm::scale(glm::mat4(1.0f), glm::vec3(16.0f));
@@ -487,22 +491,22 @@ void Lumen::StartPipeline()
 	SecondaryEntity3.m_Model = glm::translate(SecondaryEntity3.m_Model, glm::vec3(-220.0f, 2.0f, 0.0f) * (1.0f / EntityScale));
 	SecondaryEntity3.m_EmissiveAmount = 10.0f;
 
-	Entity SecondaryEntity4(&SecondaryModel);
-	SecondaryEntity4.m_Model = glm::scale(glm::mat4(1.0f), glm::vec3(EntityScale * 0.5));
-	SecondaryEntity4.m_Model = glm::translate(SecondaryEntity4.m_Model, glm::vec3(50.0f, 3.0f, 0.0f) * (1.0f / (EntityScale * 0.5f)));
-	SecondaryEntity4.m_EmissiveAmount = 10.0f;
+	float EntityScale2 = 10.0f;
 
-	Entity SecondaryEntity5(&SecondaryModel);
-	SecondaryEntity5.m_Model = glm::scale(glm::mat4(1.0f), glm::vec3(EntityScale * 0.5f));
-	SecondaryEntity5.m_Model = glm::translate(SecondaryEntity5.m_Model, glm::vec3(-50, 3.0f, 0.0f) * (1.0f / (EntityScale * 0.5f)));
-	SecondaryEntity5.m_EmissiveAmount = 10.0f;
+	Entity SecondaryEntity4(&Suzanne);
+	SecondaryEntity4.m_Model = glm::scale(glm::mat4(1.0f), glm::vec3(EntityScale2));
+	SecondaryEntity4.m_Model = glm::translate(SecondaryEntity4.m_Model, glm::vec3(50.0f, 24.0f, 0.0f) * (1.0f / (EntityScale2)));
+	
+	Entity SecondaryEntity5(&Suzanne);
+	SecondaryEntity5.m_Model = glm::scale(glm::mat4(1.0f), glm::vec3(EntityScale2));
+	SecondaryEntity5.m_Model = glm::translate(SecondaryEntity5.m_Model, glm::vec3(-50, 24.0f, 0.0f) * (1.0f / (EntityScale2)));
 
 	// Construct BVH
 
 	//BVH::Node* SponzaRootBVHNode = BVH::BuildBVH(Sponza);
 
 	// Entity list
-	std::vector<Entity*> EntityRenderList = { &MainModel, &SecondaryEntity, &SecondaryEntity0, &SecondaryEntity1, &SecondaryEntity2, &SecondaryEntity3, &SecondaryEntity4, &SecondaryEntity5, &RedCubeEntity, &BlueCubeEntity, &RedCubeEntity2, &BlueCubeEntity2 };
+	std::vector<Entity*> EntityRenderList = { &MainModel, &SecondaryEntity, &SecondaryEntity0, &SecondaryEntity1, &SecondaryEntity2, &SecondaryEntity3, &RedCubeEntity, &BlueCubeEntity, &RedCubeEntity2, &BlueCubeEntity2, &SecondaryEntity4, &SecondaryEntity5 };
 	auto& EntityList = EntityRenderList;
 
 	// Clear CPU side vertex/index data (After bvh construction ofc.) 
@@ -1064,7 +1068,9 @@ void Lumen::StartPipeline()
 		SpecularTemporalShader.SetInteger("u_PrevTransversals", 6);
 		SpecularTemporalShader.SetInteger("u_PBR", 7);
 		SpecularTemporalShader.SetInteger("u_Frames", 8);
+		SpecularTemporalShader.SetInteger("u_HitMask", 9);
 		SpecularTemporalShader.SetBool("u_RoughSpecular", RoughSpecular);
+		SpecularTemporalShader.SetBool("u_SpecularChecker", CheckerboardIndirect);
 		SetCommonUniforms(SpecularTemporalShader, UniformBuffer);
 
 		glActiveTexture(GL_TEXTURE0);
@@ -1090,6 +1096,9 @@ void Lumen::StartPipeline()
 
 		glActiveTexture(GL_TEXTURE8);
 		glBindTexture(GL_TEXTURE_2D, PrevSpecularTemporal.GetTexture(1));
+		
+		glActiveTexture(GL_TEXTURE9);
+		glBindTexture(GL_TEXTURE_2D, SpecularIndirect.GetTexture(1));
 
 		ScreenQuadVAO.Bind();
 		glDrawArrays(GL_TRIANGLES, 0, 6);
