@@ -1,6 +1,6 @@
 # Lumen Engine
 
-For the record, I came up with this name wayy before unreal did.
+For the record, I came up with this name much much before unreal did. 
 
 ## Done
 
@@ -8,7 +8,7 @@ For the record, I came up with this name wayy before unreal did.
 - Indirect lighting based on Cascaded VCT and Screenspace/Cubemap raytracing
 - Cook torrance BRDF
 - Simple shadow maps with PCF
-- SVGF Denoising
+- Spato-Temporal Variance Guided Filtering
 - TAA, FXAA 
 - Volumetric Lighting
 - Bloom
@@ -18,22 +18,20 @@ For the record, I came up with this name wayy before unreal did.
 ### Lighting 
 
 - PCSS, CSM, Omnidirectional contact-hardening shadows
-- Indirect volumetrics
+- Indirect volumetrics (LPV? Probes?)
 - LTC Area lights 
 - Mesh tracing using SAH BVH
 - Surfel GI (at some point)
 
 ### Rendering
 - Transparency/Translucency OIT
-- Mesh skinning
 - Instanced particles 
 
 ### Post process
-- Bloom, Tonemapping, Depth of Field, CA etc.
+- DOF, Auto exposure
 
 ### Volumetrics 
 - Clouds
-- Volumetric fog 
 
 ### Other 
 - Custom physically based Sky
