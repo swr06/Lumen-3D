@@ -258,8 +258,6 @@ vec4 RaymarchCascades(vec3 WorldPosition, vec3 Normal, vec3 Direction, float Ape
 			CurrentCascade++;
 
 			StepSize = u_VoxelRanges[CurrentCascade] / 128.0f;
-			StepSize *= 1.1f;
-
 		}
 		
 		RayPosition += Direction * StepSize * HashScale;
@@ -565,7 +563,7 @@ void main() {
 	vec4 DiffuseVX = vec4(0.0f);
 	
 	if (VX_FIRST_BOUNCE) {
-		DiffuseVX = RaymarchCascades(WorldPosition, Normal, CosineHemisphereDirection, 1.0f, BayerHash, 192, IntersectionVX, 1, VXNormal, true);
+		DiffuseVX = RaymarchCascades(WorldPosition, Normal, CosineHemisphereDirection, 1.0f, BayerHash, 256, IntersectionVX, 1, VXNormal, true);
 	}
 
 	else {
