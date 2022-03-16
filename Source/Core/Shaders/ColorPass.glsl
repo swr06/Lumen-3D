@@ -496,8 +496,7 @@ void main()
 	// Metalness is binary, so use a simple thresholding function
 	float Metalness = PBR.y > 0.04f ? 1.0f : 0.0f;
 
-	// boost specular 
-	SpecularIndirect *= 1.45f;
+	SpecularIndirect *= 2.f;
 
 	// F0 
 	vec3 F0 = mix(vec3(0.04f), Albedo, Metalness);

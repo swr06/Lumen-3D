@@ -82,7 +82,7 @@ vec4 EncodeLighting(vec3 Lighting) {
 	return vec4(MappedLighting, 1.0f);
 }
 
-vec3 SunColor = vec3(12.0f);
+vec3 SunColor = vec3(13.5f);
 
 vec3 SampleLighting(vec3 Albedo, vec3 WorldPosition, vec3 Normal) {
 
@@ -119,9 +119,7 @@ vec3 SampleLighting(vec3 Albedo, vec3 WorldPosition, vec3 Normal) {
 
 	float Lambertian = clamp(dot(Normal, -u_SunDir), 0.0f, 1.0f);
 
-    return Albedo * SunColor * Lambertian * (1.0f - Shadow);
-
-
+    return Albedo * SunColor * 1.3f * Lambertian * (1.0f - Shadow);
 }
 
 void main() {
@@ -143,10 +141,10 @@ void main() {
 
 		ivec3 VoxelSpaceCoord = ivec3(Voxel * float(u_VolumeSize));
 
-		float Mip = clamp(float(u_CascadeNumber - 1.0f), 2.0f, 6.0f);
+		float Mip = clamp(float(u_CascadeNumber - 1.0f), 2.0f, 5.0f);
 		vec3 RawAlbedo = textureLod(u_AlbedoMap, g_UV, Mip).xyz;
 		vec3 Albedo = RawAlbedo;
-		Albedo = pow(Albedo, vec3(1.5f)) * 1.7f;
+		Albedo = pow(Albedo, vec3(1.7f)) * 1.8f;
 
 		vec3 Direct = SampleLighting(Albedo, g_WorldPosition + u_VoxelGridCenterF, Normal);
 		vec3 Emission = RawAlbedo * u_ModelEmission * 2.2f;

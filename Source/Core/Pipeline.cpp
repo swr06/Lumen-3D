@@ -194,6 +194,13 @@ public:
 
 	void OnEvent(Lumen::Event e) override
 	{
+		if (e.type == Lumen::EventTypes::MouseScroll)
+		{
+			float Sign = e.msy < 0.0f ? 1.0f : -1.0f;
+			Camera.SetFov(Camera.GetFov() + 2.0f * Sign);
+			Camera.SetFov(glm::clamp(Camera.GetFov(), 1.0f, 89.0f));
+		}
+
 		if (e.type == Lumen::EventTypes::MouseMove && GetCursorLocked())
 		{
 			Camera.UpdateOnMouseMovement(e.mx, e.my);
