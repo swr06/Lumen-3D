@@ -646,13 +646,13 @@ GBufferData ScreenspaceTrace_Clip(vec3 Origin, vec3 Direction, float ThresholdMu
 // Reproject intersection to previous frame and try to estimate indirect lighting 
 vec3 ReprojectIndirect(vec3 P, vec3 A, float R, vec3 Bp) 
 {
-
     vec3 Projected = ProjectToLastFrame(P);
 
-    // Todo : Add distance check
     if (SSRayValid(Projected.xy)) {
-        vec4 Fetch = texture(u_PreviousFrameDiffuse, Projected.xy).xyzw;
-        return Fetch.xyz * 1.0f * A * pow(Fetch.w,2.5f);//mix(2.5f, 3.5f, clamp(R * 2.0f,0.,1.)));
+        if (distance(WorldPosFromDepth(texelFetch(u_Depth, ivec2(Projected.xy*textureSize(u_Depth, 0).xy), 0).x, Projected.xy), P)<7.40f) {
+            vec4 Fetch = texture(u_PreviousFrameDiffuse, Projected.xy).xyzw;
+            return Fetch.xyz * 1.0f * A * pow(Fetch.w,2.5f);
+        }
     }
 
     vec3 ProjectedBase = ProjectToLastFrame(Bp);
@@ -673,7 +673,7 @@ const vec3 SUN_COLOR = vec3(14.0f);
 vec3 IntegrateLighting(GBufferData Hit, vec3 Direction, const bool FilterShadow, float R, float D, vec3 Origin) {
     
     if (!Hit.ValidMask) {
-       return pow(texture(u_EnvironmentMap, Hit.Direction).xyz, vec3(1.2f)) * clamp(Hit.SkyAmount, 0.0f, 1.0f) * 2.7f * float(Skylighting);
+       return pow(texture(u_EnvironmentMap, Hit.Direction).xyz, vec3(1.2f)) * clamp(Hit.SkyAmount, 0.0f, 1.0f) * 3.3f * float(Skylighting);
     }
 
     // Sky 
@@ -735,18 +735,17 @@ vec3 IntegrateLighting(GBufferData Hit, vec3 Direction, const bool FilterShadow,
     return Direct + Indirect + Hit.Emission;
 }
 
-
-
 vec4 DecodeVolumeLighting(const vec4 Lighting) {
 
 	return vec4(Lighting.xyz * 5.0f, Lighting.w);
 }
 
+// Calculates lighting for a voxel
 vec4 ResolveVoxelRadiance(vec4 Lighting, vec3 P, vec3 Bp, float R) {
     
     Lighting = DecodeVolumeLighting(Lighting);
 
-    const float Al = Luminance(vec3(1.0f) * vec3(0.01f)) * 3.0f;
+    const float Al = Luminance(vec3(1.0f) * vec3(0.01f)) * 3.0f; // 3.0 is a bias
     float L = Luminance(Lighting.xyz);
 
     // No lighting here, use approximate indirect 
@@ -754,8 +753,9 @@ vec4 ResolveVoxelRadiance(vec4 Lighting, vec3 P, vec3 Bp, float R) {
 
         vec3 Albedo = Lighting.xyz / 0.01f;
 
-        Albedo = clamp(Albedo, 0.0f, 2.0f); // <- LDR
+        Albedo = clamp(Albedo, 0.0f, 2.0f); // LDR 
 
+        // We already know that the hit point will be out of the viewport so there's no use reprojecting the hit point 
         vec3 ProjectedBase = ProjectToLastFrame(Bp);
 
         vec3 ApproximatedGI = vec3(0.);
@@ -773,6 +773,9 @@ vec4 ResolveVoxelRadiance(vec4 Lighting, vec3 P, vec3 Bp, float R) {
 
     return Lighting;
 }
+
+// Voxel Raytracing ->
+
 
 bool InScreenspace(vec3 x) {
 
@@ -909,13 +912,12 @@ vec4 RaymarchCascades(vec3 WorldPosition, vec3 Normal, vec3 Direction, float Ape
 
 	// Normal calculation 
 	SkyVisibility = pow(SkyVisibility, 24.0f);
-	vec3 SkySample = pow(texture(u_EnvironmentMap, Direction).xyz, vec3(2.0f));
+	vec3 SkySample = pow(texture(u_EnvironmentMap, Direction).xyz, vec3(1.5f));
 	float LambertSky = 1.; //pow(clamp(dot(VoxelNormal, vec3(0.0f, 1.0f, 0.0f)), 0.0f, 1.0f), 1.0f);
-	vec3 SkyRadiance = SkySample * SkyVisibility * 3.0f;
+	vec3 SkyRadiance = SkySample * SkyVisibility * 3.25f;
     RayPositionO = RayPosition;
 	return vec4(SkyRadiance + TotalGI.xyz, IntersectionFound ? distance(WorldPosition, RayPosition) : 64.0f);
 }
-
 
 // Temporal upscale offsets  
 ivec2 UpscaleOffsets2x2[] = ivec2[](
@@ -1111,7 +1113,7 @@ void main() {
             Intersection = Raytrace(WorldPosition + LFNormal * Bias_n, Direction, Tolerance, BayerHash, ProbeSteps, ProbeBinarySteps);
             ////Intersection = ScreenspaceRaytrace(WorldPosition + LFNormal * Bias_n, Direction, ToleranceSS, BayerHash, SSSteps, SSBinarySteps);
 
-            if ((!Intersection.ValidMask && Intersection.SkyAmount < 10.0f)) 
+            if ((!Intersection.ValidMask && Intersection.SkyAmount < 16.0f)) 
             {
                 vec3 VXIntersection;
                 vec4 VXRadiance = RaymarchCascades(WorldPosition + LFNormal * 1.41414f, Normal, Direction, 1.0f, BayerHash, 192, 0, VXIntersection);

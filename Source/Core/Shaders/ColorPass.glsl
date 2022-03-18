@@ -451,7 +451,7 @@ void main()
 	vec4 Volumetrics;
 
 	SpatialUpscaleNew(LinearizeDepth(Depth), Normal, PBR.x, Lo, SSAO, ScreenspaceShadow, SpecularIndirect, DiffuseIndirect, Volumetrics);
-	SpecularIndirect = SpecularIndirect * 1.25f;
+	SpecularIndirect = SpecularIndirect * 1.35f;
 
 	// Direct lighting ->
 
