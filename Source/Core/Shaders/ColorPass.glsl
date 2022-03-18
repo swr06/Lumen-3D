@@ -421,7 +421,7 @@ void main()
 	if (Depth > 0.999995f && (!ProbeDebug)) {
 		vec3 Sample = texture(u_Skymap, rD).xyz;
 		Sample = Sample * Sample;
-		o_Color = Sample + texture(u_Volumetrics, v_TexCoords).xyz;
+		o_Color = Sample + texture(u_Volumetrics, v_TexCoords).xyz * float(u_VolumetricsEnabled);
 
 		return;
 	}
@@ -480,8 +480,6 @@ void main()
 	
 	// Metalness is binary, so use a simple thresholding function
 	float Metalness = PBR.y > 0.04f ? 1.0f : 0.0f;
-
-	SpecularIndirect *= 1.425f;
 
 	// F0 
 	vec3 F0 = mix(vec3(0.04f), Albedo, Metalness);

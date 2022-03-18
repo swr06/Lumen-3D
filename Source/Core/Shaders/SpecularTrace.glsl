@@ -1,6 +1,6 @@
-// Screenspace (clip/view space), probe space tracers implemented 
-// This was a fucking nightmare to implement right 
-// P.S : This file has a bunch of code that isn't really needed to function solely because I used it as sort of a "playground" for custom screenspace/probespace/voxelspace raytracers 
+// Screenspace (clip/view space), probe space and voxel space (world space + cascades) tracers implemented 
+// This was a fucking nightmare to implement without issues 
+// P.S : This file has a small amount of code that isn't really needed to function solely because I used it as sort of a "playground" for custom screenspace/probespace/voxelspace raytracers 
 
 #version 430 core 
 #extension ARB_bindless_texture : require 
@@ -667,7 +667,7 @@ vec3 ReprojectIndirect(vec3 P, vec3 A, float R, vec3 Bp)
 }
 
 
-const vec3 SUN_COLOR = vec3(20.0f);
+const vec3 SUN_COLOR = vec3(14.0f);
 
 // Integrates lighting for a point
 vec3 IntegrateLighting(GBufferData Hit, vec3 Direction, const bool FilterShadow, float R, float D, vec3 Origin) {
@@ -746,14 +746,29 @@ vec4 ResolveVoxelRadiance(vec4 Lighting, vec3 P, vec3 Bp, float R) {
     
     Lighting = DecodeVolumeLighting(Lighting);
 
-    const float Al = Luminance(vec3(1.0f) * vec3(0.01f));
+    const float Al = Luminance(vec3(1.0f) * vec3(0.01f)) * 3.0f;
     float L = Luminance(Lighting.xyz);
 
     // No lighting here, use approximate indirect 
-    if (L > 0.000001f && L < Al) {
+    if (L > 0.00000001f && L < Al) {
 
         vec3 Albedo = Lighting.xyz / 0.01f;
-        return vec4(ReprojectIndirect(P, Albedo, R, Bp), Lighting.w) * 0.6f;
+
+        Albedo = clamp(Albedo, 0.0f, 2.0f); // <- LDR
+
+        vec3 ProjectedBase = ProjectToLastFrame(Bp);
+
+        vec3 ApproximatedGI = vec3(0.);
+
+        if (SSRayValid(ProjectedBase.xy)) {
+            ApproximatedGI = texture(u_PreviousFrameDiffuse, ProjectedBase.xy).xyz;
+        }
+
+        else {
+            ApproximatedGI = texture(u_PreviousFrameDiffuse, v_TexCoords).xyz;
+        }
+
+        return vec4(ApproximatedGI * Albedo * 0.8f, Lighting.w);
     }
 
     return Lighting;
@@ -896,7 +911,7 @@ vec4 RaymarchCascades(vec3 WorldPosition, vec3 Normal, vec3 Direction, float Ape
 	SkyVisibility = pow(SkyVisibility, 24.0f);
 	vec3 SkySample = pow(texture(u_EnvironmentMap, Direction).xyz, vec3(2.0f));
 	float LambertSky = 1.; //pow(clamp(dot(VoxelNormal, vec3(0.0f, 1.0f, 0.0f)), 0.0f, 1.0f), 1.0f);
-	vec3 SkyRadiance = SkySample * SkyVisibility * 0.8f;
+	vec3 SkyRadiance = SkySample * SkyVisibility * 3.0f;
     RayPositionO = RayPosition;
 	return vec4(SkyRadiance + TotalGI.xyz, IntersectionFound ? distance(WorldPosition, RayPosition) : 64.0f);
 }
@@ -940,10 +955,7 @@ bool IsSky(float NonLinearDepth) {
 
 // Trace settings 
 
-// Do voxel raytracing when probe fails?
-const bool VX_TRACE = false;
-
-
+const bool SCREENSPACE_RAYTRACE = false;
 
 void main() {
     
@@ -995,30 +1007,31 @@ void main() {
     float Roughness = u_RoughSpecular ? PBR.x : 0.1f;
 
     // Intersection tolerance (Rougher surfaces can have less accurate reflections with a less noticable quality loss)
-    float Tolerance = 1.0f;//mix(1.0, 1.8f, pow(Roughness, 1.5f));
-    float ToleranceSS = 0.001f;//mix(0.00145f, 0.04, Roughness * Roughness);
+    float Tolerance = Roughness < 0.255f ? (PBR.y > 0.07f ? 0.5f : 0.64f) : 1.0f;//mix(1.0, 1.8f, pow(Roughness, 1.5f));
+    float ToleranceSS = 0.001f;
 
-    // Sample integration
+
     vec3 TotalRadiance = vec3(0.0f);
     float AverageTransversal = 0.0f;
     float TotalWeight = 0.0f;
 
+
     // Bias roughness (to reduce noise)
     const float RoughnessBias = 0.98f;
-    // Epic remapping -> //float BiasedRoughness = clamp(pow((Roughness * RoughnessBias) + 1.0f, 2.0f) / 8.0f, 0.0f, 1.0f); 
     float BiasedRoughness = max(Roughness * 0.925, 0.07f);//pow(Roughness, 1.25f) * RoughnessBias; 
    
-    bool FilterShadowMap = Roughness <= 0.5 + 0.01f;
+    bool FilterShadowMap = Roughness <= 0.3f;
 
-    bool DoScreenspaceTrace = true;
 
-    // Screenspace tracing is only done if roughness < 0.425
+    // Figure out screen space march parameters 
     int SSSteps = Roughness < 0.2f ? 64 : (Roughness < 0.3f ? 40 : 24);
     int SSBinarySteps = Roughness < 0.2f ? 16 : 12;
 
     // Calculate steps 
-    int ProbeSteps = int(mix(128.0f, 48.0f, BiasedRoughness < 0.25f ? pow(BiasedRoughness,1.5f) : BiasedRoughness));
+    int ProbeSteps = int(mix(96.0f, 32.0f, BiasedRoughness < 0.25f ? pow(BiasedRoughness,1.9f) : BiasedRoughness));
     int ProbeBinarySteps = (BiasedRoughness <= 0.51f) ? 16 : 12;
+
+    bool VX_TRACE = Roughness < (PBR.y > 0.06f ? 0.425f : 0.21f);
 
     bool HadValidHit = false;
 
@@ -1048,10 +1061,11 @@ void main() {
 
         GBufferData Intersection;
 
+        // Do voxel tracing?
         if (!VX_TRACE) {
 
-
-            if (DoScreenspaceTrace && BiasedRoughness <= 0.125f)
+            // Raytrace in scren space if needed
+            if (SCREENSPACE_RAYTRACE && BiasedRoughness <= 0.125f)
             {
                 // Trace in screen space 
                 Intersection = ScreenspaceRaytrace(WorldPosition + LFNormal * Bias_n, Direction, ToleranceSS, BayerHash, SSSteps, SSBinarySteps);
@@ -1072,6 +1086,7 @@ void main() {
                 }
             }
             
+            // Raytrace in probe space 
             else {
                 Intersection = Raytrace(WorldPosition + LFNormal * Bias_n, Direction, Tolerance, BayerHash, ProbeSteps, ProbeBinarySteps);
                  if (Intersection.ValidMask || Intersection.SkyAmount > 0.01f) { 
@@ -1085,32 +1100,34 @@ void main() {
             // Sum up radiance 
             TotalRadiance += CurrentRadiance;
 
+            // Calculate intersection traversal
             float CurrentTransversal = Intersection.ValidMask ? distance(Intersection.Position, WorldPosition) : 256.0f;
             AverageTransversal += CurrentTransversal;
         }
 
         else {
 
+            // Raytrace in probe space 
             Intersection = Raytrace(WorldPosition + LFNormal * Bias_n, Direction, Tolerance, BayerHash, ProbeSteps, ProbeBinarySteps);
-            
-            if (!Intersection.ValidMask) {
+            ////Intersection = ScreenspaceRaytrace(WorldPosition + LFNormal * Bias_n, Direction, ToleranceSS, BayerHash, SSSteps, SSBinarySteps);
 
+            if ((!Intersection.ValidMask && Intersection.SkyAmount < 10.0f)) 
+            {
                 vec3 VXIntersection;
                 vec4 VXRadiance = RaymarchCascades(WorldPosition + LFNormal * 1.41414f, Normal, Direction, 1.0f, BayerHash, 192, 0, VXIntersection);
                 VXRadiance = ResolveVoxelRadiance(VXRadiance,VXIntersection,WorldPosition,Roughness);
                 float CurrentTransversal = VXRadiance.w;
                 AverageTransversal += CurrentTransversal;
-                TotalRadiance += VXRadiance.xyz;
-
+                TotalRadiance += VXRadiance.xyz * 0.5f;
                 HadValidHit = HadValidHit || true; // we assume that the voxel trace always gives correct intersections 
             }
 
             else {
                 
-                // we hit 
+                // we hit a point on the probe
 
                 vec3 CurrentRadiance = IntegrateLighting(Intersection, Direction, FilterShadowMap, BiasedRoughness, LinearizeDepth(Depth), WorldPosition);
-                TotalRadiance += CurrentRadiance;
+                TotalRadiance += CurrentRadiance * 4.0f;
 
                 float CurrentTransversal = Intersection.ValidMask ? distance(Intersection.Position, WorldPosition) : 256.0f;
                 AverageTransversal += CurrentTransversal;

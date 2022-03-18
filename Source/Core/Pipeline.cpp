@@ -62,7 +62,7 @@ static bool ScreenspaceOcclusionCheckerboard = true;
 
 // Volumetrics
 const float VolumetricsResolution = 0.5f;
-static bool VolumetricLighting = true;
+static bool VolumetricLighting = false;
 static bool VolumetricsFilter = true;
 static bool VolumetricsTemporal = true;
 static float SunVolumetricsStrength = 1.0f;
