@@ -50,6 +50,8 @@ uniform vec3 u_VoxelCenters[6];
 
 uniform sampler2D u_Volumetrics;
 
+uniform int u_Frame;
+
 
 const vec3 SUN_COLOR = vec3(8.0f); //vec3(6.9f, 6.9f, 10.0f);
 vec3 CookTorranceBRDF(vec3 world_pos, vec3 light_dir, vec3 radiance, vec3 albedo, vec3 normal, vec2 rm, float shadow);
@@ -149,86 +151,69 @@ float Luminance(vec3 rgb)
     return dot(rgb, W);
 }
 
-// Spatial upscaler 
-void SpatialUpscale(float Depth, vec3 Normal, float Roughness, vec3 Incident, out float AO, out float ContactShadow, out vec3 Specular, out vec4 Diffuse, out vec4 Volumetrics) {
-
+void SpatialUpscaleNew(float Depth, vec3 Normal, float Roughness, vec3 Incident, out float AO, out float ContactShadow, out vec3 Specular, out vec4 Diffuse, out vec4 Volumetrics) {
 
 	const float Atrous[3] = float[3]( 1.0f, 2.0f / 3.0f, 1.0f / 6.0f );
+	const ivec2 Kernel = ivec2(1, 1); // <- Kernel size 
 
-	const bool DoSpatialUpscaling = true;
+	ivec2 Pixel = ivec2(gl_FragCoord.xy);
+	ivec2 PixelDownscaled = Pixel / 2;
+
+	bool DoSpatialUpscaling = true;
 
 	if (!DoSpatialUpscaling) {
 
-		Specular = texture(u_ResolvedSpecular, v_TexCoords).xyz;
-		AO = texture(u_RTAO, v_TexCoords).x;
-		ContactShadow = texture(u_ScreenspaceShadows, v_TexCoords).x;
-		Diffuse = texture(u_IndirectDiffuse, v_TexCoords).xyzw;
-		Volumetrics = u_VolumetricsEnabled ? texture(u_Volumetrics, v_TexCoords).xyzw : vec4(0.);
+		Specular = texelFetch(u_ResolvedSpecular, PixelDownscaled, 0).xyz;
+		AO = texelFetch(u_RTAO, PixelDownscaled, 0).x;
+		ContactShadow = texelFetch(u_ScreenspaceShadows, PixelDownscaled, 0).x;
+		Diffuse = texelFetch(u_IndirectDiffuse, PixelDownscaled, 0).xyzw;
+		Volumetrics = u_VolumetricsEnabled ? texelFetch(u_Volumetrics, PixelDownscaled, 0).xyzw : vec4(0.);
 		return;
 	}
 
-	vec2 TexelSize = 1.0f / (u_Dims * 0.5f);
+	float TotalWeight = 1.0f;
 
-	float TotalWeight = 0.0f;
+	//SG CenterRSG = RoughnessLobe(Roughness, Normal, Incident);
 
-	AO = 0.0f;
-	ContactShadow = 0.0f;
+	Specular = texelFetch(u_ResolvedSpecular, PixelDownscaled, 0).xyz;
+	AO = texelFetch(u_RTAO, PixelDownscaled, 0).x;
+	ContactShadow = texelFetch(u_ScreenspaceShadows, PixelDownscaled, 0).x;
+	Diffuse = texelFetch(u_IndirectDiffuse, PixelDownscaled, 0).xyzw;
+	Volumetrics = u_VolumetricsEnabled ? texelFetch(u_Volumetrics, PixelDownscaled, 0).xyzw : vec4(0.);
 
-	vec3 CenterSpecular = texture(u_ResolvedSpecular, v_TexCoords).xyz;
+	for (int x = -Kernel.x ; x <= Kernel.x ; x++) {
 
-	float Exponent = mix(2.75f, 1.0f, clamp(pow(Roughness, 1.5f), 0.0f, 1.0f));
-
-	SG CenterSG = RoughnessLobe(Roughness, Normal, Incident);
-	float TotalSpecularWeight = 1.0f;
-	Specular = CenterSpecular;
-
-	for (int x = -1 ; x <= 1 ; x++) {
-
-		for (int y = -1 ; y <= 1 ; y++) {
+		for (int y = -Kernel.y ; y <= Kernel.y ; y++) {
 			
+			if (x == 0 && y == 0) { continue ; }
+
 			float KernelWeight = Atrous[abs(x)] * Atrous[abs(y)];
-			
-			vec2 SampleCoord = v_TexCoords + vec2(x, y) * TexelSize;
 
-			float SampleDepth = LinearizeDepth(texture(u_DepthTexture, SampleCoord).x);
-			vec3 SampleNormal = texture(u_NormalTexture, SampleCoord).xyz;
-			vec3 SamplePBR = texture(u_PBRTexture, SampleCoord).xyz;
+			ivec2 SampleCoord = PixelDownscaled + ivec2(x, y);
+			ivec2 SampleCoordHighRes = SampleCoord * 2;
 
-			float DepthWeight = pow(exp(-abs(Depth - SampleDepth)), 48.0f);
-			float NormalWeight = pow(max(dot(SampleNormal, Normal), 0.0f), 12.0f);
+			float SampleDepth = LinearizeDepth(texelFetch(u_DepthTexture, SampleCoordHighRes, 0).x);
+			vec3 SampleNormal = texelFetch(u_NormalTexture, SampleCoordHighRes, 0).xyz;
+			vec3 SamplePBR = texelFetch(u_PBRTexture, SampleCoordHighRes, 0).xyz;
 
-			float Weight = DepthWeight * NormalWeight * KernelWeight;
+			float DepthWeight = pow(exp(-abs(Depth - SampleDepth)), 32.0f);
+			float NormalWeight = pow(max(dot(SampleNormal, Normal), 0.0f), 8.0f);
+			float Weight = clamp(DepthWeight * NormalWeight * KernelWeight, 0.0f, 1.0f);
 
-			if (!(x == 0 && y == 0)) {
-				vec3 SpecularSample = ivec2(x,y) == ivec2(0) ? CenterSpecular : texture(u_ResolvedSpecular, SampleCoord).xyz;
-				float SpecWeight = DepthWeight * NormalWeight * KernelWeight; //SpecularWeight(Depth, SampleDepth, Roughness, SamplePBR.x, Normal, SampleNormal, KernelWeight, Incident, CenterSG); // * LWeight
-				TotalSpecularWeight += SpecWeight;
-				Specular += SpecularSample * SpecWeight;
-			}
-
-			AO += texture(u_RTAO, SampleCoord).x * Weight;
-
-			Diffuse += texture(u_IndirectDiffuse, SampleCoord) * Weight;
-
-			Volumetrics += u_VolumetricsEnabled ? texture(u_Volumetrics, SampleCoord) * Weight : vec4(0.);
-
-			if (u_DirectSSShadows) {
-				ContactShadow += texture(u_ScreenspaceShadows, SampleCoord).x * Weight;
-			}
-
+			Specular += texelFetch(u_ResolvedSpecular, SampleCoord, 0).xyz * Weight;
+			AO += texelFetch(u_RTAO, SampleCoord, 0).x * Weight;
+			ContactShadow += texelFetch(u_ScreenspaceShadows, SampleCoord, 0).x * Weight;
+			Diffuse += texelFetch(u_IndirectDiffuse, SampleCoord, 0).xyzw * Weight;
+			Volumetrics += (u_VolumetricsEnabled ? texelFetch(u_Volumetrics, SampleCoord, 0).xyzw : vec4(0.)) * Weight;
 			TotalWeight += Weight;
 		}
 
 	}
 
-	TotalWeight = max(TotalWeight, 0.00001f);
-
-	Specular /= TotalSpecularWeight;
+	Specular /= TotalWeight;
 	AO /= TotalWeight;
 	Diffuse /= TotalWeight;
 	Volumetrics /= TotalWeight;
-	//ContactShadow = texture(u_ScreenspaceShadows, v_TexCoords).x;
-
 	if (u_DirectSSShadows)
 		ContactShadow /= TotalWeight;
 }
@@ -465,7 +450,7 @@ void main()
 	vec4 DiffuseIndirect;
 	vec4 Volumetrics;
 
-	SpatialUpscale(LinearizeDepth(Depth), Normal, PBR.x, Lo, SSAO, ScreenspaceShadow, SpecularIndirect, DiffuseIndirect, Volumetrics);
+	SpatialUpscaleNew(LinearizeDepth(Depth), Normal, PBR.x, Lo, SSAO, ScreenspaceShadow, SpecularIndirect, DiffuseIndirect, Volumetrics);
 	SpecularIndirect = SpecularIndirect * 1.25f;
 
 	// Direct lighting ->
@@ -496,7 +481,7 @@ void main()
 	// Metalness is binary, so use a simple thresholding function
 	float Metalness = PBR.y > 0.04f ? 1.0f : 0.0f;
 
-	SpecularIndirect *= 2.f;
+	SpecularIndirect *= 1.425f;
 
 	// F0 
 	vec3 F0 = mix(vec3(0.04f), Albedo, Metalness);
@@ -526,6 +511,7 @@ void main()
 
 	o_Color += Volumetrics.xyz * float(u_VolumetricsEnabled);
 
+
 	if (ProbeDebug) {
 		vec3 sLo = -normalize(GetCapturePoint(Lo) - WorldPosition);
 		int FaceID = clamp(GetFaceID(sLo),0,5);
@@ -548,7 +534,7 @@ void main()
 		int RandomCascade = clamp(int(mix(0.0f, 5.0f, hash2().x)), 0, 5);
 
 		bool HadHit = false;
-		for (int pass = 4; pass < 6 ; pass++) {
+		for (int pass = 1; pass < 6 ; pass++) {
 			HadHit = DDA(pass, u_ViewerPosition, rD, 256, VoxelData, VoxelNormal, VoxelPosition);
 			
 			//HadHit = DDA(pass, WorldPosition + Normal * ((pass * 1.5f * sqrt(2.0f)) + 1.0f), R, 500, VoxelData, VoxelNormal, VoxelPosition);;

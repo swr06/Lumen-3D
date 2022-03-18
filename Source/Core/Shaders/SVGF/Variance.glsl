@@ -69,12 +69,12 @@ void main() {
 
     bool Disocclusion = Frames < FRAME_BIAS;
 
-    float PhiL = Disocclusion ? 1.0f : 0.07f;
+    float PhiL = Disocclusion ? 1.0f : 0.0575f;
 
     if (ALWAYS_DO_VARIANCE_SPATIAL || Disocclusion) {
 
         
-        int VAR_KERNEL_X = Disocclusion ? 3 : 1;
+        int VAR_KERNEL_X = Disocclusion ? 3 : 2;
         int VAR_KERNEL_Y = Disocclusion ? 4 : 2;
 
         float Depth = texelFetch(u_LowResDepth, Pixel, 0).x; 

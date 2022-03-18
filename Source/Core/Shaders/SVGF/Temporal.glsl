@@ -96,7 +96,19 @@ void main() {
 	vec4 CurrentSample = texture(u_Current, v_TexCoords + u_HaltonJitter * (1./textureSize(u_Current,0).xy));
     float Depth = texelFetch(u_LowResDepth, Pixel, 0).x; //float Depth = texelFetch(u_Depth, PixelHighRes, 0).x;
 	float CurrentDepth = linearizeDepth(Depth);
-	vec3 Normals = texelFetch(u_LowResNormals, Pixel, 0).xyz;   //vec3 Normals = texelFetch(u_Normals, PixelHighRes, 0).xyz;
+	
+	// Depth gradient ->
+	float LDepth = (abs(linearizeDepth(Depth))); //length(WorldPosition)
+	vec2 DepthGradient = vec2(dFdx(LDepth), dFdy(LDepth));
+	float GradientD = length(DepthGradient);
+	bool HighDVar = GradientD > 0.002f;
+
+	// Normal gradient ->
+	vec3 Normals = texelFetch(u_Normals, PixelHighRes, 0).xyz;   
+	float NLuminance = dot(Normals, vec3(0.333f));
+	vec2 NormalGradient = vec2(dFdx(NLuminance), dFdy(NLuminance));
+	float GradientN = length(NormalGradient);
+	bool HighNVar = GradientN > 0.0099f;
 
 	// Calculate world position
     vec3 WorldPosition = WorldPosFromDepth(Depth, v_TexCoords);
@@ -170,7 +182,7 @@ void main() {
 			vec3 PreviousNormal = texelFetch(u_PreviousNormals, SampleCoordHighRes, 0).xyz;
 			float NormalDot = dot(Normals, PreviousNormal);
 
-			if (DepthError < (CameraMoved ? 1.0f + 0.00001f : 3.0f) && NormalDot > (CameraMoved ? 0.5f : 0.25f)) 
+			if (DepthError < 1.02f && NormalDot > (CameraMoved ? 0.5f : 0.25f)) 
 			{
 				float Weight = BilinearWeights[Sample];
 

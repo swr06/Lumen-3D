@@ -267,8 +267,8 @@ void main() {
 
         float DirectVisibility = SimpleDirect(RayPosition);
         vec3 Direct = DirectVisibility * DirectPhase * SunColor;
-        //vec3 Indirect = mix(0.0f, 1.0f, 1.0f - clamp(RayPosition.y / 300.0f, 0.0f, 1.0f)) * vec3(0.5f, 0.5f, 1.0f) * 0.0004f;
-        vec3 S = (Direct) * StepSize * Density * Transmittance;
+        vec3 Indirect = vec3(0.); //mix(0.0f, 1.0f, 1.0f - clamp(RayPosition.y / 300.0f, 0.0f, 1.0f)) * vec3(0.5f, 0.5f, 1.0f) * 0.0006f;
+        vec3 S = (Direct + Indirect) * StepSize * Density * Transmittance;
 
         DirectScattering += S;
         Transmittance *= exp(-(StepSize * Density) * Extinction);
