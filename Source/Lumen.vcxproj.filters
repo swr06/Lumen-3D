@@ -52,6 +52,9 @@
     <Filter Include="Source Files\Lumen\Lumen-Core\Lumen-Shaders\Glass">
       <UniqueIdentifier>{bf9af13c-547c-4575-9968-38a0f53ee81d}</UniqueIdentifier>
     </Filter>
+    <Filter Include="Source Files\Lumen\Lumen-Core\Lumen-Shaders\Glass\Stochastic">
+      <UniqueIdentifier>{cfd35997-9726-47ae-a171-e11e911b83ed}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Dependencies\imgui\imconfig.h">
@@ -432,6 +435,12 @@
     </None>
     <None Include="Core\Shaders\Transparent\TransparentOITVert.glsl">
       <Filter>Source Files\Lumen\Lumen-Core\Lumen-Shaders\Glass</Filter>
+    </None>
+    <None Include="Core\Shaders\Transparent\Stochastic\TransparentDeferredFrag.glsl">
+      <Filter>Source Files\Lumen\Lumen-Core\Lumen-Shaders\Glass\Stochastic</Filter>
+    </None>
+    <None Include="Core\Shaders\Transparent\Stochastic\TransparentDeferredVert.glsl">
+      <Filter>Source Files\Lumen\Lumen-Core\Lumen-Shaders\Glass\Stochastic</Filter>
     </None>
   </ItemGroup>
 </Project>

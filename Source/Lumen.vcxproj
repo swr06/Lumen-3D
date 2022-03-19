@@ -273,6 +273,8 @@
     <None Include="Core\Shaders\SVGF\Temporal.glsl" />
     <None Include="Core\Shaders\SVGF\Variance.glsl" />
     <None Include="Core\Shaders\TemporalAA.glsl" />
+    <None Include="Core\Shaders\Transparent\Stochastic\TransparentDeferredFrag.glsl" />
+    <None Include="Core\Shaders\Transparent\Stochastic\TransparentDeferredVert.glsl" />
     <None Include="Core\Shaders\Transparent\TransparentOIT.glsl" />
     <None Include="Core\Shaders\Transparent\TransparentOITVert.glsl" />
     <None Include="Core\Shaders\Volumetrics.glsl" />
