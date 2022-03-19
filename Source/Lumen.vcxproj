@@ -273,6 +273,8 @@
     <None Include="Core\Shaders\SVGF\Temporal.glsl" />
     <None Include="Core\Shaders\SVGF\Variance.glsl" />
     <None Include="Core\Shaders\TemporalAA.glsl" />
+    <None Include="Core\Shaders\Transparent\TransparentForwardFrag.glsl" />
+    <None Include="Core\Shaders\Transparent\TransparentForwardVert.glsl" />
     <None Include="Core\Shaders\Volumetrics.glsl" />
     <None Include="Core\Shaders\Voxelizer\VoxelizationGeometry.geom" />
     <None Include="Core\Shaders\Voxelizer\VoxelizationRadiance.glsl" />
