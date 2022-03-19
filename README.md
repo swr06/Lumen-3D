@@ -20,8 +20,7 @@ For the record, I came up with this name much much before unreal did.
 - PCSS, CSM, Omnidirectional contact-hardening shadows
 - Indirect volumetrics (LPV? Probes?)
 - LTC Area lights 
-- Mesh tracing using SAH BVH
-- Surfel GI (at some point)
+- Mesh tracing using SAH BVH (with surfel GI)
 
 ### Rendering
 - Transparency/Translucency OIT
