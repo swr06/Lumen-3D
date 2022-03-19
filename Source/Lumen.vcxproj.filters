@@ -49,6 +49,9 @@
     <Filter Include="Source Files\Lumen\Lumen-Core\Lumen-Shaders\SVGF">
       <UniqueIdentifier>{27124971-8222-48c9-a053-b6316b3bf50d}</UniqueIdentifier>
     </Filter>
+    <Filter Include="Source Files\Lumen\Lumen-Core\Lumen-Shaders\Glass">
+      <UniqueIdentifier>{bf9af13c-547c-4575-9968-38a0f53ee81d}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Dependencies\imgui\imconfig.h">
@@ -424,11 +427,11 @@
     <None Include="Core\Shaders\PostProcessCombine.glsl">
       <Filter>Source Files\Lumen\Lumen-Core\Lumen-Shaders</Filter>
     </None>
-    <None Include="Core\Shaders\Transparent\TransparentForwardFrag.glsl">
-      <Filter>Source Files\Lumen\Lumen-Core\Lumen-Shaders</Filter>
+    <None Include="Core\Shaders\Transparent\TransparentOIT.glsl">
+      <Filter>Source Files\Lumen\Lumen-Core\Lumen-Shaders\Glass</Filter>
     </None>
-    <None Include="Core\Shaders\Transparent\TransparentForwardVert.glsl">
-      <Filter>Source Files\Lumen\Lumen-Core\Lumen-Shaders</Filter>
+    <None Include="Core\Shaders\Transparent\TransparentOITVert.glsl">
+      <Filter>Source Files\Lumen\Lumen-Core\Lumen-Shaders\Glass</Filter>
     </None>
   </ItemGroup>
 </Project>
