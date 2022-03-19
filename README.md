@@ -33,4 +33,4 @@ For the record, I came up with this name much much before unreal did.
 - Clouds
 
 ### Other 
-- Custom physically based Sky
+- Physically based atmosphere rendering
