@@ -1,5 +1,6 @@
 #version 330 core 
 
+
 layout (location = 0) out vec4 o_Color;
 layout (location = 1) out float o_Frames;
 
@@ -239,7 +240,7 @@ void main() {
     bool ChangedViewMatrix = u_PrevInverseView != u_InverseView;
 
     // Screenspace check
-    float Cutoff = ChangedViewMatrix ? 0.01f : 0.0f;
+    float Cutoff = ChangedViewMatrix ? 0.02f : 0.0f;
     if (Reprojected.x > Cutoff && Reprojected.x < 1.0f - Cutoff && Reprojected.y > Cutoff && Reprojected.y < 1.0f - Cutoff &&
         ReprojectedSurface.x > Cutoff && ReprojectedSurface.x < 1.0f - Cutoff && ReprojectedSurface.y > Cutoff && ReprojectedSurface.y < 1.0f - Cutoff && (!BE_USELESS)) 
     {

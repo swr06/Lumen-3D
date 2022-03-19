@@ -8,10 +8,12 @@
 #define PI 3.14159265359
 #define PHI 1.6180339
 #define SAMPLES 1
+#define SKY_MULT 2.0f
 
 const float TAU = radians(360.0f);
 const float PHI2 = sqrt(5.0f) * 0.5f + 0.5f;
 const float GOLDEN_ANGLE = TAU / PHI2 / PHI2;
+const float PIA = acos(-1.);
 
 #define Bayer4(a)   (Bayer2(  0.5 * (a)) * 0.25 + Bayer2(a))
 #define Bayer8(a)   (Bayer4(  0.5 * (a)) * 0.25 + Bayer2(a))
@@ -394,18 +396,16 @@ GBufferData Raytrace(vec3 WorldPosition, vec3 Direction, float ErrorTolerance, f
 
         vec4 NormalFetch = textureLod(u_ProbeNormals, FinalSampleDirection, 0.0f);
 
-        float Fade = clamp(pow(exp(-(abs(DepthFetch-FinalLength))), 1.5f), 0.0f, 1.0f);
-        float FadeStrong = clamp(pow(exp(-(abs(DepthFetch-FinalLength))), 4.0f), 0.0f, 1.0f);
-
         GBufferData ReturnValue;
         ReturnValue.Position = (CapturePoint + DepthFetch * FinalSampleDirection);
         ReturnValue.Normal = NormalFetch.xyz;
-        ReturnValue.Albedo = AlbedoFetch.xyz * mix(0.0f, 0.5f, Fade);
+        ReturnValue.Albedo = AlbedoFetch.xyz;
         ReturnValue.Data = vec3(AlbedoFetch.w, 0.0f, 1.0f);
+
 
         // Emission
 
-        ReturnValue.Emission = Saturation(AlbedoFetch.xyz, EmissiveDesat) * NormalFetch.w * EmissionStrength * FadeStrong;
+        ReturnValue.Emission = Saturation(AlbedoFetch.xyz, EmissiveDesat) * NormalFetch.w * EmissionStrength;
 
         ReturnValue.ValidMask = true;
         ReturnValue.Approximated = false;
@@ -649,7 +649,8 @@ vec3 ReprojectIndirect(vec3 P, vec3 A, float R, vec3 Bp)
     vec3 Projected = ProjectToLastFrame(P);
 
     if (SSRayValid(Projected.xy)) {
-        if (distance(WorldPosFromDepth(texelFetch(u_Depth, ivec2(Projected.xy*textureSize(u_Depth, 0).xy), 0).x, Projected.xy), P)<7.40f) {
+        if (distance(WorldPosFromDepth(texelFetch(u_Depth, ivec2(Projected.xy*textureSize(u_Depth, 0).xy), 0).x, Projected.xy), P)<20.f) 
+        {
             vec4 Fetch = texture(u_PreviousFrameDiffuse, Projected.xy).xyzw;
             return Fetch.xyz * 1.0f * A * pow(Fetch.w,2.5f);
         }
@@ -658,7 +659,7 @@ vec3 ReprojectIndirect(vec3 P, vec3 A, float R, vec3 Bp)
     vec3 ProjectedBase = ProjectToLastFrame(Bp);
 
     if (SSRayValid(ProjectedBase.xy)) {
-        return texture(u_PreviousFrameDiffuse, ProjectedBase.xy).xyz * 0.9f * A;
+        return texture(u_PreviousFrameDiffuse, ProjectedBase.xy).xyz * 0.5f * A;
     }
 
     return texture(u_PreviousFrameDiffuse, v_TexCoords).xyz * 0.5f * A;
@@ -673,7 +674,7 @@ const vec3 SUN_COLOR = vec3(14.0f);
 vec3 IntegrateLighting(GBufferData Hit, vec3 Direction, const bool FilterShadow, float R, float D, vec3 Origin) {
     
     if (!Hit.ValidMask) {
-       return pow(texture(u_EnvironmentMap, Hit.Direction).xyz, vec3(1.2f)) * clamp(Hit.SkyAmount, 0.0f, 1.0f) * 3.3f * float(Skylighting);
+       return pow(texture(u_EnvironmentMap, Hit.Direction).xyz, vec3(1.2f)) * clamp(Hit.SkyAmount, 0.0f, 1.0f) * 3.3f * float(Skylighting) * mix(1.0f, SKY_MULT, clamp(R*1.2f,0.0f, 1.0f));
     }
 
     // Sky 
@@ -753,7 +754,7 @@ vec4 ResolveVoxelRadiance(vec4 Lighting, vec3 P, vec3 Bp, float R) {
 
         vec3 Albedo = Lighting.xyz / 0.01f;
 
-        Albedo = clamp(Albedo, 0.0f, 2.0f); // LDR 
+        Albedo = pow(clamp(Albedo, 0.0f, 2.0f), vec3(1./1.3f)) * 0.8f; // LDR 
 
         // We already know that the hit point will be out of the viewport so there's no use reprojecting the hit point 
         vec3 ProjectedBase = ProjectToLastFrame(Bp);
@@ -845,7 +846,7 @@ int GetCascadeNumber(vec3 P, int MinCascade) {
 	return 5;
 }
 
-vec4 RaymarchCascades(vec3 WorldPosition, vec3 Normal, vec3 Direction, float Aperature, float LowDiscrepHash, const int Steps, int MinCascade, out vec3 RayPositionO) 
+vec4 RaymarchCascades(vec3 WorldPosition, vec3 Normal, vec3 Direction, float Aperature, float LowDiscrepHash, float Rough, const int Steps, int MinCascade, out vec3 RayPositionO) 
 {
 	const float Diagonal = sqrt(2.0f);
 
@@ -914,7 +915,7 @@ vec4 RaymarchCascades(vec3 WorldPosition, vec3 Normal, vec3 Direction, float Ape
 	SkyVisibility = pow(SkyVisibility, 24.0f);
 	vec3 SkySample = pow(texture(u_EnvironmentMap, Direction).xyz, vec3(1.5f));
 	float LambertSky = 1.; //pow(clamp(dot(VoxelNormal, vec3(0.0f, 1.0f, 0.0f)), 0.0f, 1.0f), 1.0f);
-	vec3 SkyRadiance = SkySample * SkyVisibility * 3.25f;
+	vec3 SkyRadiance = SkySample * SkyVisibility * 3.25f * mix(1.0f, SKY_MULT, clamp(Rough*1.2f,0.0f, 1.0f));
     RayPositionO = RayPosition;
 	return vec4(SkyRadiance + TotalGI.xyz, IntersectionFound ? distance(WorldPosition, RayPosition) : 64.0f);
 }
@@ -1111,16 +1112,16 @@ void main() {
 
             // Raytrace in probe space 
             Intersection = Raytrace(WorldPosition + LFNormal * Bias_n, Direction, Tolerance, BayerHash, ProbeSteps, ProbeBinarySteps);
-            ////Intersection = ScreenspaceRaytrace(WorldPosition + LFNormal * Bias_n, Direction, ToleranceSS, BayerHash, SSSteps, SSBinarySteps);
+            ///Intersection = ScreenspaceRaytrace(WorldPosition + LFNormal * Bias_n, Direction, ToleranceSS, BayerHash, SSSteps, SSBinarySteps);
 
             if ((!Intersection.ValidMask && Intersection.SkyAmount < 16.0f)) 
             {
                 vec3 VXIntersection;
-                vec4 VXRadiance = RaymarchCascades(WorldPosition + LFNormal * 1.41414f, Normal, Direction, 1.0f, BayerHash, 192, 0, VXIntersection);
+                vec4 VXRadiance = RaymarchCascades(WorldPosition + LFNormal * 1.41414f, Normal, Direction, 1.0f, BayerHash, BiasedRoughness, 192, 0, VXIntersection);
                 VXRadiance = ResolveVoxelRadiance(VXRadiance,VXIntersection,WorldPosition,Roughness);
                 float CurrentTransversal = VXRadiance.w;
                 AverageTransversal += CurrentTransversal;
-                TotalRadiance += VXRadiance.xyz * 0.5f;
+                TotalRadiance += VXRadiance.xyz;
                 HadValidHit = HadValidHit || true; // we assume that the voxel trace always gives correct intersections 
             }
 
