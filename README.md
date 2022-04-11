@@ -1,11 +1,15 @@
 # Lumen Engine
 
-For the record, I came up with this name much much before unreal did. 
+(For the record, I came up with this name much much before unreal did.) 
 
-## Done
+
+A **TOY ENGINE**. This project is mostly used as a testing ground to experiment with various graphics techniques. 
+
+## Current Feature List 
 
 - Voxelization
-- Indirect lighting based on Cascaded Voxel Raytracing and Screenspace/Cubemap raytracing
+- Indirect Diffuse Lighting (Voxel Raytracing) 
+- Indirect Specular/Reflections (Voxel Raytracing + (parallax correct) Cubemap/Screenspace reflections)
 - Cook torrance BRDF for direct lighting
 - Shadowmapping (with PCF filtering)
 - Spatio-Temporal Variance Guided Filtering for indirect lighting
