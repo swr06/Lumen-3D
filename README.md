@@ -18,13 +18,10 @@ For the record, I came up with this name much much before unreal did.
 ### Lighting 
 
 - PCSS, CSM, Omnidirectional contact-hardening shadows
-- Indirect volumetrics (LPV? Probes?)
-- LTC Area lights 
 - Mesh tracing using SAH BVH (with surfel GI)
 
 ### Rendering
 - Transparency/Translucency OIT
-- Instanced particles 
 
 ### Post process
 - DOF, Auto exposure
