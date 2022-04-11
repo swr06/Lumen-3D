@@ -8,7 +8,8 @@ A **TOY ENGINE**. This project is mostly used as a testing ground to experiment 
 ## Done
 
 - Voxelization
-- Indirect lighting based on Cascaded Voxel Raytracing and Screenspace/Cubemap raytracing
+- Indirect Diffuse Lighting (Voxel Raytracing) 
+- Indirect Specular/Reflections (Voxel Raytracing + (parallax correct) Cubemap/Screenspace reflections)
 - Cook torrance BRDF for direct lighting
 - Shadowmapping (with PCF filtering)
 - Spatio-Temporal Variance Guided Filtering for indirect lighting
