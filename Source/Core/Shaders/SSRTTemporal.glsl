@@ -109,11 +109,11 @@ float ClampDirect(float Current, vec2 Projection, bool DoClamp) {
     float History = texture(u_HistoryDirect, Projection.xy).x;
     
     if (!DoClamp) {
-
+    
         return History;
-
+    
     }
-
+    
     ivec2 Offsets[4] = ivec2[4](ivec2(0.0f, 1.0f), ivec2(0.0f, -1.0f), ivec2(1.0f, 0.0f), ivec2(-1.0f, 0.0f));
 
     float Min = 1000.0f, Max = -1000.0f;
@@ -125,8 +125,8 @@ float ClampDirect(float Current, vec2 Projection, bool DoClamp) {
         Max = max(Max, Sample);
     }
 
-    Min = min(Min, Current) - 0.03f;
-    Max = min(Max, Current) + 0.03f;
+    Min = min(Min, Current) - 0.045f;
+    Max = min(Max, Current) + 0.045f;
 
 
     return ClipAABBMinMax(vec3(History), vec3(Min), vec3(Max)).x;
@@ -149,7 +149,6 @@ void main() {
 
     float Cutoff = ChangedViewMatrix ? 0.01f : 0.0f;
 
-    bool MovedCamera = distance(u_InverseView[3].xyz, u_PrevInverseView[3].xyz) > 0.002f;
 
     if (Reprojected.x > Cutoff && Reprojected.x < 1.0f - Cutoff && Reprojected.y > Cutoff && Reprojected.y < 1.0f - Cutoff) 
     {
@@ -160,10 +159,10 @@ void main() {
         vec2 Dimensions = textureSize(u_History, 0).xy;
 		vec2 Velocity = (v_TexCoords - Reprojected.xy) * Dimensions;
 
-        float TemporalBlur = MovedCamera ? clamp(exp(-length(Velocity)) * 0.95f + 0.7725f, 0.0f, 0.95f) : 0.95f;
+        float TemporalBlur = clamp(exp(-length(Velocity)) * 0.95f + 0.8f, 0.0f, 0.95f);
 
         float History = texture(u_History, Reprojected.xy).x;
-        float HistoryDirect = ClampDirect(CurrentDirect, Reprojected.xy, MovedCamera);//texture(u_HistoryDirect, Reprojected.xy).x;
+        float HistoryDirect = ClampDirect(CurrentDirect, Reprojected.xy, true);//texture(u_HistoryDirect, Reprojected.xy).x;
 
         TemporalBlur *= pow(exp(-Error), 70.0f * 1.0f);
         TemporalBlur = clamp(TemporalBlur, 0.0f, 0.95f);

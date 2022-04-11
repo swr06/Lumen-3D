@@ -94,7 +94,7 @@ vec3 ClampColor(vec3 Color, bool CameraMoved)
         }
     }
 
-    float Bias = CameraMoved ? 0.006f : 0.0125f;
+    float Bias = CameraMoved ? 0.005f : 0.01f;
 
     return clipAABB(Color, MinColor - Bias, MaxColor + Bias);
 }
@@ -169,6 +169,7 @@ void main()
 		v_TexCoords.x > bias && v_TexCoords.x < 1.0f-bias &&
 		v_TexCoords.y > bias && v_TexCoords.y < 1.0f-bias)
 	{
+        // TODO : Replace this with a motion vector check (this is actually braindead)
         bool CameraMoved = distance(u_InversePrevView[3].xyz, u_InverseView[3].xyz) > 0.0005f;
 
 		// Depth rejection
