@@ -5,7 +5,7 @@
 
 A **TOY ENGINE**. This project is mostly used as a testing ground to experiment with various graphics techniques. 
 
-## Done
+## Current Feature List 
 
 - Voxelization
 - Indirect Diffuse Lighting (Voxel Raytracing) 
