@@ -468,11 +468,11 @@ void main()
 	const float TEXTURE_AO_STRENGTH = 32.0f;
 	float TextureAO = max(pow(1.0f - PBR.z, TEXTURE_AO_STRENGTH), 1.0f / 3.0f);
 
-	SSAO = clamp(pow(SSAO, u_RTAOStrength * 2.0f), 0.001f, 1.0f);
+	SSAO = clamp(pow(SSAO, u_RTAOStrength * 2.1f), 0.001f, 1.0f);
 
-	float VXAO = pow(DiffuseIndirect.w, 2.8f);
+	float VXAO = pow(DiffuseIndirect.w, 3.4f);
 
-	float AmbientOcclusion = clamp((pow(SSAO * VXAO, 1.3f) * TextureAO) + 0.05f, 0.0f, 1.0f);
+	float AmbientOcclusion = clamp((pow(SSAO * VXAO, 1.3f) * TextureAO) + 0.07f, 0.0f, 1.0f);
 
 	vec3 IndirectDiffuse = (AmbientTerm * AmbientOcclusion);
 
@@ -508,7 +508,6 @@ void main()
 	// Volumetrics
 
 	o_Color += Volumetrics.xyz * float(u_VolumetricsEnabled);
-
 
 	if (ProbeDebug) {
 		vec3 sLo = -normalize(GetCapturePoint(Lo) - WorldPosition);

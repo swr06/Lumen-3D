@@ -255,8 +255,6 @@ void main() {
         // Velocity rejection
         vec2 Dimensions = textureSize(u_HistorySpecular, 0).xy;
 		vec2 Velocity = (v_TexCoords - Reprojected.xy) * Dimensions;
-        bool MovedCamera = distance(u_InverseView[3].xyz, u_PrevInverseView[3].xyz) > 0.0005f;
-
       
         // Sample History 
         vec3 History = texture(u_HistorySpecular, Reprojected.xy).xyz;
@@ -264,24 +262,25 @@ void main() {
         bool DisocclusionDetected = GetDisocclusion(History.xyz, Current.xyz, PBRFetch.xy);
 
         // Clip specular 
-        vec3 ClippedSpecular = Clip(Pixel, MovedCamera, History, Current.xyz, Roughness, PBRFetch.y, Mean, StandardDeviation, Min, Max, DisocclusionDetected);
+        vec3 ClippedSpecular = Clip(Pixel, true, History, Current.xyz, Roughness, PBRFetch.y, Mean, StandardDeviation, Min, Max, DisocclusionDetected);
         vec4 RawHistory = texture(u_HistorySpecular, Reprojected.xy).xyzw;
-        History = MovedCamera ? ClippedSpecular : RawHistory.xyz; 
+        History = ClippedSpecular; 
 
         // Calculate temporal blur
-        float MovedBlurFactor = clamp(exp(-length(Velocity)) * 0.8f + 0.86f, 0.0f, 0.975f);
+        float MovedBlurFactor = clamp(exp(-length(Velocity)) * 0.8f + 0.875f, 0.0f, 0.975f);
         
         float Frames = texture(u_Frames, Reprojected.xy).x * 64.0f;
 
         const float DepthWeightStrength = 1.6f;
-        float DepthRejection = pow(exp(-ErrorSurface), 32.0f); 
+        float DepthRejection = pow(exp(-ErrorSurface), 42.0f); 
 
         // Calculate temporal blur and frame increment
-        float Framerejection = (DepthRejection < 0.25f ? 0.0f : (DepthRejection <= 0.5 ? 0.5f : (DepthRejection <= 0.8f ? 0.75f : 1.0f))) * mix(1.0f, MovedBlurFactor, float(MovedCamera));
+       // float Framerejection = ((DepthRejection < 0.25f ? 0.0f : DepthRejection)) * clamp(1.0f - MovedBlurFactor, 0.0f, 0.95f);
+        float Framerejection = DepthRejection;
         o_Frames = (Frames * Framerejection) + 1;
         float TemporalBlur = (1.0f / max(o_Frames, 1.0f));
 
-       
+        TemporalBlur = clamp(TemporalBlur, 0.04f, 0.96f);
 
         // Blur
         o_Color.xyz = mix(History.xyz, Current.xyz, TemporalBlur);

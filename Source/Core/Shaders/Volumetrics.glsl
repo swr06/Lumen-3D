@@ -253,7 +253,7 @@ void main() {
 
     vec3 DirectScattering = vec3(0.0f);
 
-    float Extinction = 0.0f; // extinction for air is (very close to) zero, this will change if the volume differs 
+    float SigmaE = 0.0f; 
 
     vec3 SunColor = (vec3(253.,184.,100.)/255.0f) * 0.12f * u_SunVLStrength * 0.3333f;
 
@@ -271,7 +271,7 @@ void main() {
         vec3 S = (Direct + Indirect) * StepSize * Density * Transmittance;
 
         DirectScattering += S;
-        Transmittance *= exp(-(StepSize * Density) * Extinction);
+        Transmittance *= exp(-(StepSize * Density) * SigmaE);
         RayPosition += Direction * StepSize * mix(1.0f, Hash, 0.8f);
     }
 

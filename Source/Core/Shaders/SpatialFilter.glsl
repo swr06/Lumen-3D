@@ -181,9 +181,6 @@ float SpecularWeight(in float CenterDepth, in float SampleDepth, in float Center
 					 in vec3 CenterNormal, in vec3 SampleNormal, const vec3 Incident, 
 					 in vec2 Luminances, in SG CenterSG, in float Radius, in float Frames, in float Kernel) 
 {
-	return 0.0f;
-
-
 	// Linearize transversals 
 	SampleTransversal *= 64.0f;
 	CenterTransversal *= 64.0f;
@@ -210,10 +207,11 @@ float SpecularWeight(in float CenterDepth, in float SampleDepth, in float Center
 	if (DoLuminanceWeight) {
 		
 		// If LMax is higher, it results in sharper reflections 
-		float LMax = mix(24.0f, 12.0f, CenterRoughness * CenterRoughness); // Weight luminance factor with roughness
+		float LMax = mix(24.0f, 12.0f, CenterRoughness * CenterRoughness) / 1.3f; // Weight luminance factor with roughness
 
 		float TransversalRadius = pow(Radius, 1.0f);
 		float Exponent = mix(1.0f, LMax, TransversalRadius);
+		Exponent = 1.0f + Exponent;
 		float LDiff = abs(Luminances.x - Luminances.y);
 		float Lw = exp(-LDiff);
 		LuminanceWeight = clamp(pow(Lw, Exponent), 0.0f, 1.0f);
@@ -224,8 +222,12 @@ float SpecularWeight(in float CenterDepth, in float SampleDepth, in float Center
 	float Framebias = clamp(float(Frames) / 24.0f, 0.0f, 1.0f);
 
 	// Combine and account for the framebias 
-	if (CenterRoughness > 0.2f) {
+	if (CenterRoughness > 0.25f) {
 		LuminanceWeight = mix(1.0f, LuminanceWeight, Framebias);
+	}
+
+	else {
+		LuminanceWeight = mix(clamp(LuminanceWeight * 3.5f, 0.142f, 1.0f), LuminanceWeight, Framebias);
 	}
 
 	float CombinedWeight = clamp(LobeWeight * DepthWeight * Kernel * LuminanceWeight, 0.0f, 1.0f);
