@@ -1,6 +1,9 @@
 # Lumen Engine
 
-For the record, I came up with this name much much before unreal did. 
+(For the record, I came up with this name much much before unreal did.) 
+
+
+A **TOY ENGINE**. This project is mostly used as a testing ground to experiment with various graphics techniques. 
 
 ## Done
 
