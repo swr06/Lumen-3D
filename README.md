@@ -5,10 +5,10 @@ For the record, I came up with this name much much before unreal did.
 ## Done
 
 - Voxelization
-- Indirect lighting based on Cascaded VCT and Screenspace/Cubemap raytracing
-- Cook torrance BRDF
-- Simple shadow maps with PCF
-- Spato-Temporal Variance Guided Filtering
+- Indirect lighting based on Cascaded Voxel Raytracing and Screenspace/Cubemap raytracing
+- Cook torrance BRDF for direct lighting
+- Shadowmapping (with PCF filtering)
+- Spatio-Temporal Variance Guided Filtering for indirect lighting
 - TAA, FXAA 
 - Volumetric Lighting
 - Bloom
