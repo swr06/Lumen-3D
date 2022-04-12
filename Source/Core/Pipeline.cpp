@@ -28,6 +28,10 @@
 #include "BloomRenderer.h"
 #include "BloomFBO.h"
 
+static float RENDER_SCALE = 1.0f;
+static int FXAA_PASSES = 2;
+static float CAS_Amount = 0.375f;
+
 // Camera
 Lumen::FPSCamera Camera(90.0f, 800.0f / 600.0f);
 
@@ -43,7 +47,6 @@ static glm::vec3 SunDirection = glm::vec3(0.1f, -1.0f, 0.1f);
 
 // Flags 
 static bool TAA = true;
-static bool FXAA = true;
 
 static const float IndirectRes = 0.5f;
 static bool SVGF = true;
@@ -76,6 +79,10 @@ static bool FullyDynamicVoxelization = false;
 
 // Spatial
 static bool SpatialFiltering = true;
+
+double RoundToNearest(double n, double x) {
+	return round(n / x) * x;
+}
 
 // Application 
 class RayTracerApp : public Lumen::Application
@@ -188,8 +195,10 @@ public:
 
 		ImGui::Text("Antialiasing : ");
 		ImGui::NewLine();
+		ImGui::SliderFloat("Global Render Resolution", &RENDER_SCALE, 0.25f, 1.0f);
+		ImGui::SliderFloat("CAS Amount", &CAS_Amount, 0.0f, 1.0f);
+		ImGui::SliderInt("FXAA Passes", &FXAA_PASSES, 0, 4);
 		ImGui::Checkbox("TAA", &TAA);
-		ImGui::Checkbox("FXAA 3.11", &FXAA);
 	}
 
 	void OnEvent(Lumen::Event e) override
@@ -381,6 +390,8 @@ GLClasses::Framebuffer VolumetricsFiltered(16, 16, { {GL_RGBA16F, GL_RGBA, GL_FL
 
 // TAA Buffers
 GLClasses::Framebuffer TAABuffers[2] = { GLClasses::Framebuffer(16, 16, {GL_RGB16F, GL_RGB, GL_FLOAT, true, true}, false, false), GLClasses::Framebuffer(16, 16, {GL_RGB16F, GL_RGB, GL_FLOAT, true, true}, false, false) };
+GLClasses::Framebuffer FXAABuffers[2] = { GLClasses::Framebuffer(16, 16, {GL_RGB16F, GL_RGB, GL_FLOAT, true, true}, false, false), GLClasses::Framebuffer(16, 16, {GL_RGB16F, GL_RGB, GL_FLOAT, true, true}, false, false) };
+GLClasses::Framebuffer TonemappedFBO(16, 16, { {GL_RGBA16F, GL_RGBA, GL_FLOAT, true, true} }, false, false);
 
 GLClasses::Framebuffer PostProcessCombined(16, 16, { GL_RGB16F, GL_RGB, GL_FLOAT, true, true }, false, false);
 
@@ -601,6 +612,9 @@ void Lumen::StartPipeline()
 
 	GLClasses::Shader& PostProcessCombineShader = ShaderManager::GetShader("POST_COMBINE");
 
+	GLClasses::Shader& FXAAShader = ShaderManager::GetShader("FXAA");
+	GLClasses::Shader& CASShader = ShaderManager::GetShader("CAS");
+
 
 	// History
 	glm::mat4 PreviousView;
@@ -639,6 +653,9 @@ void Lumen::StartPipeline()
 
 	while (!glfwWindowShouldClose(app.GetWindow()))
 	{
+		RENDER_SCALE = RoundToNearest(RENDER_SCALE, 0.25f);
+		CAS_Amount = RoundToNearest(CAS_Amount, 0.125f);
+
 		// Normalize 
 		//SunDirection = glm::normalize(SunDirection);
 
@@ -659,60 +676,70 @@ void Lumen::StartPipeline()
 		// Common uniform buffer
 		CommonUniforms UniformBuffer = { View, Projection, InverseView, InverseProjection, PreviousProjection, PreviousView, glm::inverse(PreviousProjection), glm::inverse(PreviousView), (int)app.GetCurrentFrame() };
 
-		// Resize buffers (to maintain aspect ratio)
-		GBuffers[0].SetSize(app.GetWidth(), app.GetHeight());
-		GBuffers[1].SetSize(app.GetWidth(), app.GetHeight());
+		float TrueResolutionW = app.GetWidth();
+		float TrueResolutionH = app.GetHeight();
 
-		DownsampledGBuffer.SetSize(app.GetWidth() / 2, app.GetHeight() / 2);
+		float ScaledResolutionW = app.GetWidth() * RENDER_SCALE;
+		float ScaledResolutionH = app.GetHeight() * RENDER_SCALE;
+
+		// Resize buffers (to maintain aspect ratio)
+		GBuffers[0].SetSize(ScaledResolutionW, ScaledResolutionH);
+		GBuffers[1].SetSize(ScaledResolutionW, ScaledResolutionH);
+
+		DownsampledGBuffer.SetSize(ScaledResolutionW / 2, ScaledResolutionH / 2);
 
 		// Light combine (Direct + Indirect)
-		LightingPass.SetSize(app.GetWidth(), app.GetHeight());
+		LightingPass.SetSize(ScaledResolutionW, ScaledResolutionH);
 
-		// Temporal AA
-		TAABuffers[0].SetSize(app.GetWidth(), app.GetHeight());
-		TAABuffers[1].SetSize(app.GetWidth(), app.GetHeight());
+		// Temporal AA (Full res)
+		TAABuffers[0].SetSize(TrueResolutionW, TrueResolutionH);
+		TAABuffers[1].SetSize(TrueResolutionW, TrueResolutionH);
+		
+		FXAABuffers[0].SetSize(TrueResolutionW, TrueResolutionH);
+		FXAABuffers[1].SetSize(TrueResolutionW, TrueResolutionH);
+
+		// Post-process combine  (Full res) 
+		PostProcessCombined.SetSize(TrueResolutionW, TrueResolutionH);
+		TonemappedFBO.SetSize(TrueResolutionW, TrueResolutionH);
 
 		// Specular 
-		SpecularIndirectBuffers[0].SetSize(app.GetWidth() * IndirectRes * (CheckerboardIndirect ? 0.5f : 1.0f), app.GetHeight() * IndirectRes);
-		SpecularIndirectBuffers[1].SetSize(app.GetWidth() * IndirectRes * (CheckerboardIndirect ? 0.5f : 1.0f), app.GetHeight() * IndirectRes);
-		SpecularIndirectTemporalBuffers[0].SetSize(app.GetWidth() * IndirectRes, app.GetHeight() * IndirectRes);
-		SpecularIndirectTemporalBuffers[1].SetSize(app.GetWidth() * IndirectRes, app.GetHeight() * IndirectRes);
+		SpecularIndirectBuffers[0].SetSize(ScaledResolutionW * IndirectRes * (CheckerboardIndirect ? 0.5f : 1.0f), ScaledResolutionH * IndirectRes);
+		SpecularIndirectBuffers[1].SetSize(ScaledResolutionW * IndirectRes * (CheckerboardIndirect ? 0.5f : 1.0f), ScaledResolutionH * IndirectRes);
+		SpecularIndirectTemporalBuffers[0].SetSize(ScaledResolutionW * IndirectRes, ScaledResolutionH * IndirectRes);
+		SpecularIndirectTemporalBuffers[1].SetSize(ScaledResolutionW * IndirectRes, ScaledResolutionH * IndirectRes);
 
 		// Indirect diffuse
-		DiffuseIndirectTrace.SetSize(app.GetWidth() * IndirectRes * (CheckerboardIndirect ? 0.5f : 1.0f), app.GetHeight() * IndirectRes);
-		DiffuseIndirectTemporalBuffers[0].SetSize(app.GetWidth() * IndirectRes, app.GetHeight() * IndirectRes);
-		DiffuseIndirectTemporalBuffers[1].SetSize(app.GetWidth() * IndirectRes, app.GetHeight() * IndirectRes);
-		SVGFVarianceResolve.SetSize(app.GetWidth() * IndirectRes, app.GetHeight() * IndirectRes);
+		DiffuseIndirectTrace.SetSize(ScaledResolutionW * IndirectRes * (CheckerboardIndirect ? 0.5f : 1.0f), ScaledResolutionH * IndirectRes);
+		DiffuseIndirectTemporalBuffers[0].SetSize(ScaledResolutionW * IndirectRes, ScaledResolutionH * IndirectRes);
+		DiffuseIndirectTemporalBuffers[1].SetSize(ScaledResolutionW * IndirectRes, ScaledResolutionH * IndirectRes);
+		SVGFVarianceResolve.SetSize(ScaledResolutionW * IndirectRes, ScaledResolutionH * IndirectRes);
 
 		// Checkerboard
-		IndirectCheckerUpscaled.SetSize(app.GetWidth() * IndirectRes, app.GetHeight() * IndirectRes);
+		IndirectCheckerUpscaled.SetSize(ScaledResolutionW * IndirectRes, ScaledResolutionH * IndirectRes);
 
 		// Denoiser inputs/output buffers 
-		SpatialFilterBuffers[0].SetSize(app.GetWidth() / 2, app.GetHeight() / 2);
-		SpatialFilterBuffers[1].SetSize(app.GetWidth() / 2, app.GetHeight() / 2);
+		SpatialFilterBuffers[0].SetSize(ScaledResolutionW / 2, ScaledResolutionH / 2);
+		SpatialFilterBuffers[1].SetSize(ScaledResolutionW / 2, ScaledResolutionH / 2);
 
 		// Buffers for SSCT 
-		SpecularIndirectConeTraced.SetSize(app.GetWidth() * IndirectRes, app.GetHeight() * IndirectRes);
-		SpecularIndirectConeTraceInput.SetSize(app.GetWidth() * IndirectRes, app.GetHeight() * IndirectRes);
-		SpecularIndirectConeTraceInputAlternate.SetSize(app.GetWidth() * IndirectRes, app.GetHeight() * IndirectRes);
+		SpecularIndirectConeTraced.SetSize(ScaledResolutionW * IndirectRes, ScaledResolutionH * IndirectRes);
+		SpecularIndirectConeTraceInput.SetSize(ScaledResolutionW * IndirectRes, ScaledResolutionH * IndirectRes);
+		SpecularIndirectConeTraceInputAlternate.SetSize(ScaledResolutionW * IndirectRes, ScaledResolutionH * IndirectRes);
 
 		// Volumetrics
-		VolumetricsBuffers[0].SetSize(app.GetWidth() * VolumetricsResolution, app.GetHeight() * VolumetricsResolution);
-		VolumetricsBuffers[1].SetSize(app.GetWidth() * VolumetricsResolution, app.GetHeight() * VolumetricsResolution);
-		VolumetricsFiltered.SetSize(app.GetWidth() * VolumetricsResolution, app.GetHeight() * VolumetricsResolution);
+		VolumetricsBuffers[0].SetSize(ScaledResolutionW * VolumetricsResolution, ScaledResolutionH * VolumetricsResolution);
+		VolumetricsBuffers[1].SetSize(ScaledResolutionW * VolumetricsResolution, ScaledResolutionH * VolumetricsResolution);
+		VolumetricsFiltered.SetSize(ScaledResolutionW * VolumetricsResolution, ScaledResolutionH * VolumetricsResolution);
 
 		// Bloom 
-		BloomBuffer.SetSize(app.GetWidth() * BloomResolution, app.GetHeight() * BloomResolution);
-		BloomBufferB.SetSize(app.GetWidth() * BloomResolution, app.GetHeight() * BloomResolution);
+		BloomBuffer.SetSize(ScaledResolutionW * BloomResolution, ScaledResolutionH * BloomResolution);
+		BloomBufferB.SetSize(ScaledResolutionW * BloomResolution, ScaledResolutionH * BloomResolution);
 
 		// RTAO
-		ScreenspaceOcclusion.SetSize(app.GetWidth() * ScreenspaceOcclusionRes * (ScreenspaceOcclusionCheckerboard ? 0.5f : 1.0f), app.GetHeight() * ScreenspaceOcclusionRes);
-		ScreenspaceOcclusionTemporalBuffers[0].SetSize(app.GetWidth() * ScreenspaceOcclusionRes, app.GetHeight() * ScreenspaceOcclusionRes);
-		ScreenspaceOcclusionTemporalBuffers[1].SetSize(app.GetWidth() * ScreenspaceOcclusionRes, app.GetHeight() * ScreenspaceOcclusionRes);
-		ScreenspaceOcclusionCheckerboardConstruct.SetSize(app.GetWidth() * ScreenspaceOcclusionRes, app.GetHeight() * ScreenspaceOcclusionRes);
-
-		// Post-process combine 
-		PostProcessCombined.SetSize(app.GetWidth(), app.GetHeight());
+		ScreenspaceOcclusion.SetSize(ScaledResolutionW * ScreenspaceOcclusionRes * (ScreenspaceOcclusionCheckerboard ? 0.5f : 1.0f), ScaledResolutionH * ScreenspaceOcclusionRes);
+		ScreenspaceOcclusionTemporalBuffers[0].SetSize(ScaledResolutionW * ScreenspaceOcclusionRes, ScaledResolutionH * ScreenspaceOcclusionRes);
+		ScreenspaceOcclusionTemporalBuffers[1].SetSize(ScaledResolutionW * ScreenspaceOcclusionRes, ScaledResolutionH * ScreenspaceOcclusionRes);
+		ScreenspaceOcclusionCheckerboardConstruct.SetSize(ScaledResolutionW * ScreenspaceOcclusionRes, ScaledResolutionH * ScreenspaceOcclusionRes);
 
 		// Generate mipmaps 
 		if (app.GetCurrentFrame() % 8 == 0) {
@@ -1460,6 +1487,9 @@ void Lumen::StartPipeline()
 		LightingShader.SetInteger("u_ScreenspaceShadows", 10);
 		LightingShader.SetInteger("u_IndirectDiffuse", 17);
 		LightingShader.SetInteger("u_Volumetrics", 18);
+
+		LightingShader.SetInteger("u_LFNormals", 20);
+		
 		LightingShader.SetBool("u_DirectSSShadows", DoScreenspaceShadow);
 		LightingShader.SetBool("u_VolumetricsEnabled", VolumetricLighting);
 		LightingShader.SetFloat("u_RTAOStrength", ScreenspaceAOStrength);
@@ -1518,6 +1548,9 @@ void Lumen::StartPipeline()
 		glActiveTexture(GL_TEXTURE18);
 		glBindTexture(GL_TEXTURE_2D, VolumetricsFilter ? VolumetricsFiltered.GetTexture() : Volumetrics.GetTexture());
 
+		glActiveTexture(GL_TEXTURE20);
+		glBindTexture(GL_TEXTURE_2D, GBuffer.GetTexture(3));
+
 		// SLOTS 11 - 15 ARE USED FOR VOXEL VOLUME TEXTURES
 
 		// Bind voxel volumes 
@@ -1555,6 +1588,7 @@ void Lumen::StartPipeline()
 		TAAShader.SetInteger("u_PreviousColorTexture", 1);
 		TAAShader.SetInteger("u_DepthTexture", 2);
 		TAAShader.SetInteger("u_PreviousDepthTexture", 3);
+		TAAShader.SetVector2f("u_CurrentJitter", GetTAAJitter(app.GetCurrentFrame()));
 		TAAShader.SetBool("u_Enabled", TAA);
 		SetCommonUniforms(TAAShader, UniformBuffer);
 
@@ -1623,21 +1657,71 @@ void Lumen::StartPipeline()
 
 		PostProcessCombined.Unbind();
 
+		// FXAA
+
+		GLClasses::Framebuffer* PrevFXAAFBO = &PostProcessCombined;
+		GLClasses::Framebuffer* CurrentFXAAFBO = &FXAABuffers[0];
+
+		for (int x = 0; x < FXAA_PASSES; x++) {
+
+			CurrentFXAAFBO->Bind();
+
+			FXAAShader.Use();
+			FXAAShader.SetInteger("u_MainTexture", 0);
+			FXAAShader.SetFloat("u_RenderScale", RENDER_SCALE);
+
+			glActiveTexture(GL_TEXTURE0);
+			glBindTexture(GL_TEXTURE_2D, PrevFXAAFBO->GetTexture());
+
+			ScreenQuadVAO.Bind();
+			glDrawArrays(GL_TRIANGLES, 0, 6);
+			ScreenQuadVAO.Unbind();
+
+			CurrentFXAAFBO->Unbind();
+
+			PrevFXAAFBO = CurrentFXAAFBO;
+
+			if (CurrentFXAAFBO == &FXAABuffers[0]) { CurrentFXAAFBO = &FXAABuffers[1]; }
+			else if (CurrentFXAAFBO == &FXAABuffers[1]) { CurrentFXAAFBO = &FXAABuffers[0]; } 
+		}
+
+		CurrentFXAAFBO = PrevFXAAFBO;//FXAA_PASSES > 0 ? CurrentFXAAFBO : &PostProcessCombined;
+
+
 		// Tonemap + Gamma correct + Output
 
-		glBindFramebuffer(GL_FRAMEBUFFER, 0);
-		glViewport(0, 0, app.GetWidth(), app.GetHeight());
+		TonemappedFBO.Bind();
 
 		FinalShader.Use();
 		FinalShader.SetInteger("u_MainTexture", 0);
-		FinalShader.SetBool("u_FXAA", FXAA);
 
 		glActiveTexture(GL_TEXTURE0);
-		glBindTexture(GL_TEXTURE_2D, PostProcessCombined.GetTexture(0));
+		glBindTexture(GL_TEXTURE_2D, CurrentFXAAFBO->GetTexture(0));
 
 		ScreenQuadVAO.Bind();
 		glDrawArrays(GL_TRIANGLES, 0, 6);
 		ScreenQuadVAO.Unbind();
+
+		TonemappedFBO.Unbind();
+
+		// CAS + convert to srgb + blit to screen
+
+		glBindFramebuffer(GL_FRAMEBUFFER, 0);
+		glViewport(0, 0, app.GetWidth(), app.GetHeight());
+
+		CASShader.Use();
+
+		CASShader.SetInteger("u_Texture", 0);
+		CASShader.SetFloat("u_SharpenAmount", CAS_Amount);
+
+		glActiveTexture(GL_TEXTURE0);
+		glBindTexture(GL_TEXTURE_2D, TonemappedFBO.GetTexture(0));
+
+		ScreenQuadVAO.Bind();
+		glDrawArrays(GL_TRIANGLES, 0, 6);
+		ScreenQuadVAO.Unbind();
+
+
 
 		// Finish :
 		app.FinishFrame();

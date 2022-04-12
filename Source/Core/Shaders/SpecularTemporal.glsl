@@ -181,7 +181,7 @@ vec3 Clip(ivec2 Pixel, bool LesserConservative, vec3 History, vec3 Specular, flo
         return History;
     }
 
-    if (Roughness > (Metal ? 0.6f : 0.325f)) {
+    if (Roughness > (Metal ? 0.6f : 0.41f)) {
         return History;
     }
     
@@ -272,7 +272,7 @@ void main() {
         float Frames = texture(u_Frames, Reprojected.xy).x * 64.0f;
 
         const float DepthWeightStrength = 1.6f;
-        float DepthRejection = pow(exp(-ErrorSurface), 42.0f); 
+        float DepthRejection = pow(exp(-ErrorSurface), 64.0f); 
 
         // Calculate temporal blur and frame increment
        // float Framerejection = ((DepthRejection < 0.25f ? 0.0f : DepthRejection)) * clamp(1.0f - MovedBlurFactor, 0.0f, 0.95f);

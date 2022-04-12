@@ -20,6 +20,7 @@ uniform sampler2D u_ScreenspaceShadows;
 uniform samplerCube u_Skymap;
 uniform samplerCube u_Probe;
 uniform sampler2D u_IndirectDiffuse;
+uniform sampler2D u_LFNormals;
 
 uniform vec3 u_ViewerPosition;
 uniform vec3 u_LightDirection;
@@ -431,6 +432,7 @@ void main()
 
 	// GBuffer 
 	vec3 WorldPosition = WorldPosFromDepth(Depth, v_TexCoords);
+	vec3 LFNormals = texture(u_LFNormals, v_TexCoords).xyz;
 	vec3 Normal = normalize(texture(u_NormalTexture, v_TexCoords).xyz);
 	vec3 Albedo = texture(u_AlbedoTexture, v_TexCoords).xyz;
 	vec4 PBR = texture(u_PBRTexture, v_TexCoords).xyzw;
@@ -451,11 +453,11 @@ void main()
 	vec4 Volumetrics;
 
 	SpatialUpscaleNew(LinearizeDepth(Depth), Normal, PBR.x, Lo, SSAO, ScreenspaceShadow, SpecularIndirect, DiffuseIndirect, Volumetrics);
-	SpecularIndirect = SpecularIndirect * 0.6f;
+	SpecularIndirect = SpecularIndirect * 0.425f;
 
 	// Direct lighting ->
 
-	float Shadowmap = clamp(FilterShadows(WorldPosition, Normal), 0.0f, 1.0f);
+	float Shadowmap = clamp(FilterShadows(WorldPosition, LFNormals), 0.0f, 1.0f);
 	
 	float DirectionalShadow = u_DirectSSShadows ? clamp((1.-ScreenspaceShadow) + Shadowmap, 0.0f, 1.0f) : clamp(Shadowmap, 0.0f, 1.0f); //max(pow((1.-ScreenspaceShadow), 3.0f), Shadowmap); 
 	vec3 DirectLighting = CookTorranceBRDF(WorldPosition, normalize(u_LightDirection), SUN_COLOR, Albedo, Normal, PBR.xy, DirectionalShadow).xyz;
@@ -563,7 +565,7 @@ void main()
 float FilterShadows(vec3 WorldPosition, vec3 N)
 {
 	const vec2 PoissonDisk[32] = vec2[] ( vec2(-0.613392, 0.617481), vec2(0.751946, 0.453352), vec2(0.170019, -0.040254), vec2(0.078707, -0.715323), vec2(-0.299417, 0.791925), vec2(-0.075838, -0.529344), vec2(0.645680, 0.493210), vec2(0.724479, -0.580798), vec2(-0.651784, 0.717887), vec2(0.222999, -0.215125), vec2(0.421003, 0.027070), vec2(-0.467574, -0.405438), vec2(-0.817194, -0.271096), vec2(-0.248268, -0.814753), vec2(-0.705374, -0.668203), vec2(0.354411, -0.887570), vec2(0.977050, -0.108615), vec2(0.175817, 0.382366), vec2(0.063326, 0.142369), vec2(0.487472, -0.063082), vec2(0.203528, 0.214331), vec2(-0.084078, 0.898312), vec2(-0.667531, 0.326090), vec2(0.488876, -0.783441), vec2(-0.098422, -0.295755), vec2(0.470016, 0.217933), vec2(-0.885922, 0.215369), vec2(-0.696890, -0.549791), vec2(0.566637, 0.605213), vec2(-0.149693, 0.605762), vec2(0.039766, -0.396100), vec2(0.034211, 0.979980) );
-	vec4 ProjectionCoordinates = u_LightVP * vec4(WorldPosition, 1.0f);
+	vec4 ProjectionCoordinates = u_LightVP * vec4(WorldPosition + N * 0.4f, 1.0f);
 	ProjectionCoordinates.xyz = ProjectionCoordinates.xyz / ProjectionCoordinates.w; // Perspective division is not really needed for orthagonal projection but whatever
     ProjectionCoordinates.xyz = ProjectionCoordinates.xyz * 0.5f + 0.5f;
 	float shadow = 0.0;
@@ -575,13 +577,13 @@ float FilterShadows(vec3 WorldPosition, vec3 N)
 
     float ClosestDepth = texture(u_ShadowTexture, ProjectionCoordinates.xy).r; 
     float Depth = ProjectionCoordinates.z;
-	float Bias = clamp(max(0.00025f * (1.0f - dot(N, u_LightDirection)), 0.0005f), 0.0001f, 0.005f);  
+	float Bias = 0.0007f;//clamp(max(0.00025f * (1.0f - dot(N, u_LightDirection)), 0.0005f), 0.0001f, 0.005f);  
 	vec2 TexelSize = 1.0 / textureSize(u_ShadowTexture, 0);
 	float noise = texture(u_BlueNoise, v_TexCoords * (u_Dims / textureSize(u_BlueNoise, 0).xy)).r;
 	noise = mod(noise + 1.61803f * mod(float(u_CurrentFrame), 100.0f), 1.0f);
-	float scale = 1.0f;
+	float scale = 0.9f;
 
-    int Samples = 16;
+    int Samples = 20;
 
 	for(int x = 0; x < Samples; x++)
 	{
@@ -591,10 +593,10 @@ float FilterShadows(vec3 WorldPosition, vec3 N)
 		mat2 dither = mat2(vec2(cosTheta, -sinTheta), vec2(sinTheta, cosTheta));
 		vec2 jitter_value;
 		jitter_value = PoissonDisk[x] * dither;
-		float pcf = texture(u_ShadowTexture, ProjectionCoordinates.xy + (jitter_value * scale * TexelSize)).r;  // force hardware bilinear
+		float pcf = texture(u_ShadowTexture, ProjectionCoordinates.xy + (jitter_value * scale * TexelSize)).r;  
 		shadow += ProjectionCoordinates.z - Bias > pcf ? 1.0f : 0.0f;
 		
-		scale *= 1.06f;
+		scale *= 1.05f;
 	}
 
 	shadow /= float(Samples);

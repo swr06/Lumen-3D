@@ -32,6 +32,8 @@ void Lumen::ShaderManager::CreateShaders()
 	AddShader("VOLUMETRICS", "Core/Shaders/FBOVert.glsl", "Core/Shaders/Volumetrics.glsl");
 	AddShader("BILATERAL_FILTER", "Core/Shaders/FBOVert.glsl", "Core/Shaders/BilateralFilter4x4.glsl");
 	AddShader("POST_COMBINE", "Core/Shaders/FBOVert.glsl", "Core/Shaders/PostProcessCombine.glsl");
+	AddShader("FXAA", "Core/Shaders/FBOVert.glsl", "Core/Shaders/FXAA311.glsl");
+	AddShader("CAS", "Core/Shaders/FBOVert.glsl", "Core/Shaders/CAS.glsl");
 }
 
 void Lumen::ShaderManager::AddShader(const std::string& name, const std::string& vert, const std::string& frag, const std::string& geo)

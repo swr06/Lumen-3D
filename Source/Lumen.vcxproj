@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?>
+﻿<?xml version="1.0" encoding="utf-8"?>
 <Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup Label="ProjectConfigurations">
     <ProjectConfiguration Include="Debug|Win32">
@@ -243,8 +243,10 @@
     <None Include="Core\Shaders\BloomBlurTwoPass.glsl" />
     <None Include="Core\Shaders\BloomMaskFrag.glsl" />
     <None Include="Core\Shaders\ClearVolume.comp" />
+    <None Include="Core\Shaders\CAS.glsl" />
     <None Include="Core\Shaders\DiffuseTrace.glsl" />
     <None Include="Core\Shaders\DownsampleGBuffer.glsl" />
+    <None Include="Core\Shaders\FXAA311.glsl" />
     <None Include="Core\Shaders\InstanceCubemapUpdate\InstanceCubemapUpdateFrag.glsl" />
     <None Include="Core\Shaders\InstanceCubemapUpdate\InstanceCubemapUpdateVert.glsl" />
     <None Include="Core\Shaders\PostProcessCombine.glsl" />
