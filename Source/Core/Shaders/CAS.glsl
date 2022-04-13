@@ -98,6 +98,12 @@ void BasicColorDither(inout vec3 color)
 void main() {
     ivec2 Pixel = ivec2(gl_FragCoord.xy);
     vec3 OriginalColor = texelFetch(u_Texture, Pixel, 0).xyz;
+
+    if (false) {
+        o_Color = OriginalColor;
+        return;
+    }
+
     float SharpeningAmount = u_SharpenAmount;
     vec3 SharpenedColor = SharpeningAmount < 0.001f ? OriginalColor : ContrastAdaptiveSharpening(u_Texture, Pixel, SharpeningAmount+0.02f);
     o_Color = pow(SharpenedColor, vec3(1.0f / 2.2f));

@@ -111,55 +111,6 @@ vec3 ycocg2rgb(in vec3 ycocg)
     return vec3(r, g, b);
 }
 
-
-vec3 clipToAABB(in vec3 cOld, in vec3 cNew, in vec3 centre, in vec3 halfSize)
-{
-    if (all(lessThanEqual(abs(cOld - centre), halfSize))) {
-        return cOld;
-    }
-    
-    vec3 dir = (cNew - cOld);
-    vec3 near = centre - sign(dir) * halfSize;
-    vec3 tAll = (near - cOld) / dir;
-    float t = 1e20;
-    for (int i = 0; i < 3; i++) {
-        if (tAll[i] >= 0.0 && tAll[i] < t) {
-            t = tAll[i];
-        }
-    }
-    
-    if (t >= 1e20) {
-		return cOld;
-    }
-    return cOld + dir * t;
-}
-
-vec3 ClampColor(vec3 Color, bool CameraMoved) 
-{
-
-    vec3 MinColor = vec3(100.0);
-	vec3 MaxColor = vec3(-100.0); 
-	vec2 TexelSize = 1.0f / textureSize(u_CurrentColorTexture,0);
-
-    for(int x = -1; x <= 1; x++) 
-	{
-        for(int y = -1; y <= 1; y++) 
-		{
-            vec3 Sample = texture(u_CurrentColorTexture, v_TexCoords + vec2(x, y) * TexelSize).rgb; 
-            Sample = rgb2ycocg(Sample);
-
-            MinColor = min(Sample, MinColor); 
-			MaxColor = max(Sample, MaxColor); 
-        }
-    }
-
-    //return ycocg2rgb(clipToAABB(rgb2ycocg(Color), rgb2ycocg(CenterColor.rgb), mean, stddev));
-
-    float Bias = 0.003f;
-
-    return ycocg2rgb(clipAABB(rgb2ycocg(Color), MinColor, MaxColor));
-}
-
 vec4 SampleHistoryBicubic(vec2 uv) 
 {
     vec2 resolution = textureSize(u_PreviousColorTexture, 0).xy;
@@ -210,78 +161,108 @@ vec4 SampleHistoryBicubic(vec2 uv)
 
 }
 
-vec2 v_sel(vec2 f, float val, float eq, vec2 neq)
+float Lanczos(float x, float wi)
 {
-    vec2 result;
-    result.x = (f.x == val) ? eq : neq.x;
-    result.y = (f.y == val) ? eq : neq.y;
-    return result;
+    float c1 = PI * x;
+    float c2 = wi * c1;
+    return (c2 > PI) ? 0.0f : (x < 1e-5f) ? 1.0 : (sin(c2) * sin(c1) / (c2 * c1));
 }
 
-vec3 Lanczos(sampler2D img, vec2 uv)
+float Gaussian(float DistanceSqr)
 {
-    const float M_PI = PI;
-	ivec2 size = textureSize(img, 0);
-    
-    // Lanczos 3
-    vec2 UV = uv.xy * size;
-    vec2 tc = floor(UV - 0.5) + 0.5;
-    vec2 f = UV - tc + 2;
-
-    // compute at f, f-1, f-2, f-3, f-4, and f-5 using trig angle addition
-    vec2 fpi = f * M_PI, fpi3 = f * (M_PI / 3.0);
-    vec2 sinfpi = sin(fpi), sinfpi3 = sin(fpi3), cosfpi3 = cos(fpi3);
-    const float r3 = sqrt(3.0);
-    vec2 w0 = v_sel(f, 0, M_PI * M_PI * 1.0 / 3.0, (sinfpi *       sinfpi3) / (f       * f));
-    vec2 w1 = v_sel(f, 1, M_PI * M_PI * 2.0 / 3.0, (-sinfpi * (sinfpi3 - r3 * cosfpi3)) / ((f - 1.0)*(f - 1.0)));
-    vec2 w2 = v_sel(f, 2, M_PI * M_PI * 2.0 / 3.0, (sinfpi * (-sinfpi3 - r3 * cosfpi3)) / ((f - 2.0)*(f - 2.0)));
-    vec2 w3 = v_sel(f, 3, M_PI * M_PI * 2.0 / 3.0, (-sinfpi * (-2.0*sinfpi3)) / ((f - 3.0)*(f - 3.0)));
-    vec2 w4 = v_sel(f, 4, M_PI * M_PI * 2.0 / 3.0, (sinfpi * (-sinfpi3 + r3 * cosfpi3)) / ((f - 4.0)*(f - 4.0)));
-    vec2 w5 = v_sel(f, 5, M_PI * M_PI * 2.0 / 3.0, (-sinfpi * (sinfpi3 + r3 * cosfpi3)) / ((f - 5.0)*(f - 5.0)));
-
-    // use bilinear texture weights to merge center two samples in each dimension
-    vec2 Weight[5];
-    Weight[0] = w0;
-    Weight[1] = w1;
-    Weight[2] = w2 + w3;
-    Weight[3] = w4;
-    Weight[4] = w5;
-
-    vec2 invTextureSize = 1.0 / vec2(size);
-
-    vec2 Sample[5];
-    Sample[0] = invTextureSize * (tc - 2);
-    Sample[1] = invTextureSize * (tc - 1);
-    Sample[2] = invTextureSize * (tc + w3 / Weight[2]);
-    Sample[3] = invTextureSize * (tc + 2);
-    Sample[4] = invTextureSize * (tc + 3);
-
-    vec4 o_rgba = vec4(0);
-
-    // 5x5 footprint with corners dropped to give 13 texture taps
-    o_rgba += vec4(textureLod(img, vec2(Sample[0].x, Sample[2].y), 0).rgb, 1.0) * Weight[0].x * Weight[2].y;
-    o_rgba += vec4(textureLod(img, vec2(Sample[1].x, Sample[1].y), 0).rgb, 1.0) * Weight[1].x * Weight[1].y;
-    o_rgba += vec4(textureLod(img, vec2(Sample[1].x, Sample[2].y), 0).rgb, 1.0) * Weight[1].x * Weight[2].y;
-    o_rgba += vec4(textureLod(img, vec2(Sample[1].x, Sample[3].y), 0).rgb, 1.0) * Weight[1].x * Weight[3].y;
-    o_rgba += vec4(textureLod(img, vec2(Sample[2].x, Sample[0].y), 0).rgb, 1.0) * Weight[2].x * Weight[0].y;
-    o_rgba += vec4(textureLod(img, vec2(Sample[2].x, Sample[1].y), 0).rgb, 1.0) * Weight[2].x * Weight[1].y;
-    o_rgba += vec4(textureLod(img, vec2(Sample[2].x, Sample[2].y), 0).rgb, 1.0) * Weight[2].x * Weight[2].y;
-    o_rgba += vec4(textureLod(img, vec2(Sample[2].x, Sample[3].y), 0).rgb, 1.0) * Weight[2].x * Weight[3].y;
-    o_rgba += vec4(textureLod(img, vec2(Sample[2].x, Sample[4].y), 0).rgb, 1.0) * Weight[2].x * Weight[4].y;
-    o_rgba += vec4(textureLod(img, vec2(Sample[3].x, Sample[1].y), 0).rgb, 1.0) * Weight[3].x * Weight[1].y;
-    o_rgba += vec4(textureLod(img, vec2(Sample[3].x, Sample[2].y), 0).rgb, 1.0) * Weight[3].x * Weight[2].y;
-    o_rgba += vec4(textureLod(img, vec2(Sample[3].x, Sample[3].y), 0).rgb, 1.0) * Weight[3].x * Weight[3].y;
-    o_rgba += vec4(textureLod(img, vec2(Sample[4].x, Sample[2].y), 0).rgb, 1.0) * Weight[4].x * Weight[2].y;
-
-    return o_rgba.rgb / o_rgba.w;
+    return exp(-2.29f * DistanceSqr);
 }
 
+vec4 Resampling(sampler2D tex, vec2 txc, out vec3 Min, out vec3 Max) {
+
+    Min = vec3(100.0f);
+    Max = vec3(-100.0f);
+
+    vec3 Total = vec3(0.0f);
+    float TotalWeight = 0.0f;
+    vec2 Dimensions = textureSize(tex,0).xy;
+    vec2 Texel = ivec2(floor(txc * Dimensions));
+
+    float MaximumWeight = -100.0f;
+
+    const int Kernel = 2;
+
+    for (int x = -Kernel ; x <= Kernel ; x++) {
+
+        for (int y = -Kernel ; y <= Kernel ; y++) {
+
+            vec2 Offset = vec2(x, y) + u_CurrentJitter * 0.5f;
+            vec2 SampleCoord = Texel + Offset;
+
+            float DistanceSqr = dot(Offset, Offset); 
+            float Distance = sqrt(DistanceSqr);
+            float Weight = Lanczos(Distance, 0.5f);
+            //float Weight = Gaussian(DistanceSqr);
+
+            vec3 Sample = texture(u_CurrentColorTexture, vec2(Texel + Offset) / Dimensions).xyz;
+            vec3 SampleYCoCg = rgb2ycocg(Sample);
+
+            Total += Sample * Weight;
+            TotalWeight += Weight;
+
+            if (max(abs(x), abs(y)) <= 1) 
+            {
+                Min = min(Min, SampleYCoCg);
+                Max = max(Max, SampleYCoCg);
+            }
+
+            if (max(abs(x), abs(y)) <= 2) {
+                MaximumWeight = max(MaximumWeight, Weight);
+            }
+        }
+
+    }
+
+    Total /= TotalWeight;
+
+    return vec4(Total, MaximumWeight);
+}
+
+
+float Luminance(vec3 rgb)
+{
+    const vec3 W = vec3(0.2125, 0.7154, 0.0721);
+    return dot(rgb, W);
+}
+
+const float Multiplier = 1.0f; // idk could be anything
+vec3 Reinhard(vec3 RGB)
+{
+    RGB *= Multiplier;
+    return vec3(RGB) / (vec3(1.0f) + Luminance(RGB));
+}
+
+vec3 InverseReinhard(vec3 RGB)
+{
+    return (RGB / (vec3(1.0f) - Luminance(RGB))) / Multiplier;
+}
+
+float GaussianConfidence(vec2 inputToOutputVec, float rcpStdDev2, float resScale)
+{
+    float resolutionScale2 = resScale * resScale;
+    return resolutionScale2 * exp2(-0.5f * dot(inputToOutputVec, inputToOutputVec) * resolutionScale2 * rcpStdDev2);
+}
 
 void main()
 {
-    vec2 CSampleCoord = v_TexCoords;
-    CSampleCoord -= u_CurrentJitter / (textureSize(u_CurrentColorTexture, 0) * 2.);
-	vec3 CurrentColor = Lanczos(u_CurrentColorTexture, CSampleCoord).rgb;
+    ivec2 Texel = ivec2(gl_FragCoord.xy);
+
+    vec2 iDimensions = textureSize(u_CurrentColorTexture, 0).xy;
+
+    vec3 Min, Max;
+
+    vec2 OiPixel = (v_TexCoords * iDimensions) - (u_CurrentJitter * 1.0f);
+    vec2 UpsampleCoord = OiPixel - (floor(OiPixel) + 0.5f);
+
+    vec2 CSampleCoord  = (0.5f + floor(OiPixel)) / iDimensions;
+
+	vec4 Resampled = Resampling(u_CurrentColorTexture, CSampleCoord, Min, Max).rgba;
+    vec3 CurrentColor = Resampled.xyz;
 
 	if (!u_Enabled) {
 		o_Color = CurrentColor;
@@ -309,16 +290,21 @@ void main()
 
 		vec3 PrevColor = SampleHistoryBicubic(PreviousCoord.xy).rgb;
 		
-	    PrevColor = ClampColor(PrevColor, CameraMoved);
+        PrevColor = ycocg2rgb(clamp(rgb2ycocg(PrevColor), Min, Max));
 
 		vec2 Dimensions = textureSize(u_CurrentColorTexture, 0).xy;
 		vec2 velocity = (v_TexCoords - PreviousCoord.xy) * Dimensions;
-		float BlendFactor = exp(-length(velocity)) * 0.9f + 0.6f;
-		BlendFactor = clamp(BlendFactor, 0.0f, 0.95f);
-
+		
+        float BlendFactor = exp(-length(velocity)) * 0.9f + 0.7f;
+		BlendFactor = clamp(BlendFactor, 0.0f, 0.96f);
+        
 		const float DepthRejectionStrength = 0.0f; // 4.0f
-		BlendFactor *= pow(exp(-abs(LinearExpectedDepth-LinearPrevDepth)), 32.0f * DepthRejectionStrength);
-		o_Color = mix(CurrentColor.xyz, PrevColor.xyz, clamp(BlendFactor, 0.01f, 0.95f));
+		BlendFactor *= pow(exp(-abs(LinearExpectedDepth-LinearPrevDepth)), DepthRejectionStrength);
+
+        float Confidence = GaussianConfidence(UpsampleCoord, 1.0f, 1.0f);
+       // BlendFactor *= clamp(pow(Resampled.w * 1.0f, 1.0f), 0.0f, 1.0f);
+
+		o_Color = max(InverseReinhard(mix(Reinhard(CurrentColor.xyz), Reinhard(PrevColor.xyz), clamp(BlendFactor, 0.01f, 0.98f))), 0.0f);
 	}
 
 	else 
