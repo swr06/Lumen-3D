@@ -5,6 +5,7 @@ layout (location = 0) out vec3 o_Color;
 
 uniform sampler2D u_Texture;
 uniform float u_SharpenAmount;
+uniform bool u_Upscaled;
 
 // Bayer dither 
 float bayer2(vec2 a){
@@ -63,12 +64,14 @@ float CASWeight(vec3 x) {
 
 vec3 ContrastAdaptiveSharpening(sampler2D Texture, ivec2 Pixel, float SharpeningAmount)
 {
+    int Radius = u_Upscaled ? 2 : 1;
+    
     // Samples 
-    vec3 a = texelFetch(Texture, Pixel + ivec2(0, -1), 0).rgb;
-    vec3 b = texelFetch(Texture, Pixel + ivec2(-1, 0), 0).rgb;
-    vec3 c = texelFetch(Texture, Pixel + ivec2(0, 0), 0).rgb;
-    vec3 d = texelFetch(Texture, Pixel + ivec2(1, 0), 0).rgb;
-    vec3 e = texelFetch(Texture, Pixel + ivec2(0, 1), 0).rgb;
+    vec3 a = texelFetch(Texture, Pixel + ivec2(0, -1) * Radius, 0).rgb;
+    vec3 b = texelFetch(Texture, Pixel + ivec2(-1, 0) * Radius, 0).rgb;
+    vec3 c = texelFetch(Texture, Pixel + ivec2(0, 0) * Radius, 0).rgb;
+    vec3 d = texelFetch(Texture, Pixel + ivec2(1, 0) * Radius, 0).rgb;
+    vec3 e = texelFetch(Texture, Pixel + ivec2(0, 1) * Radius, 0).rgb;
 
     // Weight by luminance 
     float WeightA = CASWeight(a.xyz);
@@ -87,6 +90,65 @@ vec3 ContrastAdaptiveSharpening(sampler2D Texture, ivec2 Pixel, float Sharpening
     return (w * (a + b + d + e) + c) / (4.0f * w + 1.0f);
 }
 
+
+#define FSR_RCAS_LIMIT (0.25-(1.0/16.0))
+
+vec4 FsrRcasLoadF(vec2 p) {
+    return texture(u_Texture, p / textureSize(u_Texture, 0).xy);
+}
+
+void FsrRcasCon(
+    out float con,
+    float sharpness
+){
+    con = exp2(-sharpness);
+}
+
+vec3 FsrRcasF(vec2 ip, float con)
+{
+    vec2 sp = vec2(ip);
+    vec3 b = FsrRcasLoadF(sp + vec2( 0,-1)).rgb;
+    vec3 d = FsrRcasLoadF(sp + vec2(-1, 0)).rgb;
+    vec3 e = FsrRcasLoadF(sp).rgb;
+    vec3 f = FsrRcasLoadF(sp+vec2( 1, 0)).rgb;
+    vec3 h = FsrRcasLoadF(sp+vec2( 0, 1)).rgb;
+
+    float bL = b.g + .5 * (b.b + b.r);
+    float dL = d.g + .5 * (d.b + d.r);
+    float eL = e.g + .5 * (e.b + e.r);
+    float fL = f.g + .5 * (f.b + f.r);
+    float hL = h.g + .5 * (h.b + h.r);
+
+    float nz = .25 * (bL + dL + fL + hL) - eL;
+    nz=clamp(
+        abs(nz)
+        /(
+            max(max(bL,dL),max(eL,max(fL,hL)))
+            -min(min(bL,dL),min(eL,min(fL,hL)))
+        ),
+        0., 1.
+    );
+
+    nz=1.-.5*nz;
+
+    vec3 mn4 = min(b, min(f, h));
+    vec3 mx4 = max(b, max(f, h));
+    vec2 peakC = vec2(1., -4.);
+    vec3 hitMin = mn4 / (4. * mx4);
+    vec3 hitMax = (peakC.x - mx4) / (4.* mn4 + peakC.y);
+    vec3 lobeRGB = max(-hitMin, hitMax);
+    float lobe = max(
+        -FSR_RCAS_LIMIT,
+        min(max(lobeRGB.r, max(lobeRGB.g, lobeRGB.b)), 0.)
+    )*con;
+
+    #ifdef FSR_RCAS_DENOISE
+    lobe *= nz;
+    #endif
+
+    return (lobe * (b + d + h + f) + e) / (4. * lobe + 1.);
+} 
+
 void BasicColorDither(inout vec3 color)
 {
 	const vec2 LestynCoefficients = vec2(171.0f, 231.0f);
@@ -104,8 +166,12 @@ void main() {
         return;
     }
 
-    float SharpeningAmount = u_SharpenAmount;
-    vec3 SharpenedColor = SharpeningAmount < 0.001f ? OriginalColor : ContrastAdaptiveSharpening(u_Texture, Pixel, SharpeningAmount+0.02f);
+    float SharpeningAmount = u_SharpenAmount + 0.005f;
+    float FCon;
+    FsrRcasCon(FCon, SharpeningAmount);
+
+    vec3 SharpenedColor = SharpeningAmount < 0.001f ? OriginalColor : 
+                          ContrastAdaptiveSharpening(u_Texture, Pixel, SharpeningAmount+0.02f);
     o_Color = pow(SharpenedColor, vec3(1.0f / 2.2f));
     o_Color = clamp(o_Color,0.0f,1.0f);
 	BasicColorDither(o_Color);

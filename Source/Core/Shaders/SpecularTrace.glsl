@@ -1034,7 +1034,7 @@ void main() {
     int ProbeSteps = int(mix(96.0f, 32.0f, BiasedRoughness < 0.25f ? pow(BiasedRoughness,1.9f) : BiasedRoughness));
     int ProbeBinarySteps = (BiasedRoughness <= 0.51f) ? 16 : 12;
 
-    bool VX_TRACE = Roughness < (PBR.y > 0.06f ? 0.435f : 0.28f);
+    bool VX_TRACE = Roughness < (PBR.y > 0.06f ? 0.7f : 0.35f);
 
     bool HadValidHit = false;
 

@@ -31,6 +31,8 @@
 static float RENDER_SCALE = 1.0f;
 static int FXAA_PASSES = 2;
 static float CAS_Amount = 0.375f;
+static bool TAAU = false;
+static float TAAUConfidenceExponent = 0.75f;
 
 // Camera
 Lumen::FPSCamera Camera(90.0f, 800.0f / 600.0f);
@@ -199,6 +201,12 @@ public:
 		ImGui::SliderFloat("CAS Amount", &CAS_Amount, 0.0f, 1.0f);
 		ImGui::SliderInt("FXAA Passes", &FXAA_PASSES, 0, 4);
 		ImGui::Checkbox("TAA", &TAA);
+
+		ImGui::Checkbox("TAA-UPSCALING?", &TAAU);
+
+		if (TAAU) {
+			ImGui::SliderFloat("TAA-U Confidence Exponent", &TAAUConfidenceExponent, 0.2f, 8.0f);
+		}
 	}
 
 	void OnEvent(Lumen::Event e) override
@@ -389,7 +397,7 @@ GLClasses::Framebuffer VolumetricsBuffers[2] = { GLClasses::Framebuffer(16, 16, 
 GLClasses::Framebuffer VolumetricsFiltered(16, 16, { {GL_RGBA16F, GL_RGBA, GL_FLOAT, true, true} }, false, false);
 
 // TAA Buffers
-GLClasses::Framebuffer TAABuffers[2] = { GLClasses::Framebuffer(16, 16, {GL_RGB16F, GL_RGB, GL_FLOAT, true, true}, false, false), GLClasses::Framebuffer(16, 16, {GL_RGB16F, GL_RGB, GL_FLOAT, true, true}, false, false) };
+GLClasses::Framebuffer TAABuffers[2] = { GLClasses::Framebuffer(16, 16, {GL_RGBA16F, GL_RGBA, GL_FLOAT, true, true}, false, false), GLClasses::Framebuffer(16, 16, {GL_RGBA16F, GL_RGBA, GL_FLOAT, true, true}, false, false) };
 GLClasses::Framebuffer FXAABuffers[2] = { GLClasses::Framebuffer(16, 16, {GL_RGB16F, GL_RGB, GL_FLOAT, true, true}, false, false), GLClasses::Framebuffer(16, 16, {GL_RGB16F, GL_RGB, GL_FLOAT, true, true}, false, false) };
 GLClasses::Framebuffer TonemappedFBO(16, 16, { {GL_RGBA16F, GL_RGBA, GL_FLOAT, true, true} }, false, false);
 
@@ -1589,7 +1597,9 @@ void Lumen::StartPipeline()
 		TAAShader.SetInteger("u_DepthTexture", 2);
 		TAAShader.SetInteger("u_PreviousDepthTexture", 3);
 		TAAShader.SetVector2f("u_CurrentJitter", GetTAAJitter(app.GetCurrentFrame()));
+		TAAShader.SetFloat("u_TAAUConfidenceExponent", TAAUConfidenceExponent);
 		TAAShader.SetBool("u_Enabled", TAA);
+		TAAShader.SetBool("u_TAAU", TAAU);
 		SetCommonUniforms(TAAShader, UniformBuffer);
 
 		glActiveTexture(GL_TEXTURE0);
@@ -1713,6 +1723,7 @@ void Lumen::StartPipeline()
 
 		CASShader.SetInteger("u_Texture", 0);
 		CASShader.SetFloat("u_SharpenAmount", CAS_Amount);
+		CASShader.SetBool("u_Upscaled", RENDER_SCALE < 0.95f);
 
 		glActiveTexture(GL_TEXTURE0);
 		glBindTexture(GL_TEXTURE_2D, TonemappedFBO.GetTexture(0));

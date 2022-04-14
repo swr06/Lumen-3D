@@ -152,15 +152,32 @@ float Luminance(vec3 rgb)
     return dot(rgb, W);
 }
 
+float LanczosWeight(float x, const float a) 
+{
+	float w = a * sin(PI * x) * sin(PI * x / a) / (PI * PI * x * x);
+	return x == 0.0 ? 1.0 : w;
+}
+
+vec4 SampleLinear(sampler2D tex, ivec2 Pixel) {
+	return texture(tex, vec2(Pixel) / textureSize(tex, 0).xy);
+}
+
+vec4 SampleLinear(sampler2D tex, ivec2 Pixel, int LOD) {
+	return textureLod(tex, vec2(Pixel) / textureSize(tex, 0).xy, LOD);
+}
+
 void SpatialUpscaleNew(float Depth, vec3 Normal, float Roughness, vec3 Incident, out float AO, out float ContactShadow, out vec3 Specular, out vec4 Diffuse, out vec4 Volumetrics) {
 
 	const float Atrous[3] = float[3]( 1.0f, 2.0f / 3.0f, 1.0f / 6.0f );
 	const ivec2 Kernel = ivec2(1, 1); // <- Kernel size 
+	const bool LANCZOS_RESAMPLING = false;
+	bool DoSpatialUpscaling = true;
 
+	// Upscale ->
 	ivec2 Pixel = ivec2(gl_FragCoord.xy);
 	ivec2 PixelDownscaled = Pixel / 2;
-
-	bool DoSpatialUpscaling = true;
+    vec2 TexelF = v_TexCoords * textureSize(u_IndirectDiffuse, 0).xy - 0.5;
+    ivec2 Texel = ivec2(v_TexCoords * textureSize(u_IndirectDiffuse, 0).xy - 0.5f);
 
 	if (!DoSpatialUpscaling) {
 
@@ -188,7 +205,18 @@ void SpatialUpscaleNew(float Depth, vec3 Normal, float Roughness, vec3 Incident,
 			
 			if (x == 0 && y == 0) { continue ; }
 
-			float KernelWeight = Atrous[abs(x)] * Atrous[abs(y)];
+			float KernelWeight;
+			
+			if (!LANCZOS_RESAMPLING) {
+				KernelWeight = Atrous[abs(x)] * Atrous[abs(y)];
+			}
+
+			else {
+				ivec2 SampleTexel = Texel + ivec2(x, y);
+				float WeightX = LanczosWeight(TexelF.x - float(SampleTexel.x), 2.);
+				float WeightY = LanczosWeight(TexelF.y - float(SampleTexel.y), 2.);
+				KernelWeight = WeightX * WeightY;
+			}
 
 			ivec2 SampleCoord = PixelDownscaled + ivec2(x, y);
 			ivec2 SampleCoordHighRes = SampleCoord * 2;
@@ -206,6 +234,7 @@ void SpatialUpscaleNew(float Depth, vec3 Normal, float Roughness, vec3 Incident,
 			ContactShadow += texelFetch(u_ScreenspaceShadows, SampleCoord, 0).x * Weight;
 			Diffuse += texelFetch(u_IndirectDiffuse, SampleCoord, 0).xyzw * Weight;
 			Volumetrics += (u_VolumetricsEnabled ? texelFetch(u_Volumetrics, SampleCoord, 0).xyzw : vec4(0.)) * Weight;
+			
 			TotalWeight += Weight;
 		}
 
