@@ -621,6 +621,7 @@ void main() {
 	}
 
 	o_Color = TotalRadiance;
+    o_Color.xyz = max(o_Color.xyz, 0.0f);
 	
 	if (isnan(o_Color.x) || isnan(o_Color.y) || isnan(o_Color.z) || isnan(o_Color.w) || isinf(o_Color.x) || isinf(o_Color.y) || isinf(o_Color.z) || isinf(o_Color.w)) {
         o_Color.xyzw = vec4(0.0f);

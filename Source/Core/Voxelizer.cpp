@@ -19,12 +19,12 @@ namespace Lumen {
 
 	static GLClasses::Shader* VoxelizeShader;
 
-	float Align(float value, float size)
+	static float Align(float value, float size)
 	{
 		return std::floor(value / size) * size;
 	}
 
-	glm::vec3 SnapPosition(glm::vec3 p, int Cascade) {
+	static glm::vec3 SnapPosition(glm::vec3 p, int Cascade) {
 
 		float amts[6] = { 3.0f, 4.0f, 5.0f, 6.0f, 7.0f, 8.0f };
 

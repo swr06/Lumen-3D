@@ -181,6 +181,7 @@ float SpecularWeight(in float CenterDepth, in float SampleDepth, in float Center
 					 in vec3 CenterNormal, in vec3 SampleNormal, const vec3 Incident, 
 					 in vec2 Luminances, in SG CenterSG, in float Radius, in float Frames, in float Kernel) 
 {
+
 	// Linearize transversals 
 	SampleTransversal *= 64.0f;
 	CenterTransversal *= 64.0f;

@@ -1164,4 +1164,6 @@ void main() {
     o_SpecularIndirect.w = oTransversal;
 
     o_HitValidity = float(HadValidHit);
+
+    o_SpecularIndirect.xyz = max(o_SpecularIndirect.xyz, 0.0f);
 }

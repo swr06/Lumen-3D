@@ -339,7 +339,7 @@ void main()
     //vec2 NewPreviousCoord = v_TexCoords.xy - VelocityVector.xy;
     PreviousCoord.xy = v_TexCoords.xy - VelocityVector.xy;
 
-	float bias = (u_InverseView != u_InversePrevView) ? 0.01f : 0.0f;
+	float bias = (u_InverseView != u_InversePrevView) ? 0.02f : 0.0f;
 
     // Screen space check 
 	if (PreviousCoord.x > bias && PreviousCoord.x < 1.0f-bias &&

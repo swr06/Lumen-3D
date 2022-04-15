@@ -86,6 +86,29 @@ double RoundToNearest(double n, double x) {
 	return round(n / x) * x;
 }
 
+static float Align(float value, float size)
+{
+	return std::floor(value / size) * size;
+}
+
+static glm::vec3 SnapPosition(glm::vec3 p, float amt) {
+
+	p.x = Align(p.x, amt);
+	p.y = Align(p.y, amt);
+	p.z = Align(p.z, amt);
+
+	return p;
+}
+
+static glm::vec3 SnapPosition(glm::vec3 p, float ax, float ay, float az) {
+
+	p.x = Align(p.x, ax);
+	p.y = Align(p.y, ay);
+	p.z = Align(p.z, az);
+
+	return p;
+}
+
 // Application 
 class RayTracerApp : public Lumen::Application
 {
@@ -296,6 +319,9 @@ void RenderProbe(Lumen::ProbeMap& probe, int face, glm::vec3 center, const std::
 	if (face >= 6) {
 		throw "What.";
 	}
+
+	//center = SnapPosition(center, 3.0f, 4.0f, 4.0f);
+	center = SnapPosition(center, 0.5f);
 
 	glEnable(GL_CULL_FACE);
 	glEnable(GL_DEPTH_TEST);

@@ -47,9 +47,9 @@ float Vignette() {
 void main()
 {
     o_Color.xyz = (texture(u_MainTexture, v_TexCoords).xyz);
-   
     o_Color = ACESFitted(vec4(o_Color, 1.0f), 2.0f).xyz;
-	o_Color *= Vignette();
+	o_Color *= clamp(Vignette(), 0.0f, 1.0f);
+    o_Color = clamp(o_Color, 0.0f, 1.0f);
 }
 
 

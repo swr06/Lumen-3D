@@ -482,7 +482,7 @@ void main()
 	vec4 Volumetrics;
 
 	SpatialUpscaleNew(LinearizeDepth(Depth), Normal, PBR.x, Lo, SSAO, ScreenspaceShadow, SpecularIndirect, DiffuseIndirect, Volumetrics);
-	SpecularIndirect = SpecularIndirect * 0.425f;
+	SpecularIndirect = SpecularIndirect * 0.625f;
 
 	// Direct lighting ->
 
@@ -539,6 +539,8 @@ void main()
 	// Volumetrics
 
 	o_Color += Volumetrics.xyz * float(u_VolumetricsEnabled);
+
+	//o_Color = SpecularIndirect.xyz;
 
 	if (ProbeDebug) {
 		vec3 sLo = -normalize(GetCapturePoint(Lo) - WorldPosition);
