@@ -21,13 +21,9 @@ namespace Lumen
 		std::cout << "\n" << s << "  :  " << x.x << "  " << x.y << "  " << x.z << "\n";
 	}
 
-	void RenderShadowMap(GLClasses::DepthBuffer& depthbuffer, const glm::vec3& sun_dir, std::vector<Entity*> entities, glm::mat4 m)
+	void RenderShadowMap(GLClasses::DepthBuffer& depthbuffer, const glm::vec3& player_pos, const glm::vec3& sun_dir, std::vector<Entity*> entities, glm::mat4 m)
 	{
-		glm::vec3 LightPosition = glm::vec3(-sun_dir * 400.0f);
-
-		if (std::fmod(glfwGetTime(), 0.1f) < 0.001f) {
-			PrintVec3("Light Position : ", LightPosition);
-		}
+		glm::vec3 LightPosition = player_pos + glm::vec3(-sun_dir * 400.0f);
 
 		float dot = glm::dot(sun_dir, glm::vec3(0.0f, 1.0f, 0.0f));
 

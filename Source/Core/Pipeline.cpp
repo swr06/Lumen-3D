@@ -45,6 +45,7 @@ static bool VSync = false;
 
 // Sun Settings 
 static float SunTick = 50.0f;
+static glm::vec2 SunDirectionAmt = glm::vec2(-76.3f, 106.3f);
 static glm::vec3 SunDirection = glm::vec3(0.1f, -1.0f, 0.1f);
 
 // Flags 
@@ -152,11 +153,29 @@ public:
 				Camera.ChangePosition(-(Camera.GetUp() * camera_speed));
 
 		}
+
+		float ChangeSpeed = 0.4f;
+		float ChangeSpeed2 = 0.2f;
+
+		if (glfwGetKey(window, GLFW_KEY_R) == GLFW_PRESS)
+			SunDirectionAmt.x += 14.0f * ChangeSpeed;
+
+		if (glfwGetKey(window, GLFW_KEY_Y) == GLFW_PRESS)
+			SunDirectionAmt.y += 14.0f * ChangeSpeed;
+
+		if (glfwGetKey(window, GLFW_KEY_T) == GLFW_PRESS)
+			SunDirectionAmt.x -= 14.0f * ChangeSpeed2;
+
+		if (glfwGetKey(window, GLFW_KEY_U) == GLFW_PRESS)
+			SunDirectionAmt.y -= 14.0f * ChangeSpeed2;
+
 	}
 
 	void OnImguiRender(double ts) override
 	{
 		ImGui::Text("-- Info --");
+		ImGui::Text("Sun Direction : %f,  %f,  %f", SunDirection.x, SunDirection.y, SunDirection.z);
+		ImGui::Text("Sun Rotation : %f,   %f", SunDirectionAmt.x, SunDirectionAmt.y);
 		ImGui::Text("Position : %f,  %f,  %f", Camera.GetPosition().x, Camera.GetPosition().y, Camera.GetPosition().z);
 		ImGui::Text("Front : %f,  %f,  %f", Camera.GetFront().x, Camera.GetFront().y, Camera.GetFront().z);
 		ImGui::Text("VSync : %d", VSync);
@@ -165,8 +184,6 @@ public:
 
 		ImGui::NewLine();
 		ImGui::NewLine();
-
-		ImGui::SliderFloat3("Sun Direction (X, Y, Z) : ", &SunDirection[0], -1.0f, 1.0f);
 
 		ImGui::NewLine();
 		
@@ -576,9 +593,7 @@ void Lumen::StartPipeline()
 	GLClasses::Texture BlueNoise;
 	GLClasses::CubeTextureMap Skymap;
 
-
-	glm::vec3 PreviousSunDirection = SunDirection;
-
+	glm::vec2 PreviousSunAmt = SunDirectionAmt;
 
 	Skymap.CreateCubeTextureMap(
 		{
@@ -685,20 +700,29 @@ void Lumen::StartPipeline()
 
 	GLClasses::Framebuffer* FinalDenoiseBufferPtr = &SpatialFilterBuffers[0];
 
+	const float PI = 3.14159265f;
+
 	while (!glfwWindowShouldClose(app.GetWindow()))
 	{
 		RENDER_SCALE = RoundToNearest(RENDER_SCALE, 0.25f);
 		CAS_Amount = RoundToNearest(CAS_Amount, 0.125f);
 
-		// Normalize 
-		//SunDirection = glm::normalize(SunDirection);
+		// Create sun direction 
+		SunDirection = glm::vec3(0.0f);
+		const float PiBy180 = PI / 180.0f;
+		float Rx = SunDirectionAmt.x;
+		float Ry = SunDirectionAmt.y - 90.0f;
+		SunDirection.x -= (cos(Ry * (PiBy180)) * cos(Rx * (PiBy180)));
+		SunDirection.y += (sin(Rx * (PiBy180)));
+		SunDirection.z -= (sin(Ry * (PiBy180)) * cos(Rx * (PiBy180)));
+		SunDirection = glm::normalize(SunDirection);
 
 		// Matrices 
 		PreviousProjection = Camera.GetProjectionMatrix();
 		PreviousView = Camera.GetViewMatrix();
 
 		// App update 
-		PreviousSunDirection = SunDirection;
+		PreviousSunAmt = SunDirectionAmt;
 		app.OnUpdate();
 
 		// Update current matrices 
@@ -793,10 +817,10 @@ void Lumen::StartPipeline()
 
 
 		// Shadowmap update 
-		if (app.GetCurrentFrame() % 12 == 0 || PreviousSunDirection != SunDirection)
+		if (PreviousSunAmt != SunDirectionAmt || app.GetCurrentFrame() % 6 == 0) //PreviousSunDirection != SunDirection)
 		{
 			// Shadow pass 
-			RenderShadowMap(Shadowmap, SunDirection, EntityRenderList, Camera.GetViewProjection());
+			RenderShadowMap(Shadowmap, Camera.GetPosition(), SunDirection, EntityRenderList, Camera.GetViewProjection());
 		}
 
 		// Probe update 
@@ -1757,7 +1781,6 @@ void Lumen::StartPipeline()
 		ScreenQuadVAO.Bind();
 		glDrawArrays(GL_TRIANGLES, 0, 6);
 		ScreenQuadVAO.Unbind();
-
 
 
 		// Finish :

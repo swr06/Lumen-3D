@@ -249,6 +249,7 @@
     <None Include="Core\Shaders\FXAA311.glsl" />
     <None Include="Core\Shaders\InstanceCubemapUpdate\InstanceCubemapUpdateFrag.glsl" />
     <None Include="Core\Shaders\InstanceCubemapUpdate\InstanceCubemapUpdateVert.glsl" />
+    <None Include="Core\Shaders\MotionVectors.glsl" />
     <None Include="Core\Shaders\PostProcessCombine.glsl" />
     <None Include="Core\Shaders\SpatialFilter.glsl" />
     <None Include="Core\Shaders\IndirectCheckerboard.glsl" />
