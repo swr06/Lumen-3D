@@ -50,6 +50,8 @@ uniform bool u_Checker;
 
 uniform sampler2D u_BlueNoise;
 
+uniform bool u_DiffuseSecondBounce;
+
 // Environment map
 uniform samplerCube u_Skymap;
 uniform vec2 u_Jitter;
@@ -574,7 +576,7 @@ void main() {
 	TotalRadiance += DiffuseVX;
 
 
-	if (DO_SECOND_BOUNCE && IntersectionVX.w > 0.6f) {
+	if (DO_SECOND_BOUNCE && IntersectionVX.w > 0.6f && u_DiffuseSecondBounce) {
 		
 		vec3 SecondCosineHemisphereDirection = CosWeightedHemisphere(VXNormal, Hash.xy);
 
@@ -587,32 +589,34 @@ void main() {
 
 		vec3 SecondaryBounceRadiance = vec3(0.0f); 
 
-		if (!VX_SECOND_BOUNCE) {
+		if (u_DiffuseSecondBounce) {
+			if (!VX_SECOND_BOUNCE) {
 
-			vec3 In;
+				vec3 In;
 
-			// Raytrace probe ->
-			vec4 ProbeTrace = RaytraceProbe(IntersectionVX.xyz + VXNormal * 2.f, SecondCosineHemisphereDirection, BayerHash, 32, 12, 0.5f, In);
-			
-			// Is the probe hit valid?
-			if (ProbeTrace.w > 0.5f) {
+				// Raytrace probe ->
+				vec4 ProbeTrace = RaytraceProbe(IntersectionVX.xyz + VXNormal * 2.f, SecondCosineHemisphereDirection, BayerHash, 32, 12, 0.5f, In);
+				
+				// Is the probe hit valid?
+				if (ProbeTrace.w > 0.5f) {
 
-				SecondaryBounceRadiance.xyz = ProbeTrace.xyz;
+					SecondaryBounceRadiance.xyz = ProbeTrace.xyz;
+
+				}
+			}
+
+			else {
+				
+				// Raytrace voxel volume ->
+				
+				vec4 oPos = vec4(0.0f);
+				vec3 Nn = vec3(0.0f);
+
+				vec4 SecondBounceVX = RaymarchCascades(IntersectionVX.xyz, VXNormal, SecondCosineHemisphereDirection, 1.0f, BayerHash, 92, oPos, 3, Nn, false);
+
+				SecondaryBounceRadiance.xyz = SecondBounceVX.xyz;
 
 			}
-		}
-
-		else {
-			
-			// Raytrace voxel volume ->
-			
-			vec4 oPos = vec4(0.0f);
-			vec3 Nn = vec3(0.0f);
-
-			vec4 SecondBounceVX = RaymarchCascades(IntersectionVX.xyz, VXNormal, SecondCosineHemisphereDirection, 1.0f, BayerHash, 92, oPos, 3, Nn, false);
-
-			SecondaryBounceRadiance.xyz = SecondBounceVX.xyz;
-
 		}
 
 		// Account for secondary bounce 

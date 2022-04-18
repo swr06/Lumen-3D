@@ -36,6 +36,9 @@ uniform float u_zFar;
 
 uniform vec2 u_HaltonJitter;
 
+uniform bool u_DiffuseTemporal;
+
+
 
 float linearizeDepth(float depth)
 {
@@ -169,7 +172,8 @@ void main() {
 	if (PreviousCoord.x > SSBias && PreviousCoord.x < 1.0f-SSBias &&
 		PreviousCoord.y > SSBias && PreviousCoord.y < 1.0f-SSBias && 
 		v_TexCoords.x > SSBias && v_TexCoords.x < 1.0f-SSBias &&
-		v_TexCoords.y > SSBias && v_TexCoords.y < 1.0f-SSBias)
+		v_TexCoords.y > SSBias && v_TexCoords.y < 1.0f-SSBias &&
+		u_DiffuseTemporal)
 
 	{
 		// Bilateral/bilinear filter ->
@@ -274,7 +278,8 @@ void main() {
 	else {
 
 		// Out of screen bounds 
-		o_Diffuse = CurrentSample;
+		//o_Diffuse = CurrentSample;
+		o_Diffuse = Resampler(u_Current, v_TexCoords);
 		oMoments = Moments;
 		oFrameCount = 1.0f;
 		

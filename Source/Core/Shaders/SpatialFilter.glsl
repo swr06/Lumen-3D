@@ -58,6 +58,9 @@ uniform int u_Pass;
 uniform int u_TotalPasses;
 
 uniform bool u_SVGF;
+
+uniform bool u_SpatialDiffuse;
+uniform bool u_SpatialSpecular;
 //
 
 // Spherical Gaussian 
@@ -181,6 +184,9 @@ float SpecularWeight(in float CenterDepth, in float SampleDepth, in float Center
 					 in vec3 CenterNormal, in vec3 SampleNormal, const vec3 Incident, 
 					 in vec2 Luminances, in SG CenterSG, in float Radius, in float Frames, in float Kernel) 
 {
+	if (!u_SpatialSpecular) {
+		return 0.0f;
+	}
 
 	// Linearize transversals 
 	SampleTransversal *= 64.0f;
@@ -238,6 +244,10 @@ float SpecularWeight(in float CenterDepth, in float SampleDepth, in float Center
 
 float DiffuseWeightSVGF(float CenterDepth, float SampleDepth, vec3 CenterNormal, vec3 SampleNormal, float CenterLuma, float SampleLuma, float Variance, float PhiL, float PhiD, vec2 xy, float framebias, vec2 DepthGradient, float Kernel) 
 {
+	if (!u_SpatialDiffuse) {
+		return 0.0f;
+	}
+
 	float LumaDistance = abs(CenterLuma - SampleLuma);
 
 	float DepthWeight = clamp(pow(exp(-abs(CenterDepth - SampleDepth)), 32.0f), 0.0f, 1.0f);
@@ -380,15 +390,15 @@ void main() {
 			vec3 SamplePBR = texelFetch(u_PBR, SamplePixel, 0).xyz;
 
 			// Sample buffers 
-			vec4 SpecularSample = texelFetch(u_Specular, SamplePixel, 0).xyzw;
-			vec4 DiffuseSample = texelFetch(u_Diffuse, SamplePixel, 0);
+			vec4 SpecularSample = u_SpatialSpecular ? texelFetch(u_Specular, SamplePixel, 0).xyzw : vec4(0.);
+			vec4 DiffuseSample = u_SpatialDiffuse ? texelFetch(u_Diffuse, SamplePixel, 0) : vec4(0.);
 			float VarianceSample = u_SVGF ? texelFetch(u_Variance, SamplePixel, 0).x : 0.0f;
 
 			// Calculate weights 
 			float SpecularWeight = SpecularWeight(LinearDepth, SampleDepth, CenterSpecular.w, SpecularSample.w, PBR.x, SamplePBR.x, Normal, SampleNormal, Incident, vec2(Luminance(CenterSpecular.xyz), Luminance(SpecularSample.xyz)), CenterLobe, SpecularRadius, SpecularFrames, KernelWeight);
 			float GBufferWeight = DiffuseWeightBasic(LinearDepth, SampleDepth, Normal, SampleNormal, KernelWeight);
 			float DiffuseWeight = u_SVGF ? DiffuseWeightSVGF(LinearDepth, SampleDepth, Normal, SampleNormal, Luminance(CenterDiffuse.xyz), Luminance(DiffuseSample.xyz), GaussianVar, PhiL, PhiDepth, vec2(x,y), FramebiasDiffuse, DepthGradient, KernelWeight) :
-								  GBufferWeight;
+								  (u_SpatialDiffuse ? GBufferWeight : 0.0f);
 
 			DiffuseSum.xyz += DiffuseSample.xyz * DiffuseWeight;
 

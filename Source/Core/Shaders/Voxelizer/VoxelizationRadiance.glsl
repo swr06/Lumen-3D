@@ -27,6 +27,8 @@ uniform vec3 u_SunDir;
 uniform int u_CascadeNumber;
 uniform float u_VoxelRanges[6];
 
+uniform bool u_AmplifySunGI;
+
 bool InsideCube(vec3 p, float e) { return abs(p.x) < e && abs(p.y) < e && abs(p.z) < e ; } 
 
 float remap(float x, float a, float b, float c, float d)
@@ -82,7 +84,26 @@ vec4 EncodeLighting(vec3 Lighting) {
 	return vec4(MappedLighting, 1.0f);
 }
 
-vec3 SunColor = vec3(13.5f);
+mat4 SaturationMatrix(float saturation)
+{
+  vec3 luminance = vec3(0.3086, 0.6094, 0.0820);
+  float oneMinusSat = 1.0 - saturation;
+  vec3 red = vec3(luminance.x * oneMinusSat);
+  red += vec3(saturation, 0, 0);
+
+  vec3 green = vec3(luminance.y * oneMinusSat);
+  green += vec3(0, saturation, 0);
+
+  vec3 blue = vec3(luminance.z * oneMinusSat);
+  blue += vec3(0, 0, saturation);
+
+  return mat4(red, 0,
+    green, 0,
+    blue, 0,
+    0, 0, 0, 1);
+}
+
+vec3 SunColor = vec3(18.5f);
 
 vec3 SampleLighting(vec3 Albedo, vec3 WorldPosition, vec3 Normal) {
 
@@ -124,6 +145,8 @@ vec3 SampleLighting(vec3 Albedo, vec3 WorldPosition, vec3 Normal) {
 
 void main() {
 
+	const mat4 Saturation = SaturationMatrix(2.5f);
+
 	float Size = u_CoverageSizeF;
 	float HalfExtent = Size / 2.0f;
 
@@ -135,6 +158,7 @@ void main() {
 	// Clip -> Screen space
 	Voxel = Voxel * 0.5f + 0.5f;
 
+
 	if (Voxel == clamp(Voxel, 0.0f, 1.0f)) {
 
 		vec3 Normal = normalize(g_Normal);
@@ -144,9 +168,14 @@ void main() {
 		float Mip = clamp(float(u_CascadeNumber - 1.0f), 2.0f, 5.0f);
 		vec3 RawAlbedo = textureLod(u_AlbedoMap, g_UV, Mip).xyz;
 		vec3 Albedo = RawAlbedo;
-		Albedo = pow(Albedo, vec3(1.7f)) * 1.8f;
 
 		vec3 Direct = SampleLighting(Albedo, g_WorldPosition + u_VoxelGridCenterF, Normal);
+		
+		if (u_AmplifySunGI) {
+			// Fake saturate direct lighting to emphasize gi
+			Direct = vec3(Saturation * vec4(Direct, 1.0f));
+		}
+
 		vec3 Emission = RawAlbedo * u_ModelEmission * 2.2f;
 		vec3 Combined = Direct + Emission;
 

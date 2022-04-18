@@ -2,14 +2,18 @@
 
 #include "ModelRenderer.h"
 
+extern bool Lumen_DiffuseAmplifiedSunGI;
+
 namespace Lumen {
 
 	constexpr int CascadeCount = 6;
 
 	static bool GenerateMips = true;
 
+	static float C_VoxelRanges[CascadeCount] = { 128.0f, 256.0f, 384.0f, 512.0f, 1024.0f, 2048.0f };
+	static float C_VoxelRangesLarge[CascadeCount] = { 256.0f, 512.0f, 1024.0f, 2048.0f, 4096.0f, 8192.0f };
+	static float VoxelRangesTrue[CascadeCount] = { 0.,0.,0.,0.,0.,0. };
 
-	static float VoxelRanges[CascadeCount] = { 128.0f, 256.0f, 384.0f, 512.0f, 1024.0f, 2048.0f };
 	static GLuint VoxelVolumes[CascadeCount]{ 0, 0, 0, 0, 0, 0 };
 	static GLuint VoxelVolumesNormals[CascadeCount]{ 0, 0, 0, 0, 0, 0 };
 
@@ -85,8 +89,10 @@ namespace Lumen {
 		}
 	}
 
-	void Voxelizer::VoxelizeCascade(int Cascade, glm::vec3 Position, const glm::mat4& Projection, const glm::mat4& View, GLuint Shadowmap, const glm::mat4& LVP, const glm::vec3& SunDirection, const std::vector<Entity*>& EntityList)
+	void Voxelizer::VoxelizeCascade(int Cascade, glm::vec3 Position, const glm::mat4& Projection, const glm::mat4& View, GLuint Shadowmap, const glm::mat4& LVP, const glm::vec3& SunDirection, const std::vector<Entity*>& EntityList, bool LargeRanges)
 	{
+		float *VoxelRanges = LargeRanges ? C_VoxelRangesLarge : C_VoxelRanges;
+
 		if (Cascade >= CascadeCount) {
 			throw "wtf.";
 		}
@@ -94,6 +100,8 @@ namespace Lumen {
 		Position = SnapPosition(Position,Cascade);
 
 		VoxelCenters[Cascade] = Position;
+
+		VoxelRangesTrue[Cascade] = VoxelRanges[Cascade];
 
 		glBindTexture(GL_TEXTURE_3D, VoxelVolumes[Cascade]);
 		glDisable(GL_CULL_FACE);
@@ -134,6 +142,7 @@ namespace Lumen {
 		VoxelizeShader->SetInteger("u_Shadowmap", 10);
 		VoxelizeShader->SetInteger("u_CascadeNumber", Cascade);
 		VoxelizeShader->SetMatrix4("u_LightVP", LVP);
+		VoxelizeShader->SetBool("u_AmplifySunGI", Lumen_DiffuseAmplifiedSunGI);
 
 		for (int i = 0; i < 6; i++) {
 			std::string s = "u_VoxelRanges[" + std::to_string(i) + ("]");
@@ -174,7 +183,7 @@ namespace Lumen {
 
 	float* Voxelizer::GetVolumeRanges()
 	{
-		return VoxelRanges;
+		return VoxelRangesTrue;
 	}
 
 	glm::vec3* Voxelizer::GetVolumeCenters()

@@ -8,6 +8,8 @@ layout (location = 0) out vec3 o_Color;
 
 in vec2 v_TexCoords;
 
+uniform int LUMEN_DEBUG_LEVEL;
+
 uniform sampler2D u_AlbedoTexture;
 uniform sampler2D u_NormalTexture;
 uniform sampler2D u_PBRTexture;
@@ -40,8 +42,11 @@ uniform bool u_DirectSSShadows;
 uniform bool u_VolumetricsEnabled;
 
 uniform float u_RTAOStrength;
+uniform float u_DiffuseGIStrength;
+uniform float u_SpecularGIStrength;
 
 uniform vec2 u_Dims;
+uniform vec2 u_DOFFocusPointS;
 
 uniform vec3 u_ProbeCapturePoints[6];
 
@@ -52,6 +57,11 @@ uniform vec3 u_VoxelCenters[6];
 uniform sampler2D u_Volumetrics;
 
 uniform int u_Frame;
+
+layout (std430, binding = 1) buffer EyeAdaptation_SSBO
+{
+    float o_NonLinearDepth;
+};
 
 
 const vec3 SUN_COLOR = vec3(8.0f); //vec3(6.9f, 6.9f, 10.0f);
@@ -439,6 +449,13 @@ const bool ProbeDebug = false;
 
 void main() 
 {	
+	ivec2 RawPixel = ivec2(gl_FragCoord.xy);
+
+	if (RawPixel.x == 8 && RawPixel.y == 8) {
+		o_NonLinearDepth = texture(u_DepthTexture, u_DOFFocusPointS / textureSize(u_DepthTexture, 0).xy).x;
+	}
+
+
 	HASH2SEED = (v_TexCoords.x * v_TexCoords.y) * 64.0;
 
     // Animate noise for temporal integration
@@ -532,7 +549,7 @@ void main()
 	vec3 IndirectSpecularFinal = SpecularIndirect * (FresnelTerm * EnvironmentBRDF.x + EnvironmentBRDF.y);
 
 	// Combine indirect diffuse and indirect specular 
-    vec3 IndirectLighting = (kD * IndirectDiffuse) + IndirectSpecularFinal;
+    vec3 IndirectLighting = (kD * IndirectDiffuse * u_DiffuseGIStrength) + (IndirectSpecularFinal * u_SpecularGIStrength);
 
 	o_Color = DirectLighting + Emission + IndirectLighting;
 
@@ -540,22 +557,22 @@ void main()
 
 	o_Color += Volumetrics.xyz * float(u_VolumetricsEnabled);
 
-	//o_Color = SpecularIndirect.xyz;
-
 	if (ProbeDebug) {
 		vec3 sLo = -normalize(GetCapturePoint(Lo) - WorldPosition);
 		int FaceID = clamp(GetFaceID(sLo),0,5);
 		o_Color = vec3(pow(float(FaceID) / 5.0f, 2.0f));//texture(u_Probe, sLo).xyz;
 	}
 
-	// Nan/inf check
-	if (isnan(o_Color.x) || isnan(o_Color.y) || isnan(o_Color.z) || isinf(o_Color.x) || isinf(o_Color.y) || isinf(o_Color.z)) {
-        o_Color = vec3(0.0f);
-    }
+	
+	// 0 -> None, 1 -> Diffuse, 2 -> Specular, 3 -> AO, 4 -> Shadowmap, 5 -> SSShadows, 6 -> Voxel volume
+	if (LUMEN_DEBUG_LEVEL == 0) {}
+	else if (LUMEN_DEBUG_LEVEL == 1) { o_Color = DiffuseIndirect.xyz * 0.5f; } // <---- MULTIPLIED HERE!
+	else if (LUMEN_DEBUG_LEVEL == 2) { o_Color = SpecularIndirect.xyz * 0.7f;} // <---- MULTIPLIED HERE!
+	else if (LUMEN_DEBUG_LEVEL == 3) { o_Color = vec3(AmbientOcclusion); }
+	else if (LUMEN_DEBUG_LEVEL == 4) { o_Color = vec3(1.-Shadowmap); }
+	else if (LUMEN_DEBUG_LEVEL == 5) { o_Color = vec3(ScreenspaceShadow);}
 
-	bool DEBUG_VOXEL_VOLUMES = false;
-
-	if (DEBUG_VOXEL_VOLUMES) {
+	else if (LUMEN_DEBUG_LEVEL == 6) {
 
 		// DDA 
 		vec4 VoxelData;
@@ -564,10 +581,8 @@ void main()
 		int RandomCascade = clamp(int(mix(0.0f, 5.0f, hash2().x)), 0, 5);
 
 		bool HadHit = false;
-		for (int pass = 1; pass < 6 ; pass++) {
+		for (int pass = 0; pass < 6 ; pass++) {
 			HadHit = DDA(pass, u_ViewerPosition, rD, 256, VoxelData, VoxelNormal, VoxelPosition);
-			
-			//HadHit = DDA(pass, WorldPosition + Normal * ((pass * 1.5f * sqrt(2.0f)) + 1.0f), R, 500, VoxelData, VoxelNormal, VoxelPosition);;
 			if (HadHit) { break; }
 		}
 	
@@ -576,7 +591,7 @@ void main()
 		if (HadHit) {
 
 			if (Luminance(VoxelData.xyz) < Luminance(vec3(1.0f) * 0.01f)) {
-				VoxelData /= 0.4f;
+				VoxelData /= 0.2f;
 			}
 
 			o_Color = VoxelData.xyz;
@@ -588,6 +603,13 @@ void main()
 
 	}
 
+
+
+
+	// Nan/inf check
+	if (isnan(o_Color.x) || isnan(o_Color.y) || isnan(o_Color.z) || isinf(o_Color.x) || isinf(o_Color.y) || isinf(o_Color.z)) {
+        o_Color = vec3(0.0f);
+    }
 
 }
 

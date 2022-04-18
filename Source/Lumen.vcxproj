@@ -242,8 +242,10 @@
     <None Include="Core\Shaders\BilateralFilter4x4.glsl" />
     <None Include="Core\Shaders\BloomBlurTwoPass.glsl" />
     <None Include="Core\Shaders\BloomMaskFrag.glsl" />
+    <None Include="Core\Shaders\BokehDOF.glsl" />
     <None Include="Core\Shaders\ClearVolume.comp" />
     <None Include="Core\Shaders\CAS.glsl" />
+    <None Include="Core\Shaders\ColorPassVert.glsl" />
     <None Include="Core\Shaders\DiffuseTrace.glsl" />
     <None Include="Core\Shaders\DownsampleGBuffer.glsl" />
     <None Include="Core\Shaders\FXAA311.glsl" />

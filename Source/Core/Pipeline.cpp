@@ -1,3 +1,6 @@
+// Lumen Graphics Engine/Framework
+// by @swr06 on github.
+
 #define DUPLICATE(x) (x, x)
 
 #include "Pipeline.h"
@@ -28,6 +31,10 @@
 #include "BloomRenderer.h"
 #include "BloomFBO.h"
 
+#include <conio.h>
+
+// 0 -> None, 1 -> Diffuse, 2 -> Specular, 3 -> AO, 4 -> Shadowmap, 5 -> SSShadows, 6 -> Voxel volume
+static int LUMEN_DEBUG_LEVEL = 0; 
 static float RENDER_SCALE = 1.0f;
 static int FXAA_PASSES = 2;
 static float CAS_Amount = 0.375f;
@@ -51,13 +58,27 @@ static glm::vec3 SunDirection = glm::vec3(0.1f, -1.0f, 0.1f);
 // Flags 
 static bool TAA = true;
 
+// Indirect 
 static const float IndirectRes = 0.5f;
+static bool CheckerboardIndirect = true;
+static float DiffuseGIStrength = 1.0f;
+static float SpecularGIStrength = 1.0f;
+static bool LargeVoxelRange = false;
+
+// Diffuse settings 
 static bool SVGF = true;
+static bool DiffuseSecondBounce = true;
+bool Lumen_DiffuseAmplifiedSunGI = true; // Extern
+static bool DiffTemporalEnabled = true;
 
 // Specular settings
 static bool SSCT = false;
 static bool RoughSpecular = true;
-static bool CheckerboardIndirect = true;
+static bool SpecularVXTracing = true;
+static bool SpecularSSRT = true;
+static bool ForceSpecularVXTracing = false;
+static bool SpecularVXSecondary = true; // 1 -> Cubemap, 0 -> Screenspace
+static bool SpecTemporalEnabled = true;
 
 // AO 
 const float ScreenspaceOcclusionRes = 0.5f;
@@ -73,31 +94,45 @@ static bool VolumetricsFilter = true;
 static bool VolumetricsTemporal = true;
 static float SunVolumetricsStrength = 1.0f;
 
-// Bloom
-static bool DoBloom = true;
-
 // Update rates
 static int ProbeUpdateRate = 1;
 static bool FullyDynamicVoxelization = false;
 
 // Spatial
 static bool SpatialFiltering = true;
+static bool SpatialDiffuse = true;
+static bool SpatialSpecular = true;
 
+// Post Process
+static float ExposureMultiplier = 1.0f;
+static bool PostProcess_Bloom = true;
+static float PostProcess_FilmGrainStrength = 0.350f;
+static float PostProcess_CAStrength = 0.05f;
+static bool PostProcess_DOF = false;
+
+// DOF 
+static float CenterDepthSmooth = 1.0f;
+static float DOFResolutionScale = 0.25f;
+static float DOFCOCScale = 1.0f;
+static float DOFBlurScale = 1.0f;
+static bool DOFCA = false;
+static bool DOF_HQ = false;
+static float DOFCAScale = 1.4f;
+static glm::vec2 DOFFocusPoint;
+
+// Basic ass math
 double RoundToNearest(double n, double x) {
 	return round(n / x) * x;
 }
 
-static float Align(float value, float size)
-{
+static float Align(float value, float size) {
 	return std::floor(value / size) * size;
 }
 
 static glm::vec3 SnapPosition(glm::vec3 p, float amt) {
-
 	p.x = Align(p.x, amt);
 	p.y = Align(p.y, amt);
 	p.z = Align(p.z, amt);
-
 	return p;
 }
 
@@ -106,9 +141,9 @@ static glm::vec3 SnapPosition(glm::vec3 p, float ax, float ay, float az) {
 	p.x = Align(p.x, ax);
 	p.y = Align(p.y, ay);
 	p.z = Align(p.z, az);
-
 	return p;
 }
+
 
 // Application 
 class RayTracerApp : public Lumen::Application
@@ -185,33 +220,83 @@ public:
 		ImGui::NewLine();
 		ImGui::NewLine();
 
+		ImGui::Text("---- LUMEN DEBUG ----");
 		ImGui::NewLine();
-		
+
+		ImGui::Text("Level 0 : None");
+		ImGui::Text("Level 1 : Indirect Diffuse");
+		ImGui::Text("Level 2 : Indirect Specular");
+		ImGui::Text("Level 3 : Ambient Occlusion (VXAO x SSRTAO)");
+		ImGui::Text("Level 4 : Filtered Direct Shadows (Shadowmap)");
+		ImGui::Text("Level 5 : Screenspace Shadows");
+		ImGui::Text("Level 6 : Voxel Structure");
+
+		ImGui::NewLine();
+		ImGui::SliderInt("- LUMEN DEBUG LEVEL -", &LUMEN_DEBUG_LEVEL, 0, 6);
+		ImGui::NewLine();
+
+		ImGui::NewLine();
+		ImGui::NewLine();
+		ImGui::NewLine();
+
+		ImGui::Text("---- Indirect lighting ----");
+		ImGui::Text("Indirect Resolution : %f on each axis", IndirectRes);
+		ImGui::Checkbox("Indirect Checkerboarding? (Much faster, Resolution halved)", &CheckerboardIndirect);
+		ImGui::SliderFloat("Diffuse GI Strength", &DiffuseGIStrength, 0.0f, 2.0f);
+		ImGui::SliderFloat("Specular GI Strength", &SpecularGIStrength, 0.0f, 2.0f);
+
+		ImGui::NewLine();
+
 		ImGui::SliderInt("Probe Update Rate", &ProbeUpdateRate, 1, 6);
 		ImGui::Checkbox("Fully Dynamic Voxelization?", &FullyDynamicVoxelization);
+		ImGui::Checkbox("Large Range Voxelization? (faster in some cases, much further distance)", &LargeVoxelRange);
 
 		ImGui::NewLine();
+		ImGui::NewLine();
+		ImGui::Text("---- Denoising ----");
+		ImGui::NewLine();
+		ImGui::Checkbox("Denoiser Enabled?", &SpatialFiltering);
 
-		ImGui::Checkbox("Spatial Filtering?", &SpatialFiltering);
+		if (SpatialFiltering) {
+			ImGui::Checkbox("SVGF For indirect diffuse? (Slower, increases detail & temporal stability)", &SVGF);
+			ImGui::Checkbox("Filter Diffuse?", &SpatialDiffuse);
+			ImGui::Checkbox("Filter Specular?", &SpatialSpecular);
+		}
 
 		ImGui::NewLine();
-
-		ImGui::NewLine();
-		
-		ImGui::Text("Indirect Resolution : %f on each axis", IndirectRes);
-
 		ImGui::NewLine();
 
-		ImGui::Text("Specular Upsample Resolution : %f on each axis", IndirectRes);
-		ImGui::Checkbox("Rough Specular?", &RoughSpecular);
+		ImGui::Text("-- Indirect Diffuse --");
+		ImGui::NewLine();
+		ImGui::Checkbox("Second bounce diffuse?", &DiffuseSecondBounce);
+		ImGui::Checkbox("Amplified Sun GI?", &Lumen_DiffuseAmplifiedSunGI);
+		ImGui::Checkbox("Temporally filter Diffuse?", &DiffTemporalEnabled);
 
 		ImGui::NewLine();
-
-		ImGui::Checkbox("Indirect Checkerboarding? (Resolution effectively halved)", &CheckerboardIndirect);
-		ImGui::Checkbox("SVGF?", &SVGF);
 		ImGui::NewLine();
 
-		ImGui::Text("RTAO/Screenspace shadows resolve resolution : %f on each axis", ScreenspaceOcclusionRes);
+		ImGui::Text("-- Indirect Specular --");
+		ImGui::NewLine();
+		ImGui::Checkbox("Rough specular?", &RoughSpecular);
+		ImGui::Checkbox("Voxel Volume Tracing?", &SpecularVXTracing);
+
+		if (SpecularVXTracing) {
+			ImGui::Checkbox("Force VX Tracing? (If disabled, the voxel volume is only traced for smooth materials due to performance reasons)", &ForceSpecularVXTracing);
+			ImGui::Checkbox("Specular VX Secondary (Enabled = Cubemap raytracing, Disabled = Screenspace raytracing)", &SpecularVXSecondary);
+
+		}
+
+		else {
+			ImGui::Checkbox("Screenspace fallback?", &SpecularSSRT);
+		}
+
+		ImGui::Checkbox("Temporally Filter Specular?", &SpecTemporalEnabled);
+
+		ImGui::NewLine();
+		ImGui::NewLine();
+		ImGui::Text("---- Screenspace raytraced effects ----");
+		ImGui::NewLine();
+		ImGui::Text("RTAO/Screenspace shadows resolution : %f on each axis", ScreenspaceOcclusionRes);
 		ImGui::Checkbox("Do Screenspace RTAO?", &DoScreenspaceAO);
 		ImGui::Checkbox("Do Screenspace Direct Shadows?", &DoScreenspaceShadow);
 		ImGui::Checkbox("Checkerboard render?", &ScreenspaceOcclusionCheckerboard);
@@ -220,6 +305,8 @@ public:
 			ImGui::SliderFloat("Screenspace RTAO Strength", &ScreenspaceAOStrength, 0.1f, 2.0f);
 
 		ImGui::NewLine();
+		ImGui::NewLine();
+		ImGui::Text("---- Volumetrics ----");
 		ImGui::NewLine();
 		ImGui::Checkbox("Volumetrics?", &VolumetricLighting);
 		ImGui::Text("Volumetrics Raymarch Resolution : %f", VolumetricsResolution);
@@ -230,19 +317,38 @@ public:
 		ImGui::NewLine();
 		ImGui::NewLine();
 
-		ImGui::Checkbox("Bloom?", &DoBloom);
+		ImGui::Text("---- Post Process ----");
+		ImGui::NewLine();
+		ImGui::SliderFloat("Camera Exposure Multiplier", &ExposureMultiplier, 0.1f, 2.0f);
+		ImGui::Checkbox("Bloom?", &PostProcess_Bloom);
+		ImGui::SliderFloat("Chromatic Aberration Strength", &PostProcess_CAStrength, 0.0f, 0.50);
+		ImGui::SliderFloat("Film Grain Strength", &PostProcess_FilmGrainStrength, 0.0f, 1.0f);
+		ImGui::Checkbox("Depth-Of-Field (DOF) ?", &PostProcess_DOF);
+
+		if (PostProcess_DOF) {
+			ImGui::NewLine();
+			ImGui::SliderFloat("DOF Resolution Scale", &DOFResolutionScale, 0.1f, 1.0f);
+			ImGui::Checkbox("DOF HQ?", &DOF_HQ);
+			ImGui::SliderFloat("DOF COC Scale", &DOFCOCScale, 0.1f, 2.0f);
+			ImGui::SliderFloat("DOF Blur Scale", &DOFBlurScale, 0.1f, 2.0f);
+			ImGui::Checkbox("DOF CA Enabled?", &DOFCA);
+			if (DOFCA) {
+				ImGui::SliderFloat("DOF CA Scale", &DOFCAScale, 0.1f, 4.0f);
+			}
+			ImGui::NewLine();
+		}
 
 		ImGui::NewLine();
 		ImGui::NewLine();
-
-		ImGui::Text("Antialiasing : ");
+		ImGui::NewLine();
+		ImGui::Text("---- Antialiasing/Supersampling ----");
 		ImGui::NewLine();
 		ImGui::SliderFloat("Global Render Resolution", &RENDER_SCALE, 0.25f, 1.0f);
 		ImGui::SliderFloat("CAS Amount", &CAS_Amount, 0.0f, 1.0f);
 		ImGui::SliderInt("FXAA Passes", &FXAA_PASSES, 0, 4);
 		ImGui::Checkbox("TAA", &TAA);
 
-		ImGui::Checkbox("TAA-UPSCALING?", &TAAU);
+		ImGui::Checkbox("TAA-UPSCALING (TAA-U)?", &TAAU);
 
 		if (TAAU) {
 			ImGui::SliderFloat("TAA-U Confidence Exponent", &TAAUConfidenceExponent, 0.2f, 8.0f);
@@ -256,6 +362,16 @@ public:
 			float Sign = e.msy < 0.0f ? 1.0f : -1.0f;
 			Camera.SetFov(Camera.GetFov() + 2.0f * Sign);
 			Camera.SetFov(glm::clamp(Camera.GetFov(), 1.0f, 89.0f));
+		}
+
+		if (e.type == Lumen::EventTypes::MousePress)
+		{
+			if (!this->GetCursorLocked()) {
+				double mxx, myy;
+				glfwGetCursorPos(this->m_Window, &mxx, &myy);
+				myy = (double)this->GetHeight() - myy;
+				DOFFocusPoint = glm::vec2((float)mxx, (float)myy);
+			}
 		}
 
 		if (e.type == Lumen::EventTypes::MouseMove && GetCursorLocked())
@@ -445,6 +561,7 @@ GLClasses::Framebuffer FXAABuffers[2] = { GLClasses::Framebuffer(16, 16, {GL_RGB
 GLClasses::Framebuffer TonemappedFBO(16, 16, { {GL_RGBA16F, GL_RGBA, GL_FLOAT, true, true} }, false, false);
 
 GLClasses::Framebuffer PostProcessCombined(16, 16, { GL_RGB16F, GL_RGB, GL_FLOAT, true, true }, false, false);
+GLClasses::Framebuffer DOFFBO(16, 16, { GL_RGBA16F, GL_RGBA, GL_FLOAT, true, true }, false, false);
 
 // Spatial Buffers 
 GLClasses::Framebuffer SpatialFilterBuffers[2] = { GLClasses::Framebuffer(16, 16, {{ GL_RGBA16F, GL_RGBA, GL_FLOAT, true, true },{ GL_RGBA16F, GL_RGBA, GL_FLOAT, true, true }, {GL_R16F, GL_RED, GL_FLOAT, true, true}}, false, false), GLClasses::Framebuffer(16, 16, {{ GL_RGBA16F, GL_RGBA, GL_FLOAT, true, true },{ GL_RGBA16F, GL_RGBA, GL_FLOAT, true, true }, {GL_R16F, GL_RED, GL_FLOAT, true, true}}, false, false) };
@@ -480,8 +597,7 @@ int GetUpdateCascade(int Frame) {
 	return 5;
 }
 
-
-
+const glm::mat4 ZOrientMatrix = glm::mat4(glm::vec4(1.0f, 0.0f, 0.0f, 0.0f), glm::vec4(0.0f, 0.0f, 1.0f, 0.0f), glm::vec4(0.0f, 1.0f, 0.0f, 0.0f), glm::vec4(1.0f));
 
 // Main pipeline
 void Lumen::StartPipeline()
@@ -490,17 +606,29 @@ void Lumen::StartPipeline()
 	app.Initialize();
 	app.SetCursorLocked(true);
 
-	// Scene setup 
+	std::cout << "\n\n---------CONTROLS---------\n\t- F1 -> Lock/Unlock mouse\
+		\n\t- W, S, A, D -> Move\
+		\n\t- Space -> Jump / Fly\
+		\n\t- Shift -> Accelerate down\
+		\n\t- R, T, Y, U -> Shift Sun\
+		\n\t- ESC -> quit\
+		\n\t- V -> Toggle VSync\
+		\n\t- F2 -> Recompile shaders\
+		\n\t- ImGui Windows ->\
+		\n\t\t-- Main Window (\"Debug\") : Various Other Settings(Resolution settings)";
+
+	std::cout << "\n\n\n\n\n";
+	std::cout << "Press any key to launch the engine..";
+	getchar();
+	std::cout << "\n\n\n";
+
+	// -- Setup scene --
+
 	Object Sponza;
 	FileLoader::LoadModelFile(&Sponza, "Models/sponza-pbr/Sponza.gltf");
-	Entity MainModel(&Sponza);
-	MainModel.m_Model = glm::scale(glm::mat4(1.0f), glm::vec3(0.2f));
-	MainModel.m_Model = glm::translate(MainModel.m_Model, glm::vec3(0.0f));
-
-	const glm::mat4 ZOrientMatrix = glm::mat4(glm::vec4(1.0f, 0.0f, 0.0f, 0.0f), glm::vec4(0.0f, 0.0f, 1.0f, 0.0f), glm::vec4(0.0f, 1.0f, 0.0f, 0.0f), glm::vec4(1.0f));
-
+	
+	// Cubes ->
 	Object Cube;
-	//FileLoader::LoadModelFile(&SecondaryLargeModel, "Models/Lucy/LucyModel.obj");
 	FileLoader::LoadModelFile(&Cube, "Models/cube/Cube.gltf");
 
 	Object RedCube;
@@ -509,13 +637,22 @@ void Lumen::StartPipeline()
 	Object BlueCube;
 	FileLoader::LoadModelFile(&BlueCube, "Models/bluecube/Cube.gltf");
 
+	// Extra models ->
 	Object SecondaryModel;
 	FileLoader::LoadModelFile(&SecondaryModel, "Models/dragon/dragon.obj");
 
 	Object Suzanne;
-	//FileLoader::LoadModelFile(&Suzanne, "Models/suzanne/Suzanne.gltf");
 	FileLoader::LoadModelFile(&Suzanne, "Models/suzanneglass/Suzanne.gltf");
 	
+
+	// ----------------------------
+
+	// Create entities!
+
+	Entity MainEntity(&Sponza);
+	MainEntity.m_Model = glm::scale(glm::mat4(1.0f), glm::vec3(0.2f));
+	MainEntity.m_Model = glm::translate(MainEntity.m_Model, glm::vec3(0.0f));
+
 	Entity SecondaryEntity(&Cube);
 	SecondaryEntity.m_Model = glm::scale(glm::mat4(1.0f), glm::vec3(16.0f));
 	SecondaryEntity.m_Model = glm::translate(SecondaryEntity.m_Model, glm::vec3(0.0f, 2.0f, 0.0f));
@@ -536,10 +673,7 @@ void Lumen::StartPipeline()
 	BlueCubeEntity2.m_Model = glm::scale(glm::mat4(1.0f), glm::vec3(12.0f));
 	BlueCubeEntity2.m_Model = glm::translate(BlueCubeEntity2.m_Model, glm::vec3(-230.0f, 97.0f, -20.0f) / 12.0f);
 
-
-
 	float EntityScale = 3.5f;
-	
 	Entity SecondaryEntity0(&SecondaryModel);
 	SecondaryEntity0.m_Model = glm::scale(glm::mat4(1.0f), glm::vec3(EntityScale));
 	SecondaryEntity0.m_Model = glm::translate(SecondaryEntity0.m_Model, glm::vec3(0.0f, 2.0f, -90.0f) * (1.0f / EntityScale));
@@ -570,22 +704,21 @@ void Lumen::StartPipeline()
 	SecondaryEntity5.m_Model = glm::scale(glm::mat4(1.0f), glm::vec3(EntityScale2));
 	SecondaryEntity5.m_Model = glm::translate(SecondaryEntity5.m_Model, glm::vec3(-50, 24.0f, 0.0f) * (1.0f / (EntityScale2)));
 
-	// Construct BVH
-
-	//BVH::Node* SponzaRootBVHNode = BVH::BuildBVH(Sponza);
+	// ----------------------------
 
 	// Entity list
-	std::vector<Entity*> EntityRenderList = { &MainModel, &SecondaryEntity, &SecondaryEntity0, &SecondaryEntity1, &SecondaryEntity2, &SecondaryEntity3, &RedCubeEntity, &BlueCubeEntity, &RedCubeEntity2, &BlueCubeEntity2, &SecondaryEntity4, &SecondaryEntity5 };
+	std::vector<Entity*> EntityRenderList = { &MainEntity, &SecondaryEntity, &SecondaryEntity0, &SecondaryEntity1, &SecondaryEntity2, &SecondaryEntity3, &RedCubeEntity, &BlueCubeEntity, &RedCubeEntity2, &BlueCubeEntity2, &SecondaryEntity4, &SecondaryEntity5 };
 	auto& EntityList = EntityRenderList;
 
 	// Clear CPU side vertex/index data (After bvh construction ofc.) 
 	std::vector<Object*> ObjectList = { &Sponza, &Cube, &SecondaryModel };
-	
 	for (auto& e : ObjectList) {
 		e->ClearCPUSideData();
 	}
-	
 
+
+	////// ENGINE //////
+	
 	// Data object initialization 
 	GLClasses::VertexBuffer ScreenQuadVBO;
 	GLClasses::VertexArray ScreenQuadVAO;
@@ -626,8 +759,7 @@ void Lumen::StartPipeline()
 		ScreenQuadVAO.Unbind();
 	}
 
-
-	// Create Shaders
+	// Create/Compile Shader programs ->
 	ShaderManager::CreateShaders();
 	GLClasses::Shader& GBufferShader = ShaderManager::GetShader("GBUFFER");
 	GLClasses::Shader& LightingShader = ShaderManager::GetShader("LIGHTING_PASS");
@@ -663,6 +795,7 @@ void Lumen::StartPipeline()
 
 	GLClasses::Shader& FXAAShader = ShaderManager::GetShader("FXAA");
 	GLClasses::Shader& CASShader = ShaderManager::GetShader("CAS");
+	GLClasses::Shader& DOFShader = ShaderManager::GetShader("DOF");
 
 
 	// History
@@ -694,6 +827,14 @@ void Lumen::StartPipeline()
 	BloomFBO BloomBufferB(16, 16);
 	BloomRenderer::Initialize();
 
+	// DOF data 
+	GLuint DOFSSBO = 0;
+	float DOFDATA = 0.;
+	glGenBuffers(1, &DOFSSBO);
+	glBindBuffer(GL_SHADER_STORAGE_BUFFER, DOFSSBO);
+	glBufferData(GL_SHADER_STORAGE_BUFFER, sizeof(float) * 1, &DOFDATA, GL_DYNAMIC_DRAW);
+	glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
+
 	// Create voxel cascades 
 
 	Voxelizer::CreateVolumes();
@@ -704,6 +845,8 @@ void Lumen::StartPipeline()
 
 	while (!glfwWindowShouldClose(app.GetWindow()))
 	{
+		bool NormalRenderMode = LUMEN_DEBUG_LEVEL == 0;
+
 		RENDER_SCALE = RoundToNearest(RENDER_SCALE, 0.25f);
 		CAS_Amount = RoundToNearest(CAS_Amount, 0.125f);
 
@@ -752,7 +895,7 @@ void Lumen::StartPipeline()
 		// Temporal AA (Full res)
 		TAABuffers[0].SetSize(TrueResolutionW, TrueResolutionH);
 		TAABuffers[1].SetSize(TrueResolutionW, TrueResolutionH);
-		
+
 		FXAABuffers[0].SetSize(TrueResolutionW, TrueResolutionH);
 		FXAABuffers[1].SetSize(TrueResolutionW, TrueResolutionH);
 
@@ -799,6 +942,13 @@ void Lumen::StartPipeline()
 		ScreenspaceOcclusionTemporalBuffers[1].SetSize(ScaledResolutionW * ScreenspaceOcclusionRes, ScaledResolutionH * ScreenspaceOcclusionRes);
 		ScreenspaceOcclusionCheckerboardConstruct.SetSize(ScaledResolutionW * ScreenspaceOcclusionRes, ScaledResolutionH * ScreenspaceOcclusionRes);
 
+		// DoF
+		DOFFBO.SetSize(ScaledResolutionW * DOFResolutionScale, ScaledResolutionH * DOFResolutionScale);
+
+		if (app.GetCursorLocked()) {
+			DOFFocusPoint = glm::vec2(app.GetWidth() / 2, app.GetHeight() / 2);
+		}
+
 		// Generate mipmaps 
 		if (app.GetCurrentFrame() % 8 == 0) {
 
@@ -820,7 +970,7 @@ void Lumen::StartPipeline()
 		if (PreviousSunAmt != SunDirectionAmt || app.GetCurrentFrame() % 6 == 0) //PreviousSunDirection != SunDirection)
 		{
 			// Shadow pass 
-			RenderShadowMap(Shadowmap, Camera.GetPosition(), SunDirection, EntityRenderList, Camera.GetViewProjection());
+			RenderShadowMap(Shadowmap, Camera.GetPosition(), SunDirection, SunDirectionAmt, EntityRenderList, Camera.GetViewProjection());
 		}
 
 		// Probe update 
@@ -838,7 +988,7 @@ void Lumen::StartPipeline()
 
 		// Ping pong framebuffers
 		bool FrameCheckerStep = app.GetCurrentFrame() % 2 == 0;
-		
+
 		// Gbuffer 
 		auto& GBuffer = FrameCheckerStep ? GBuffers[0] : GBuffers[1];
 		auto& PrevGBuffer = FrameCheckerStep ? GBuffers[1] : GBuffers[0];
@@ -871,12 +1021,12 @@ void Lumen::StartPipeline()
 		// Update voxel cascades for the first frames when everything is being updated
 		if (app.GetCurrentFrame() < 6 || FullyDynamicVoxelization) {
 			for (int i = 0; i < 6; i++) {
-				Voxelizer::VoxelizeCascade(GetUpdateCascade(i), Camera.GetPosition(), Camera.GetProjectionMatrix(), Camera.GetViewMatrix(), Shadowmap.GetDepthTexture(), GetLightViewProjection(SunDirection), SunDirection, EntityList);
+				Voxelizer::VoxelizeCascade(GetUpdateCascade(i), Camera.GetPosition(), Camera.GetProjectionMatrix(), Camera.GetViewMatrix(), Shadowmap.GetDepthTexture(), GetLightViewProjection(SunDirection), SunDirection, EntityList, LargeVoxelRange);
 			}
 		}
 
 		if (!FullyDynamicVoxelization) {
-			Voxelizer::VoxelizeCascade(GetUpdateCascade(app.GetCurrentFrame()), Camera.GetPosition(), Camera.GetProjectionMatrix(), Camera.GetViewMatrix(), Shadowmap.GetDepthTexture(), GetLightViewProjection(SunDirection), SunDirection, EntityList);
+			Voxelizer::VoxelizeCascade(GetUpdateCascade(app.GetCurrentFrame()), Camera.GetPosition(), Camera.GetProjectionMatrix(), Camera.GetViewMatrix(), Shadowmap.GetDepthTexture(), GetLightViewProjection(SunDirection), SunDirection, EntityList, LargeVoxelRange);
 		}
 
 		glm::vec3 PrevPosition = glm::vec3(UniformBuffer.InvPrevView[3]);
@@ -960,6 +1110,12 @@ void Lumen::StartPipeline()
 		SpecularTraceShader.SetVector2f("u_Jitter", GetTAAJitterSecondary(app.GetCurrentFrame()));
 		SpecularTraceShader.SetVector2f("u_Dimensions", SpecularIndirect.GetDimensions());
 
+		SpecularTraceShader.SetBool("u_SpecularVXTracing", SpecularVXTracing);
+		SpecularTraceShader.SetBool("u_SpecularSSRT", SpecularSSRT);
+		SpecularTraceShader.SetBool("u_ForceSpecularVXTracing", ForceSpecularVXTracing);
+		SpecularTraceShader.SetBool("u_SpecularVXSecondary", SpecularVXSecondary);
+
+
 		for (int i = 0; i < 6; i++) {
 			std::string name = "u_ProbeCapturePoints[" + std::to_string(i) + "]";
 			SpecularTraceShader.SetVector3f(name.c_str(), PlayerProbe.CapturePoints[i]);
@@ -980,8 +1136,8 @@ void Lumen::StartPipeline()
 
 				glActiveTexture(GL_TEXTURE0 + x);
 				glBindTexture(GL_TEXTURE_3D, Voxelizer::GetVolumes()[t]);
-				
-				t++; 
+
+				t++;
 			}
 		}
 
@@ -1017,7 +1173,7 @@ void Lumen::StartPipeline()
 
 		glActiveTexture(GL_TEXTURE11);
 		glBindTexture(GL_TEXTURE_2D, GBuffer.GetTexture(0));
-		
+
 		glActiveTexture(GL_TEXTURE12);
 		glBindTexture(GL_TEXTURE_2D, DownsampledGBuffer.GetTexture());
 
@@ -1048,6 +1204,7 @@ void Lumen::StartPipeline()
 		DiffuseVXTrace.SetInteger("u_Shadowmap", 7);
 
 		DiffuseVXTrace.SetBool("u_Checker", CheckerboardIndirect);
+		DiffuseVXTrace.SetBool("u_DiffuseSecondBounce", DiffuseSecondBounce);
 		DiffuseVXTrace.SetVector3f("u_SunDirection", SunDirection);
 		DiffuseVXTrace.SetMatrix4("u_SunShadowMatrix", GetLightViewProjection(SunDirection));
 
@@ -1163,6 +1320,7 @@ void Lumen::StartPipeline()
 		SpecularTemporalShader.SetInteger("u_HitMask", 9);
 		SpecularTemporalShader.SetBool("u_RoughSpecular", RoughSpecular);
 		SpecularTemporalShader.SetBool("u_SpecularChecker", CheckerboardIndirect);
+		SpecularTemporalShader.SetBool("u_SpecularTemporal", SpecTemporalEnabled);
 		SetCommonUniforms(SpecularTemporalShader, UniformBuffer);
 
 		glActiveTexture(GL_TEXTURE0);
@@ -1188,7 +1346,7 @@ void Lumen::StartPipeline()
 
 		glActiveTexture(GL_TEXTURE8);
 		glBindTexture(GL_TEXTURE_2D, PrevSpecularTemporal.GetTexture(1));
-		
+
 		glActiveTexture(GL_TEXTURE9);
 		glBindTexture(GL_TEXTURE_2D, SpecularIndirect.GetTexture(1));
 
@@ -1211,6 +1369,7 @@ void Lumen::StartPipeline()
 		SVGFTemporalShader.SetInteger("u_PreviousNormals", 6);
 		SVGFTemporalShader.SetInteger("u_LowResDepth", 7);
 		SVGFTemporalShader.SetInteger("u_LowResNormals", 8);
+		SVGFTemporalShader.SetBool("u_DiffuseTemporal", DiffTemporalEnabled);
 
 		SetCommonUniforms(SVGFTemporalShader, UniformBuffer);
 
@@ -1241,17 +1400,17 @@ void Lumen::StartPipeline()
 		glActiveTexture(GL_TEXTURE8);
 		glBindTexture(GL_TEXTURE_2D, DownsampledGBuffer.GetTexture(1));
 
-		
+
 		ScreenQuadVAO.Bind();
 		glDrawArrays(GL_TRIANGLES, 0, 6);
 		ScreenQuadVAO.Unbind();
-		
+
 		DiffuseTemporal.Unbind();
 
 
 
 		// -- Spatial Filtering Passes -- 
-		
+
 		if (SVGF) {
 
 			// SVGF Variance estimation ->
@@ -1321,6 +1480,8 @@ void Lumen::StartPipeline()
 				SpatialFilter.SetInteger("u_Pass", Pass);
 				SpatialFilter.SetInteger("u_TotalPasses", Passes);
 				SpatialFilter.SetBool("u_SVGF", SVGF);
+				SpatialFilter.SetBool("u_SpatialDiffuse", SpatialDiffuse);
+				SpatialFilter.SetBool("u_SpatialSpecular", SpatialSpecular);
 
 				SetCommonUniforms(SpatialFilter, UniformBuffer);
 
@@ -1532,6 +1693,7 @@ void Lumen::StartPipeline()
 		LightingShader.Use();
 		LightingPass.Bind();
 
+		LightingShader.SetInteger("LUMEN_DEBUG_LEVEL", LUMEN_DEBUG_LEVEL);
 		LightingShader.SetInteger("u_AlbedoTexture", 0);
 		LightingShader.SetInteger("u_NormalTexture", 1);
 		LightingShader.SetInteger("u_PBRTexture", 2);
@@ -1547,26 +1709,30 @@ void Lumen::StartPipeline()
 		LightingShader.SetInteger("u_Volumetrics", 18);
 
 		LightingShader.SetInteger("u_LFNormals", 20);
-		
+		LightingShader.SetInteger("u_LowResDepth", 22);
+
 		LightingShader.SetBool("u_DirectSSShadows", DoScreenspaceShadow);
 		LightingShader.SetBool("u_VolumetricsEnabled", VolumetricLighting);
 		LightingShader.SetFloat("u_RTAOStrength", ScreenspaceAOStrength);
+		LightingShader.SetFloat("u_DiffuseGIStrength", DiffuseGIStrength);
+		LightingShader.SetFloat("u_SpecularGIStrength", SpecularGIStrength);
 
 		LightingShader.SetMatrix4("u_LightVP", GetLightViewProjection(SunDirection));
 		LightingShader.SetVector2f("u_Dims", glm::vec2(app.GetWidth(), app.GetHeight()));
 
 		LightingShader.SetVector3f("u_LightDirection", SunDirection);
 		LightingShader.SetVector3f("u_ViewerPosition", Camera.GetPosition());
+		LightingShader.SetVector2f("u_DOFFocusPointS", DOFFocusPoint);
 
-		
+
 		for (int i = 0; i < 6; i++) {
 			std::string name = "u_ProbeCapturePoints[" + std::to_string(i) + "]";
 			LightingShader.SetVector3f(name.c_str(), PlayerProbe.CapturePoints[i]);
 		}
 
-		
+
 		SetCommonUniforms(LightingShader, UniformBuffer);
-		
+
 		glActiveTexture(GL_TEXTURE0);
 		glBindTexture(GL_TEXTURE_2D, GBuffer.GetTexture(0));
 
@@ -1590,16 +1756,16 @@ void Lumen::StartPipeline()
 
 		glActiveTexture(GL_TEXTURE7);
 		glBindTexture(GL_TEXTURE_CUBE_MAP, PlayerProbe.m_CubemapTexture);
-		
+
 		glActiveTexture(GL_TEXTURE8);
 		glBindTexture(GL_TEXTURE_2D, SSCT ? SpecularIndirectConeTraced.GetTexture() : (SpatialFiltering ? FinalDenoisedBuffer.GetTexture() : SpecularTemporal.GetTexture()));
-		
+
 		glActiveTexture(GL_TEXTURE9);
 		glBindTexture(GL_TEXTURE_2D, SSRTTemporal.GetTexture());
-		
+
 		glActiveTexture(GL_TEXTURE10);
 		glBindTexture(GL_TEXTURE_2D, SSRTTemporal.GetTexture(1));
-		
+
 		glActiveTexture(GL_TEXTURE17);
 		glBindTexture(GL_TEXTURE_2D, SpatialFiltering ? FinalDenoisedBuffer.GetTexture(1) : DiffuseTemporal.GetTexture());
 
@@ -1609,10 +1775,14 @@ void Lumen::StartPipeline()
 		glActiveTexture(GL_TEXTURE20);
 		glBindTexture(GL_TEXTURE_2D, GBuffer.GetTexture(3));
 
+		// Low res depth
+		glActiveTexture(GL_TEXTURE22);
+		glBindTexture(GL_TEXTURE_2D, DownsampledGBuffer.GetTexture());
+
 		// SLOTS 11 - 15 ARE USED FOR VOXEL VOLUME TEXTURES
 
 		// Bind voxel volumes 
-		
+
 		int temp__ = 0;
 
 		for (int x = 11; x <= 11 + 5; x++) {
@@ -1632,12 +1802,32 @@ void Lumen::StartPipeline()
 
 		LightingShader.SetInteger("u_VoxelVolume0", 12);
 
+		// Center depth ->
+		glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, DOFSSBO);
 
 		ScreenQuadVAO.Bind();
 		glDrawArrays(GL_TRIANGLES, 0, 6);
 		ScreenQuadVAO.Unbind();
 
-		// Temporal AA Resolve :
+
+		// Download center depth and temporally mix
+
+		float DownloadedCenterDepth = 0.0f;
+
+		glBindBuffer(GL_SHADER_STORAGE_BUFFER, DOFSSBO);
+		glGetBufferSubData(GL_SHADER_STORAGE_BUFFER, 0, sizeof(float), &DownloadedCenterDepth);;
+		glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
+
+		CenterDepthSmooth = glm::mix(DownloadedCenterDepth, CenterDepthSmooth, 0.85f);
+
+		if (app.GetCurrentFrame() % 10 == 0 && PostProcess_DOF)
+		{
+			std::cout << "\n\nFocus Pos : " << DOFFocusPoint.x << "   " << DOFFocusPoint.y;
+			std::cout << "\nCenter Depth (Temporal) : " << CenterDepthSmooth;
+			std::cout << "\n\n";
+		}
+
+		// TAA/TAAU
 
 		TAAShader.Use();
 		TAATemporal.Bind();
@@ -1671,7 +1861,7 @@ void Lumen::StartPipeline()
 		// Bloom 
 		GLuint BrightTex = 0;
 
-		if (DoBloom) {
+		if (PostProcess_Bloom) {
 			BloomRenderer::RenderBloom(TAATemporal.GetTexture(), GBuffer.GetTexture(2), BloomBuffer, BloomBufferB, BrightTex, true);
 		}
 
@@ -1688,7 +1878,8 @@ void Lumen::StartPipeline()
 		PostProcessCombineShader.SetInteger("u_BloomMips[3]", 4);
 		PostProcessCombineShader.SetInteger("u_BloomMips[4]", 5);
 		PostProcessCombineShader.SetInteger("u_BloomBrightTexture", 6);
-		PostProcessCombineShader.SetBool("u_BloomEnabled", DoBloom);
+		PostProcessCombineShader.SetBool("u_BloomEnabled", PostProcess_Bloom);
+		PostProcessCombineShader.SetFloat("u_ChromaticAberrationStrength", NormalRenderMode ? PostProcess_CAStrength : 0.0f);
 
 		glActiveTexture(GL_TEXTURE0);
 		glBindTexture(GL_TEXTURE_2D, TAATemporal.GetTexture(0));
@@ -1747,6 +1938,37 @@ void Lumen::StartPipeline()
 
 		CurrentFXAAFBO = PrevFXAAFBO;//FXAA_PASSES > 0 ? CurrentFXAAFBO : &PostProcessCombined;
 
+		// DOF
+
+		if (PostProcess_DOF) {
+			DOFFBO.Bind();
+			DOFShader.Use();
+
+			DOFShader.SetInteger("u_InputTexture", 0);
+			DOFShader.SetInteger("u_DepthTexture", 1);
+			DOFShader.SetVector2f("u_Dimensions", glm::vec2(DOFFBO.GetWidth(), DOFFBO.GetHeight()));
+			DOFShader.SetFloat("u_TexelScale", Camera.GetProjectionMatrix()[1][1] / 1.37f);
+			DOFShader.SetFloat("u_FocalDepthTemporal", CenterDepthSmooth);
+			DOFShader.SetVector2f("u_CameraPlanes", glm::vec2(Camera.GetNearPlane(), Camera.GetFarPlane()));
+			DOFShader.SetFloat("u_COCScale", DOFCOCScale);
+			DOFShader.SetFloat("u_BlurScale", DOFBlurScale);
+			DOFShader.SetFloat("u_CAScale", DOFCAScale);
+			DOFShader.SetBool("u_CAEnabled", DOFCA);
+			DOFShader.SetBool("u_DOF_HQ", DOF_HQ);
+
+			glActiveTexture(GL_TEXTURE0);
+			glBindTexture(GL_TEXTURE_2D, CurrentFXAAFBO->GetTexture(0));
+
+			glActiveTexture(GL_TEXTURE1);
+			glBindTexture(GL_TEXTURE_2D, DownsampledGBuffer.GetTexture());
+
+			ScreenQuadVAO.Bind();
+			glDrawArrays(GL_TRIANGLES, 0, 6);
+			ScreenQuadVAO.Unbind();
+
+			DOFFBO.Unbind();
+		}
+
 
 		// Tonemap + Gamma correct + Output
 
@@ -1754,9 +1976,23 @@ void Lumen::StartPipeline()
 
 		FinalShader.Use();
 		FinalShader.SetInteger("u_MainTexture", 0);
+		FinalShader.SetInteger("u_DOFTexture", 1);
+		FinalShader.SetInteger("u_DepthTexture", 2);
+		FinalShader.SetFloat("u_FilmGrainStrength", NormalRenderMode ? PostProcess_FilmGrainStrength : 0.0f);
+		FinalShader.SetFloat("u_Time", glfwGetTime());
+		FinalShader.SetFloat("u_ExposureMultiplier", ExposureMultiplier);
+		FinalShader.SetBool("u_DOF", PostProcess_DOF);
+		FinalShader.SetFloat("u_FocalDepthTemporal", CenterDepthSmooth);
+		FinalShader.SetFloat("u_COCScale", DOFCOCScale);
 
 		glActiveTexture(GL_TEXTURE0);
 		glBindTexture(GL_TEXTURE_2D, CurrentFXAAFBO->GetTexture(0));
+
+		glActiveTexture(GL_TEXTURE1);
+		glBindTexture(GL_TEXTURE_2D, DOFFBO.GetTexture(0));
+
+		glActiveTexture(GL_TEXTURE2);
+		glBindTexture(GL_TEXTURE_2D, GBuffer.GetDepthBuffer());
 
 		ScreenQuadVAO.Bind();
 		glDrawArrays(GL_TRIANGLES, 0, 6);
@@ -1788,3 +2024,6 @@ void Lumen::StartPipeline()
 		GLClasses::DisplayFrameRate(app.GetWindow(), "Lumen ");
 	}
 }
+
+
+// End of pipeline code.

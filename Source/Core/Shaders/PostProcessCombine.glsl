@@ -9,13 +9,47 @@ uniform sampler2D u_Texture;
 uniform sampler2D u_BloomMips[5];
 uniform sampler2D u_BloomBrightTexture;
 
+uniform float u_ChromaticAberrationStrength;
+uniform float u_FilmGrainStrength;
+
 uniform bool u_BloomEnabled;
 
 vec4 textureBicubic(sampler2D sampler, vec2 texCoords);
 
+vec3 BasicChromaticAberation()
+{
+	const float ChannelCount = 3.0f;
+	float AberationScale = mix(0.0f, 0.5f, u_ChromaticAberrationStrength);
+	vec2 DistanceWeight = v_TexCoords - 0.5f;
+    vec2 Aberrated = AberationScale * pow(DistanceWeight, vec2(ChannelCount));
+    vec3 Final = vec3(0.0f);
+	float TotalWeight = 0.01f;
+
+    int Samples = 4;
+    
+    for (int i = 1; i <= Samples; i++)
+    {
+        float wg = 1.0f / pow(2.0f, float(i)); // Blur Weights, tested.
+
+		if (v_TexCoords - float(i) * Aberrated == clamp(v_TexCoords - float(i) * Aberrated, 0.0001f, 0.9999f)) {
+			Final.r += texture(u_Texture, v_TexCoords - float(i) * Aberrated).r * wg;
+		}
+
+		if (v_TexCoords + float(i) * Aberrated == clamp(v_TexCoords + float(i) * Aberrated, 0.0001f, 0.9999f)) {
+			Final.b += texture(u_Texture, v_TexCoords + float(i) * Aberrated).b * wg;
+		}
+
+		TotalWeight += wg;
+    }
+    
+	//const float TotalWeight = 0.9961f; //(1.0 / pow(2.0f, float(i)) i = 1 -> 8 
+	Final.g = texture(u_Texture, v_TexCoords).g * TotalWeight;
+	return max(Final,0.0f);
+}
+
 void main() {
 
-	vec3 Sample = texture(u_Texture, v_TexCoords).xyz;
+	vec3 Sample = u_ChromaticAberrationStrength > 0.02f ? BasicChromaticAberation() : texture(u_Texture, v_TexCoords).xyz;
 
     vec3 TotalBloom = vec3(0.);
 

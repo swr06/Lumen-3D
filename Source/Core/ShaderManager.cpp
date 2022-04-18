@@ -6,7 +6,7 @@ static std::unordered_map<std::string, GLClasses::Shader> ShaderManager_ShaderMa
 void Lumen::ShaderManager::CreateShaders()
 {
 	AddShader("GBUFFER", "Core/Shaders/GeometryVert.glsl", "Core/Shaders/GeometryFrag.glsl");
-	AddShader("LIGHTING_PASS", "Core/Shaders/FBOVert.glsl", "Core/Shaders/ColorPass.glsl");
+	AddShader("LIGHTING_PASS", "Core/Shaders/ColorPassVert.glsl", "Core/Shaders/ColorPass.glsl");
 	AddShader("FINAL", "Core/Shaders/FBOVert.glsl", "Core/Shaders/Tonemap.glsl");
 	AddShader("DEPTH", "Core/Shaders/DepthVert.glsl", "Core/Shaders/DepthFrag.glsl");
 
@@ -34,6 +34,7 @@ void Lumen::ShaderManager::CreateShaders()
 	AddShader("POST_COMBINE", "Core/Shaders/FBOVert.glsl", "Core/Shaders/PostProcessCombine.glsl");
 	AddShader("FXAA", "Core/Shaders/FBOVert.glsl", "Core/Shaders/FXAA311.glsl");
 	AddShader("CAS", "Core/Shaders/FBOVert.glsl", "Core/Shaders/CAS.glsl");
+	AddShader("DOF", "Core/Shaders/FBOVert.glsl", "Core/Shaders/BokehDOF.glsl");
 }
 
 void Lumen::ShaderManager::AddShader(const std::string& name, const std::string& vert, const std::string& frag, const std::string& geo)

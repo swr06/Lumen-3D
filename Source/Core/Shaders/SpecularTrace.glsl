@@ -83,6 +83,10 @@ uniform mat4 u_PrevView;
 uniform mat4 u_PrevProjection;
 uniform sampler2D u_PreviousFrameDiffuse;
 
+uniform bool u_SpecularVXTracing;
+uniform bool u_SpecularSSRT;
+uniform bool u_ForceSpecularVXTracing;
+uniform bool u_SpecularVXSecondary;
 
 
 // Contains all data necessary to integrate lighting for a point 
@@ -1034,7 +1038,7 @@ void main() {
     int ProbeSteps = int(mix(96.0f, 32.0f, BiasedRoughness < 0.25f ? pow(BiasedRoughness,1.9f) : BiasedRoughness));
     int ProbeBinarySteps = (BiasedRoughness <= 0.51f) ? 16 : 12;
 
-    bool VX_TRACE = Roughness < (PBR.y > 0.06f ? 0.7f : 0.35f);
+    bool VX_TRACE = (u_SpecularVXTracing && (Roughness < (PBR.y > 0.06f ? 0.7f : 0.35f))) || (u_SpecularVXTracing && u_ForceSpecularVXTracing);
 
     bool HadValidHit = false;
 
@@ -1068,7 +1072,7 @@ void main() {
         if (!VX_TRACE) {
 
             // Raytrace in scren space if needed
-            if (SCREENSPACE_RAYTRACE && BiasedRoughness <= 0.125f)
+            if (u_SpecularSSRT && BiasedRoughness <= 0.125f)
             {
                 // Trace in screen space 
                 Intersection = ScreenspaceRaytrace(WorldPosition + LFNormal * Bias_n, Direction, ToleranceSS, BayerHash, SSSteps, SSBinarySteps);
@@ -1111,8 +1115,15 @@ void main() {
         else {
 
             // Raytrace in probe space 
-            Intersection = Raytrace(WorldPosition + LFNormal * Bias_n, Direction, Tolerance, BayerHash, ProbeSteps, ProbeBinarySteps);
-            ///Intersection = ScreenspaceRaytrace(WorldPosition + LFNormal * Bias_n, Direction, ToleranceSS, BayerHash, SSSteps, SSBinarySteps);
+
+            if (u_SpecularVXSecondary) {
+                Intersection = Raytrace(WorldPosition + LFNormal * Bias_n, Direction, Tolerance, BayerHash, ProbeSteps, ProbeBinarySteps);
+            }
+
+            // SSRT (more stable)
+            else {
+                Intersection = ScreenspaceRaytrace(WorldPosition + LFNormal * Bias_n, Direction, ToleranceSS, BayerHash, SSSteps, SSBinarySteps);
+            }
 
             if ((!Intersection.ValidMask && Intersection.SkyAmount < 16.0f)) 
             {
@@ -1121,7 +1132,7 @@ void main() {
                 VXRadiance = ResolveVoxelRadiance(VXRadiance,VXIntersection,WorldPosition,Roughness);
                 float CurrentTransversal = VXRadiance.w;
                 AverageTransversal += CurrentTransversal;
-                TotalRadiance += VXRadiance.xyz;
+                TotalRadiance += VXRadiance.xyz * 0.9f;
                 HadValidHit = HadValidHit || true; // we assume that the voxel trace always gives correct intersections 
             }
 

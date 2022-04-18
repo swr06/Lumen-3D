@@ -37,6 +37,7 @@ uniform float u_zFar;
 
 uniform bool u_RoughSpecular;
 uniform bool u_SpecularChecker;
+uniform bool u_SpecularTemporal;
 
 float remap(float x, float a, float b, float c, float d)
 {
@@ -149,12 +150,37 @@ bool GetDisocclusion(vec3 History, vec3 Specular, vec2 PBR) {
     return MaskCheck;
 }
 
+vec2 GetMinTransversals(vec2 Reprojected) {
+
+    ivec2 Kernel[5] = ivec2[5](ivec2(0,0), ivec2(1,0), ivec2(-1,0), ivec2(0,1), ivec2(0,-1));
+
+    vec2 Dimensions = textureSize(u_Specular, 0).xy;
+    ivec2 Pixel = ivec2(gl_FragCoord.xy);
+    ivec2 ReprojectedPixel = ivec2(Reprojected * Dimensions - 0.5f);
+
+    vec2 MinTransversals = vec2(10000.0f);
+    
+    for (int x = 0 ; x < 5 ; x++) {
+
+        ivec2 Offset = Kernel[x];
+        float Transversal = texelFetch(u_Specular, Pixel + Offset, 0).w;
+        float PrevTransversal = texelFetch(u_PrevTransversals, (ReprojectedPixel + Offset) / (u_SpecularChecker ? ivec2(2, 1) : ivec2(1)), 0).w;
+        Transversal *= 64.0f;
+        PrevTransversal *= 64.0f;
+        MinTransversals.x = min(MinTransversals.x, Transversal);
+        MinTransversals.y = min(MinTransversals.y, PrevTransversal);
+    }
+
+    return MinTransversals;
+}
+
 // Clips specular (reduces ghosting)
-vec3 Clip(ivec2 Pixel, bool LesserConservative, vec3 History, vec3 Specular, float Roughness, float Metalness, bool DisocclusionBias) {
+vec3 Clip(ivec2 Pixel, bool LesserConservative, vec3 History, vec3 Specular, float Roughness, float Metalness, bool DisocclusionBias, float TransversalError) {
     
     float ClipBoxSize = Roughness < 0.26f ? mix(1.5f, 2.2f, clamp(remap(Roughness, 0.0f, 0.26, 0.0f, 1.0f), 0.0f, 1.0f))
                         : mix(3.0f, 8.0f, clamp(pow(Roughness, 0.5f), 0.0f, 1.0f));
     
+    ClipBoxSize *= mix(0.95f, 2.0f, float(TransversalError < mix(3.5f, 6.5f, Roughness)));
     bool Metallic = Metalness > 0.05f;
 
     if (Metallic) {
@@ -247,6 +273,11 @@ void main() {
     // Current sample 
     vec4 Current = Resampler(u_Specular, v_TexCoords).xyzw;
 
+    if (!u_SpecularTemporal) {
+        o_Color = Current;
+        return;
+    }
+
     // Traversal
     float Transversal = Current.w;
     Transversal *= 64.0f;
@@ -265,6 +296,10 @@ void main() {
     if (Reprojected.x > Cutoff && Reprojected.x < 1.0f - Cutoff && Reprojected.y > Cutoff && Reprojected.y < 1.0f - Cutoff &&
         ReprojectedSurface.x > Cutoff && ReprojectedSurface.x < 1.0f - Cutoff && ReprojectedSurface.y > Cutoff && ReprojectedSurface.y < 1.0f - Cutoff && (!BE_USELESS)) 
     {
+        // Sample Prev Transversal 
+        vec2 MinTransversals = GetMinTransversals(Reprojected.xy);
+        float TransversalError = abs(MinTransversals.x - MinTransversals.y);
+    
         // Depth rejection
         float ReprojectedDepth = linearizeDepth(texture(u_PreviousDepth, Reprojected.xy).x);
         float ReprojectedSurfaceDepth = linearizeDepth(texture(u_PreviousDepth, ReprojectedSurface.xy).x);
@@ -280,20 +315,20 @@ void main() {
         // Sample History 
         vec3 History = Resampler(u_HistorySpecular, Reprojected.xy).xyz;
 
-        // Reinhard tonemapping 
+        // Reinhard tonemapping (massively reduces fireflies, increases temporal stability)
         History = Reinhard(History);
         Current.xyz = Reinhard(Current.xyz);
 
         bool DisocclusionDetected = GetDisocclusion(History.xyz, Current.xyz, PBRFetch.xy);
 
         // Clip specular 
-        vec3 ClippedSpecular = Clip(Pixel, true, History, Current.xyz, Roughness, PBRFetch.y, DisocclusionDetected);
+        vec3 ClippedSpecular = Clip(Pixel, true, History, Current.xyz, Roughness, PBRFetch.y, DisocclusionDetected, TransversalError);
         History = ClippedSpecular; 
 
         // Calculate temporal blur
         float MovedBlurFactor = clamp(exp(-length(Velocity)) * 0.8f + 0.875f, 0.0f, 0.975f);
         
-                const float DepthWeightStrength = 1.6f;
+        const float DepthWeightStrength = 1.6f;
         float DepthRejection = pow(exp(-ErrorSurface), 64.0f); 
 
         // Calculate temporal blur and frame increment
@@ -328,5 +363,4 @@ void main() {
     }
 
     o_Frames = clamp(o_Frames / 64.0f, 0.0f, 1.0f);
-
 }

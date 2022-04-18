@@ -21,16 +21,24 @@ namespace Lumen
 		std::cout << "\n" << s << "  :  " << x.x << "  " << x.y << "  " << x.z << "\n";
 	}
 
-	void RenderShadowMap(GLClasses::DepthBuffer& depthbuffer, const glm::vec3& player_pos, const glm::vec3& sun_dir, std::vector<Entity*> entities, glm::mat4 m)
+	void RenderShadowMap(GLClasses::DepthBuffer& depthbuffer, const glm::vec3& player_pos, const glm::vec3& sun_dir, const glm::vec2& sunrot, std::vector<Entity*> entities, glm::mat4 m)
 	{
-		glm::vec3 LightPosition = player_pos + glm::vec3(-sun_dir * 400.0f);
+		glm::vec3 LightPosition = (glm::vec3(-sun_dir * 450.0f));
 
 		float dot = glm::dot(sun_dir, glm::vec3(0.0f, 1.0f, 0.0f));
 
 		LightProjectionMatrix = glm::ortho(-SHADOW_DISTANCE_X, SHADOW_DISTANCE_X,
 			-SHADOW_DISTANCE_Y, SHADOW_DISTANCE_Y,
 			0.1f, SHADOW_DISTANCE_Z);
+		
 		LightViewMatrix = glm::lookAt(LightPosition, LightPosition + (sun_dir), (1.f - fabs(dot)) < 0.01f ? glm::vec3(0.0f, 0.0f, 1.0f) : glm::vec3(0.0f, 1.0f, 0.0f));
+		
+		//LightViewMatrix = glm::mat4(1.0f);
+		//LightViewMatrix = glm::rotate(LightViewMatrix, glm::radians(-sunrot.x), { 1, 0, 0 });
+		//LightViewMatrix = glm::rotate(LightViewMatrix, glm::radians(-sunrot.y), { 0, 1, 0 });
+		//LightViewMatrix = glm::rotate(LightViewMatrix, glm::radians(0.0f), { 0, 0, 1 });
+		//LightViewMatrix = glm::translate(LightViewMatrix, -glm::vec3(LightPosition.x, LightPosition.y, LightPosition.z));
+
 
 		GLClasses::Shader& shader = ShaderManager::GetShader("DEPTH");
 
