@@ -1,0 +1,12 @@
+-- Lumen Engine --
+
+- W, S, A, D -> Move
+- Space -> Jump / Fly
+- Shift -> Accelerate down
+- R, T, Y, U -> Shift Sun
+- ESC -> quit
+- V -> Toggle VSync
+- F2 -> Recompile shaders
+- ImGui Windows 
+
+- Main Window ("Debug") : Various Other Settings(Resolution settings)

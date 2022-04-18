@@ -138,10 +138,12 @@ namespace Lumen {
 		VoxelizeShader->SetVector3f("u_VoxelGridCenter", Position);
 		VoxelizeShader->SetVector3f("u_VoxelGridCenterF", Position);
 		VoxelizeShader->SetVector3f("u_SunDir", SunDirection);
+		VoxelizeShader->SetVector3f("u_SunDirG", SunDirection);
 		VoxelizeShader->SetInteger("u_VolumeSize", 128);
 		VoxelizeShader->SetInteger("u_Shadowmap", 10);
 		VoxelizeShader->SetInteger("u_CascadeNumber", Cascade);
 		VoxelizeShader->SetMatrix4("u_LightVP", LVP);
+		VoxelizeShader->SetMatrix4("u_CameraVP", Projection * View);
 		VoxelizeShader->SetBool("u_AmplifySunGI", Lumen_DiffuseAmplifiedSunGI);
 
 		for (int i = 0; i < 6; i++) {

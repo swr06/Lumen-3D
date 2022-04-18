@@ -1,4 +1,4 @@
-#version 400 core 
+#version 430 core 
 #extension ARB_bindless_texture : require 
 
 #define PI 3.14159265359
@@ -36,6 +36,10 @@ uniform vec3 u_VoxelCenters[6];
 // GBuffer
 uniform sampler2D u_Depth;
 uniform sampler2D u_LFNormals;
+uniform sampler2D u_LowResDepth;
+uniform sampler2D u_Albedo;
+uniform sampler2D u_PBR;
+
 
 uniform float u_zNear;
 uniform float u_zFar;
@@ -43,10 +47,12 @@ uniform mat4 u_Projection;
 uniform mat4 u_View;
 uniform mat4 u_InverseProjection;
 uniform mat4 u_InverseView;
+uniform mat4 u_ViewProjection;
 
 uniform float u_Time;
 uniform int u_Frame;
 uniform bool u_Checker;
+uniform bool u_SSRTGI;
 
 uniform sampler2D u_BlueNoise;
 
@@ -78,6 +84,52 @@ float GetLuminance(vec3 color) {
 }
 
 float Luminance(vec3 x) { return GetLuminance(x) ; } // wrapper 
+
+mat4 SaturationMatrix(float saturation)
+{
+  vec3 luminance = vec3(0.3086, 0.6094, 0.0820);
+  float oneMinusSat = 1.0 - saturation;
+  vec3 red = vec3(luminance.x * oneMinusSat);
+  red += vec3(saturation, 0, 0);
+  vec3 green = vec3(luminance.y * oneMinusSat);
+  green += vec3(0, saturation, 0);
+  vec3 blue = vec3(luminance.z * oneMinusSat);
+  blue += vec3(0, 0, saturation);
+  return mat4(red, 0,
+    green, 0,
+    blue, 0,
+    0, 0, 0, 1);
+}
+
+vec3 ProjectToClipSpace(vec3 WorldPos) 
+{
+	vec4 ProjectedPosition = u_ViewProjection * vec4(WorldPos, 1.0f);
+	ProjectedPosition.xyz /= ProjectedPosition.w;
+	return ProjectedPosition.xyz;
+}
+
+bool SSRayValid(vec2 x) {
+	float bias = 0.0001f;
+	if (x.x > bias && x.x < 1.0f - bias && x.y > bias && x.y < 1.0f - bias) {
+		return true;
+	}
+
+	return false;
+}
+
+float LinearizeDepth(float depth)
+{
+	return (2.0 * u_zNear) / (u_zFar + u_zNear - depth * (u_zFar - u_zNear));
+}
+
+vec3 ProjectToScreenSpace(vec3 WorldPos) 
+{
+	vec4 ProjectedPosition = u_ViewProjection * vec4(WorldPos, 1.0f);
+	ProjectedPosition.xyz /= ProjectedPosition.w;
+	ProjectedPosition.xyz = ProjectedPosition.xyz * 0.5f + 0.5f;
+	return ProjectedPosition.xyz;
+}
+
 
 // Space conversions ->
 vec3 WorldPosFromDepth(float depth, vec2 txc)
@@ -111,6 +163,9 @@ bool InScreenspace(vec3 x) {
 
 	return false;
 }
+
+
+
 
 // FUCKING issue where you can't reference uniform texture arrays with a variable index (so this ugly fucking hack needed to be implemented)
 sampler3D GetCascadeVolume(int cascade) {
@@ -148,7 +203,7 @@ bool PositionInVolume(int Volume, vec3 WorldPosition) {
 }
 
 
-const float ReinhardExp = 2.44002939f;
+const float ReinhardExp = 1.0f;
 
 vec3 InverseReinhard(vec3 RGB)
 {
@@ -286,15 +341,17 @@ vec4 RaymarchCascades(vec3 WorldPosition, vec3 Normal, vec3 Direction, float Ape
 
 
 // Samples direct lighting for a point 
-vec3 SampleRadiance(vec3 P, vec3 N, vec3 A, vec3 E) {
-	const vec3 SUN_COLOR = vec3(8.0f);
+vec3 SampleRadiance(vec3 P, vec3 N, vec3 A, vec3 E, bool AmplifySunGI) {
+	const mat4 Satmat = SaturationMatrix(2.2f);
+	const vec3 SUN_COLOR = vec3(8.5f);
 	vec4 ProjectionCoordinates = u_SunShadowMatrix * vec4(P + N * 0.5f, 1.0f);
 	ProjectionCoordinates.xyz = ProjectionCoordinates.xyz / ProjectionCoordinates.w;
     ProjectionCoordinates.xyz = ProjectionCoordinates.xyz * 0.5f + 0.5f;
 	float SimpleFetch = texture(u_Shadowmap, ProjectionCoordinates.xy).x;
     float Shadow = float(ProjectionCoordinates.z - (0.0045f) > SimpleFetch);
-	float Lambertian = max(0.0f, dot(N, -u_SunDirection));
+	float Lambertian = clamp(max(0.0f, dot(N, -u_SunDirection))*1.5f,0.0f,1.0f);
     vec3 Direct = Lambertian * SUN_COLOR * (1.0f - Shadow) * A;
+	Direct = AmplifySunGI ? vec3(Satmat * vec4(Direct, 1.0f)) : Direct;
 	return Direct + E;
 }
 
@@ -336,7 +393,7 @@ vec4 RaytraceProbe(const vec3 WorldPosition, vec3 Direction, float Hash, int Ste
     vec3 RayPosition = WorldPosition + ReflectionVector * Hash;
     vec3 RayOrigin = RayPosition;
     vec3 PreviousSampleDirection = ReflectionVector;
-    bool FoundHit = false;
+    bool FoundHit = false; 
     float ExpStep = 1.03f;
 
     float PrevRayDepth = 0.0f;
@@ -410,7 +467,7 @@ vec4 RaytraceProbe(const vec3 WorldPosition, vec3 Direction, float Hash, int Ste
         vec3 IntersectAlbedo = AlbedoFetch.xyz;
 		vec3 IntersectEmissive = mix(AlbedoFetch.xyz,vec3(Luminance(AlbedoFetch.xyz)),0.1f) * NormalFetch.w * 16.0f;
 		oNormal = IntersectNormal.xyz;
-		return vec4(SampleRadiance(IntersectionPos, IntersectNormal, IntersectAlbedo, IntersectEmissive),
+		return vec4(SampleRadiance(IntersectionPos, IntersectNormal, IntersectAlbedo, IntersectEmissive, true),
 					clamp(distance(WorldPosition, RayPosition) / 42.0f, 0.0f, 1.0f)) ;
     }
 
@@ -418,6 +475,114 @@ vec4 RaytraceProbe(const vec3 WorldPosition, vec3 Direction, float Hash, int Ste
     return vec4(vec3(0.0f), 1.0f);
 }
 
+// Raytrace in screenspace
+vec4 ScreenspaceRaytrace(const vec3 Origin, vec3 Direction, float ThresholdMultiplier, float Hash, int Steps, int BinarySteps, out vec4 IntersectionPos, out vec3 IntersectionNormal)
+{
+	IntersectionPos = vec4(-1.0f);
+
+    const float Distance = 140.0f;
+
+    float StepSize = float(Distance) / float(Steps);
+	vec3 RayPosition = Origin + Direction * Hash * 1.2; 
+	vec2 FinalUV = vec2(-1.0f);
+
+    float ExpStep = mix(1.025f, 1.05f, float(Hash)); //clamp((log(500.0f) / log(float(Steps))) * 0.75f, 1.05f, 6.0f);// mix(1.075f, 1.5f, float(Hash));
+
+	for(int CurrentStep = 0; CurrentStep < Steps; CurrentStep++) 
+	{
+		float Threshold = StepSize * ThresholdMultiplier * 2.0f;
+		
+		vec3 ProjectedRayScreenspace = ProjectToClipSpace(RayPosition); 
+		
+		if(abs(ProjectedRayScreenspace.x) > 1.0f || abs(ProjectedRayScreenspace.y) > 1.0f || abs(ProjectedRayScreenspace.z) > 1.0f) 
+		{
+			return vec4(vec3(0.0f), -1.0f);
+		}
+		
+		ProjectedRayScreenspace.xyz = ProjectedRayScreenspace.xyz * 0.5f + 0.5f; 
+
+		if (!SSRayValid(ProjectedRayScreenspace.xy))
+		{
+			return vec4(vec3(0.0f), -1.0f);
+		}
+		
+		float DepthAt = texture(u_LowResDepth, ProjectedRayScreenspace.xy).x; 
+		float CurrentRayDepth = LinearizeDepth(ProjectedRayScreenspace.z); 
+		float Error = abs(LinearizeDepth(DepthAt) - CurrentRayDepth);
+		
+        // Intersected!
+		if (Error < Threshold && ProjectedRayScreenspace.z > DepthAt) 
+		{
+			// Binary search for best intersection point along ray step 
+            bool DoBinaryRefinement = true;
+
+            vec3 FinalProjected = vec3(0.0f);
+            float FinalDepth = 0.0f;
+
+            if (DoBinaryRefinement) {
+			    vec3 BinaryStepVector = (Direction * StepSize) / 2.0f;
+                RayPosition -= (Direction * StepSize) / 2.0f;
+			    
+                for (int BinaryStep = 0 ; BinaryStep < BinarySteps ; BinaryStep++) {
+			    		
+			    	BinaryStepVector /= 2.0f;
+			    	vec3 Projected = ProjectToClipSpace(RayPosition); 
+			    	Projected = Projected * 0.5f + 0.5f;
+                    FinalProjected = Projected;
+                    float Fetch = texture(u_LowResDepth, Projected.xy).x;
+                    FinalDepth = Fetch;
+			    	float BinaryDepthAt = LinearizeDepth(Fetch); 
+			    	float BinaryRayDepth = LinearizeDepth(Projected.z); 
+
+			    	if (BinaryDepthAt < BinaryRayDepth) {
+			    		RayPosition -= BinaryStepVector;
+
+			    	}
+
+			    	else {
+			    		RayPosition += BinaryStepVector;
+
+			    	}
+
+			    }
+            }
+
+            else {
+                
+                FinalProjected = ProjectToScreenSpace(RayPosition);
+                FinalDepth = texture(u_Depth, FinalProjected.xy).x;
+            }
+
+
+            // Generate gbuffer data and return 
+            vec3 Position = WorldPosFromDepth(FinalDepth, FinalProjected.xy);
+            vec3 Normal = texture(u_LFNormals, FinalProjected.xy).xyz;
+            vec3 Albedo = texture(u_Albedo, FinalProjected.xy).xyz;
+            vec3 Emissive = mix(Albedo, vec3(Luminance(Albedo)), 0.2f) * texture(u_PBR, FinalProjected.xy).w * 24.0f;
+
+			IntersectionPos = vec4(Position, 1.0f);
+			IntersectionNormal = Normal;
+
+			//return vec4(Albedo, 1 + 1.0f);
+
+			float AO = clamp(distance(IntersectionPos.xyz, Origin) / 52.0f, 0.0f, 1.0f);
+			AO = pow(AO, 1.5f);
+			return vec4(SampleRadiance(Position, Normal, Albedo, Emissive, true) * 2.0f, AO);
+		}
+
+		if (ProjectedRayScreenspace.z > DepthAt) {
+			return vec4(vec3(0.0f), -1.0f);
+		}
+
+        // Step 
+		RayPosition += StepSize * Direction; 
+
+        StepSize *= ExpStep;
+	}
+
+	return vec4(vec3(0.0f), -1.0f);
+
+}
 
 // Pseudo whitenoise rng 
 float HASH2SEED = 0.0f;
@@ -560,32 +725,52 @@ void main() {
 	vec4 TotalRadiance = vec4(0.0f);
 	vec3 CosineHemisphereDirection = CosWeightedHemisphere(Normal, Hash.xy);
 
-	vec4 IntersectionVX = vec4(0.0f);
-	vec3 VXNormal = vec3(0.0f);
-	vec4 DiffuseVX = vec4(0.0f);
+	vec4 IntersectionPositionb = vec4(0.0f);
+	vec3 IntersectionNormalb = vec3(0.0f);
+	vec4 DiffuseVX = vec4(vec3(0.0f), 1.0f);
 	
+	// Voxel trace the first bounce? (enabled by default)
 	if (VX_FIRST_BOUNCE) {
-		DiffuseVX = RaymarchCascades(WorldPosition, Normal, CosineHemisphereDirection, 1.0f, BayerHash, 256, IntersectionVX, 1, VXNormal, true);
+
+		// Raytrace in screen space?
+		if (u_SSRTGI) {
+			vec4 SSRadiance = ScreenspaceRaytrace(WorldPosition + Normal * 1.5, CosineHemisphereDirection, 0.0015f, BayerHash, 36, 8, IntersectionPositionb, IntersectionNormalb);	
+		
+			if (SSRadiance.w > 0.0f) {
+				DiffuseVX = vec4(SSRadiance.xyz, SSRadiance.w);
+			}
+
+			// RT in voxel space
+			else {
+				DiffuseVX = RaymarchCascades(WorldPosition, Normal, CosineHemisphereDirection, 1.0f, BayerHash, 256, IntersectionPositionb, 1, IntersectionNormalb, true);
+			}
+
+		}
+
+		// RT in voxel space
+		else {
+			DiffuseVX = RaymarchCascades(WorldPosition, Normal, CosineHemisphereDirection, 1.0f, BayerHash, 256, IntersectionPositionb, 1, IntersectionNormalb, true);
+		}
 	}
 
 	else {
-		DiffuseVX = RaytraceProbe(WorldPosition.xyz + Normal * 3.f, CosineHemisphereDirection, BayerHash, 64, 32, 0.625f, VXNormal) * 2.;
+		DiffuseVX = RaytraceProbe(WorldPosition.xyz + Normal * 3.f, CosineHemisphereDirection, BayerHash, 64, 32, 0.625f, IntersectionNormalb) * 2.;
 	}
 
 
 	TotalRadiance += DiffuseVX;
 
 
-	if (DO_SECOND_BOUNCE && IntersectionVX.w > 0.6f && u_DiffuseSecondBounce) {
+	if (DO_SECOND_BOUNCE && IntersectionPositionb.w > 0.6f && u_DiffuseSecondBounce) {
 		
-		vec3 SecondCosineHemisphereDirection = CosWeightedHemisphere(VXNormal, Hash.xy);
+		vec3 SecondCosineHemisphereDirection = CosWeightedHemisphere(IntersectionNormalb, Hash.xy);
 
 		// Calculate ray throughput 
-		float CosinePDF = clamp(dot(VXNormal.xyz, SecondCosineHemisphereDirection) / PI, 0.000001f, 1.0f);
+		float CosinePDF = clamp(dot(IntersectionNormalb.xyz, SecondCosineHemisphereDirection) / PI, 0.000001f, 1.0f);
 
 		// I use Hammon brdf as the ray brdf. We divide the ray brdf by ray sampling brdf (lambert) to get the bounce ray weight 
 		// this actually isn't perfectly correct, I assume a constant albedo which is wrong. But it's not feasible to store the albedo since we have limited memory 
-		vec3 SecondBounceWeight = clamp(vec3(1.0f) * (RayBRDFHammon(VXNormal, CosineHemisphereDirection, SecondCosineHemisphereDirection, 0.99f, TotalRadiance.xyz) / CosinePDF), 0.0f, PI); 
+		vec3 SecondBounceWeight = clamp(vec3(1.0f) * (RayBRDFHammon(IntersectionNormalb, CosineHemisphereDirection, SecondCosineHemisphereDirection, 0.99f, TotalRadiance.xyz) / CosinePDF), 0.0f, PI); 
 
 		vec3 SecondaryBounceRadiance = vec3(0.0f); 
 
@@ -595,7 +780,7 @@ void main() {
 				vec3 In;
 
 				// Raytrace probe ->
-				vec4 ProbeTrace = RaytraceProbe(IntersectionVX.xyz + VXNormal * 2.f, SecondCosineHemisphereDirection, BayerHash, 32, 12, 0.5f, In);
+				vec4 ProbeTrace = RaytraceProbe(IntersectionPositionb.xyz + IntersectionNormalb * 2.f, SecondCosineHemisphereDirection, BayerHash, 32, 12, 0.5f, In);
 				
 				// Is the probe hit valid?
 				if (ProbeTrace.w > 0.5f) {
@@ -612,7 +797,7 @@ void main() {
 				vec4 oPos = vec4(0.0f);
 				vec3 Nn = vec3(0.0f);
 
-				vec4 SecondBounceVX = RaymarchCascades(IntersectionVX.xyz, VXNormal, SecondCosineHemisphereDirection, 1.0f, BayerHash, 92, oPos, 3, Nn, false);
+				vec4 SecondBounceVX = RaymarchCascades(IntersectionPositionb.xyz, IntersectionNormalb, SecondCosineHemisphereDirection, 1.0f, BayerHash, 92, oPos, 3, Nn, false);
 
 				SecondaryBounceRadiance.xyz = SecondBounceVX.xyz;
 

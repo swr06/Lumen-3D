@@ -70,6 +70,7 @@ static bool SVGF = true;
 static bool DiffuseSecondBounce = true;
 bool Lumen_DiffuseAmplifiedSunGI = true; // Extern
 static bool DiffTemporalEnabled = true;
+static bool SSRTGI = false;
 
 // Specular settings
 static bool SSCT = false;
@@ -268,6 +269,7 @@ public:
 
 		ImGui::Text("-- Indirect Diffuse --");
 		ImGui::NewLine();
+		ImGui::Checkbox("Screenspace RTGI?", &SSRTGI);
 		ImGui::Checkbox("Second bounce diffuse?", &DiffuseSecondBounce);
 		ImGui::Checkbox("Amplified Sun GI?", &Lumen_DiffuseAmplifiedSunGI);
 		ImGui::Checkbox("Temporally filter Diffuse?", &DiffTemporalEnabled);
@@ -618,7 +620,7 @@ void Lumen::StartPipeline()
 		\n\t\t-- Main Window (\"Debug\") : Various Other Settings(Resolution settings)";
 
 	std::cout << "\n\n\n\n\n";
-	std::cout << "Press any key to launch the engine..";
+	std::cout << "Press ENTER to launch the engine..";
 	getchar();
 	std::cout << "\n\n\n";
 
@@ -1202,9 +1204,13 @@ void Lumen::StartPipeline()
 		DiffuseVXTrace.SetInteger("u_ProbeDepth", 5);
 		DiffuseVXTrace.SetInteger("u_ProbeNormals", 6);
 		DiffuseVXTrace.SetInteger("u_Shadowmap", 7);
+		DiffuseVXTrace.SetInteger("u_LowResDepth", 21);
+		DiffuseVXTrace.SetInteger("u_Albedo", 22);
+		DiffuseVXTrace.SetInteger("u_PBR", 23);
 
 		DiffuseVXTrace.SetBool("u_Checker", CheckerboardIndirect);
 		DiffuseVXTrace.SetBool("u_DiffuseSecondBounce", DiffuseSecondBounce);
+		DiffuseVXTrace.SetBool("u_SSRTGI", SSRTGI);
 		DiffuseVXTrace.SetVector3f("u_SunDirection", SunDirection);
 		DiffuseVXTrace.SetMatrix4("u_SunShadowMatrix", GetLightViewProjection(SunDirection));
 
@@ -1238,6 +1244,15 @@ void Lumen::StartPipeline()
 
 		glActiveTexture(GL_TEXTURE7);
 		glBindTexture(GL_TEXTURE_2D, Shadowmap.GetDepthTexture());
+
+		glActiveTexture(GL_TEXTURE21);
+		glBindTexture(GL_TEXTURE_2D, DownsampledGBuffer.GetTexture());
+
+		glActiveTexture(GL_TEXTURE22);
+		glBindTexture(GL_TEXTURE_2D, GBuffer.GetTexture(0));
+
+		glActiveTexture(GL_TEXTURE23);
+		glBindTexture(GL_TEXTURE_2D, GBuffer.GetTexture(2));
 
 		// Bind voxel volumes and upload volume data 
 		{
