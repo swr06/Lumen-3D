@@ -13,25 +13,9 @@ A **TOY ENGINE**. This project is mostly used as a testing ground to experiment 
 - Cook torrance BRDF for direct lighting
 - Shadowmapping (with PCF filtering)
 - Spatio-Temporal Variance Guided Filtering for indirect lighting
-- TAA, FXAA 
+- TAA + TAA-Upscaling
+- FXAA 3.11
 - Volumetric Lighting
-- Bloom
+- Post process pipeline (DOF, Bloom, CA, Sharpening, Film Grain)
+- Skybox
 
-## Planned 
-
-### Lighting 
-
-- PCSS, CSM, Omnidirectional contact-hardening shadows
-- Mesh tracing using SAH BVH (with surfel GI)
-
-### Rendering
-- Transparency/Translucency OIT
-
-### Post process
-- DOF, Auto exposure
-
-### Volumetrics 
-- Clouds
-
-### Other 
-- Physically based atmosphere rendering
