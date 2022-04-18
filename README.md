@@ -8,14 +8,14 @@ A **TOY ENGINE**. This project is mostly used as a testing ground to experiment 
 ## Current Feature List 
 
 - Voxelization
-- Indirect Diffuse Lighting (Voxel Raytracing + Screenspace RTGI) 
+- Indirect Diffuse Lighting (Voxel Raytracing + Screenspace RTGI/SSGI) 
 - Indirect Specular/Reflections (Voxel Raytracing + (parallax correct) Cubemap/Screenspace reflections)
 - Cook torrance BRDF for direct lighting
 - Shadowmapping (with PCF filtering)
 - Spatio-Temporal Variance Guided Filtering for indirect lighting
 - TAA + TAA-Upscaling
 - FXAA 3.11
-- Volumetric Fog (Direct light, exponential fog)
+- Volumetric Fog (Fog from directional light, exponential fog)
 - Post process pipeline (DOF, Bloom, CA, Sharpening, Film Grain)
 - Skybox
 
