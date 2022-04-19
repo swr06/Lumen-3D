@@ -7,17 +7,23 @@ A *highly* work-in-progress **TOY ENGINE**. This project is mostly used as a tes
 ## Current Feature List 
 
 - Model Loading 
-- Voxelization
+- Voxelization (with support for cascades)
 - Indirect Multibounce Diffuse Lighting (Voxel Raytracing + Screenspace RTGI/SSGI) 
 - Indirect Specular/Reflections (Voxel Raytracing + (parallax correct) Cubemap/Screenspace reflections)
+- Support for checkerboard rendering (Heavily used for indirect lighting and other raytraced effects)
+- Temporal filtering/supersampling
+- SVGF For Indirect Diffuse with specialized filter for indirect specular
 - Cook torrance BRDF for direct lighting
 - Shadowmapping (with PCF filtering)
-- SVGF For Indirect Diffuse with specialized filter for indirect specular
 - TAA + TAA-Upscaling
 - FXAA 3.11
 - Volumetric Fog (Crepuscular rays + exponential fog)
 - Post Processing pipeline (Bokeh DOF, Bloom, Chromatic Aberration, Contrast Adaptive Sharpening, Film Grain)
 - Skybox/Environment Map Support
+
+## Planned 
+- Physically based sky rendering (with volumetric clouds)
+- Cascaded shadow maps with PCSS filtering
 
 ## Special Thanks
 - [UglySwedishFish](https://github.com/UglySwedishFish)
