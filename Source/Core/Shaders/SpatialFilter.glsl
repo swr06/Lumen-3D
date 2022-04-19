@@ -244,10 +244,6 @@ float SpecularWeight(in float CenterDepth, in float SampleDepth, in float Center
 
 float DiffuseWeightSVGF(float CenterDepth, float SampleDepth, vec3 CenterNormal, vec3 SampleNormal, float CenterLuma, float SampleLuma, float Variance, float PhiL, float PhiD, vec2 xy, float framebias, vec2 DepthGradient, float Kernel) 
 {
-	if (!u_SpatialDiffuse) {
-		return 0.0f;
-	}
-
 	float LumaDistance = abs(CenterLuma - SampleLuma);
 
 	float DepthWeight = clamp(pow(exp(-abs(CenterDepth - SampleDepth)), 32.0f), 0.0f, 1.0f);
@@ -397,14 +393,24 @@ void main() {
 			// Calculate weights 
 			float SpecularWeight = SpecularWeight(LinearDepth, SampleDepth, CenterSpecular.w, SpecularSample.w, PBR.x, SamplePBR.x, Normal, SampleNormal, Incident, vec2(Luminance(CenterSpecular.xyz), Luminance(SpecularSample.xyz)), CenterLobe, SpecularRadius, SpecularFrames, KernelWeight);
 			float GBufferWeight = DiffuseWeightBasic(LinearDepth, SampleDepth, Normal, SampleNormal, KernelWeight);
-			float DiffuseWeight = u_SVGF ? DiffuseWeightSVGF(LinearDepth, SampleDepth, Normal, SampleNormal, Luminance(CenterDiffuse.xyz), Luminance(DiffuseSample.xyz), GaussianVar, PhiL, PhiDepth, vec2(x,y), FramebiasDiffuse, DepthGradient, KernelWeight) :
-								  (u_SpatialDiffuse ? GBufferWeight : 0.0f);
+			float DiffuseWeight = 0.0f; 
+			
+			if (u_SpatialDiffuse) {
+				DiffuseWeight = u_SVGF ? DiffuseWeightSVGF(LinearDepth, SampleDepth, Normal, SampleNormal, Luminance(CenterDiffuse.xyz), Luminance(DiffuseSample.xyz), GaussianVar, PhiL, PhiDepth, vec2(x,y), FramebiasDiffuse, DepthGradient, KernelWeight) :
+								  GBufferWeight;
+			}
+
 
 			DiffuseSum.xyz += DiffuseSample.xyz * DiffuseWeight;
 
 			// AO 
 			float SampleAO = DiffuseSample.w;
-			float AOWeight = GBufferWeight * mix(1.0f, clamp(exp( -(abs(CenterAOL - dot(SampleAO, 0.333f)) * 64.0f)), 0.0f, 1.0f), clamp(FramebiasDiffuse * 1.6f, 0.0f, 1.0f));
+			float AOWeight = 0.0f;
+			
+			if (u_SpatialDiffuse) {
+				AOWeight = GBufferWeight * mix(1.0f, clamp(exp( -(abs(CenterAOL - dot(SampleAO, 0.333f)) * 64.0f)), 0.0f, 1.0f), clamp(FramebiasDiffuse * 1.6f, 0.0f, 1.0f));
+			}
+
 			DiffuseSum.w += SampleAO * AOWeight;
 			TotalAOWeight += AOWeight;
 

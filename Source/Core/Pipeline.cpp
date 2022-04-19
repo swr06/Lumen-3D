@@ -66,11 +66,11 @@ static float SpecularGIStrength = 1.0f;
 static bool LargeVoxelRange = false;
 
 // Diffuse settings 
-static bool SVGF = true;
+static bool UseSVGF = true;
 static bool DiffuseSecondBounce = true;
 bool Lumen_DiffuseAmplifiedSunGI = true; // Extern
 static bool DiffTemporalEnabled = true;
-static bool SSRTGI = false;
+static bool SSRTGI = true;
 static bool HQ_SSRTGI = false;
 
 // Specular settings
@@ -168,7 +168,10 @@ public:
 		glfwSwapInterval((int)VSync);
 
 		GLFWwindow* window = GetWindow();
-		float camera_speed = 0.525f * 3.0f;
+
+		bool TabPressed = glfwGetKey(window, GLFW_KEY_TAB) == GLFW_PRESS;
+
+		float camera_speed = 0.525f * 3.0f * (TabPressed ? 2.3f : 1.0f);
 
 		if (GetCursorLocked()) {
 			if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS)
@@ -260,7 +263,7 @@ public:
 		ImGui::Checkbox("Denoiser Enabled?", &SpatialFiltering);
 
 		if (SpatialFiltering) {
-			ImGui::Checkbox("SVGF For indirect diffuse? (Slower, increases detail & temporal stability)", &SVGF);
+			ImGui::Checkbox("SVGF For indirect diffuse? (Slower, increases detail & temporal stability)", &UseSVGF);
 			ImGui::Checkbox("Filter Diffuse?", &SpatialDiffuse);
 			ImGui::Checkbox("Filter Specular?", &SpatialSpecular);
 		}
@@ -617,6 +620,7 @@ void Lumen::StartPipeline()
 		\n\t- Shift -> Accelerate down\
 		\n\t- R, T, Y, U -> Shift Sun\
 		\n\t- ESC -> quit\
+		\n\t- TAB -> increases camera speed\
 		\n\t- V -> Toggle VSync\
 		\n\t- F2 -> Recompile shaders\
 		\n\t- ImGui Windows ->\
@@ -1430,6 +1434,8 @@ void Lumen::StartPipeline()
 
 
 		// -- Spatial Filtering Passes -- 
+
+		bool SVGF = UseSVGF && SpatialDiffuse;
 
 		if (SVGF) {
 

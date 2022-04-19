@@ -7,6 +7,7 @@
 - ESC -> quit
 - V -> Toggle VSync
 - F2 -> Recompile shaders
-- ImGui Windows 
+- TAB -> Boost Camera Speed
 
+- ImGui Windows 
 - Main Window ("Debug") : Various Other Settings(Resolution settings)
