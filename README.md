@@ -32,37 +32,37 @@ This project is purely educational. I own none of the assets. All the rights go 
 
 </br>
 
-![s1](https://github.com/swr06/Lumen-Engine/blob/main/Source/Screenshots/1.png)
+![s1](https://github.com/swr06/Lumen-Engine/blob/main/Screenshots/1.png)
 
 </br>
 
 </br>
 
-![s2](https://github.com/swr06/Lumen-Engine/blob/main/Source/Screenshots/2.jpg)
+![s2](https://github.com/swr06/Lumen-Engine/blob/main/Screenshots/2.jpg)
 
 </br>
 
 </br>
 
-![s3](https://github.com/swr06/Lumen-Engine/blob/main/Source/Screenshots/3.jpg)
+![s3](https://github.com/swr06/Lumen-Engine/blob/main/Screenshots/3.jpg)
 
 </br>
 
 </br>
 
-![s4](https://github.com/swr06/Lumen-Engine/blob/main/Source/Screenshots/4.png)
+![s4](https://github.com/swr06/Lumen-Engine/blob/main/Screenshots/4.png)
 
 </br>
 
 </br>
 
-![s5](https://github.com/swr06/Lumen-Engine/blob/main/Source/Screenshots/5.jpg)
+![s5](https://github.com/swr06/Lumen-Engine/blob/main/Screenshots/5.jpg)
 
 </br>
 
 </br>
 
-![s6](https://github.com/swr06/Lumen-Engine/blob/main/Source/Screenshots/6.jpg)
+![s6](https://github.com/swr06/Lumen-Engine/blob/main/Screenshots/6.jpg)
 
 </br>
 
