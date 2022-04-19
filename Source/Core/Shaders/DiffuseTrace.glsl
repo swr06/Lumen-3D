@@ -53,6 +53,8 @@ uniform float u_Time;
 uniform int u_Frame;
 uniform bool u_Checker;
 uniform bool u_SSRTGI;
+uniform bool u_HQ_SSRTGI;
+uniform bool u_AmplifySunGI;
 
 uniform sampler2D u_BlueNoise;
 
@@ -72,6 +74,13 @@ uniform samplerCube u_ProbeNormals;
 uniform sampler2D u_Shadowmap;
 uniform mat4 u_SunShadowMatrix;
 uniform vec3 u_SunDirection;
+
+// Pseudo whitenoise rng 
+float HASH2SEED = 0.0f;
+vec2 hash2() 
+{
+	return fract(sin(vec2(HASH2SEED += 0.1, HASH2SEED += 0.1)) * vec2(43758.5453123, 22578.1459123));
+}
 
 // Math functions 
 float remap(float x, float a, float b, float c, float d)
@@ -164,10 +173,10 @@ bool InScreenspace(vec3 x) {
 	return false;
 }
 
+const vec3 FACE_NORMALS[6] = vec3[](vec3(1.0, 0.0, 0.0),vec3(-1.0, 0.0, 0.0),vec3(0.0, 1.0, 0.0),vec3(0.0, -1.0, 0.0),vec3(0.0, 0.0, 1.0),vec3(0.0, 0.0, -1.0));
+const vec3 OTHER_NORMALS[6] = vec3[](vec3(1.0, 0.0, 0.0),vec3(0.0, 1.0, 0.0),vec3(0.0, 0.0, 1.0),vec3(0.0, -1.0, 0.0),vec3(0.0, 0.0, 1.0),vec3(0.0, 0.0, -1.0));
 
-
-
-// FUCKING issue where you can't reference uniform texture arrays with a variable index (so this ugly fucking hack needed to be implemented)
+// MOTHERFUCKINGGG issue where you can't reference uniform texture arrays with a variable index (so this ugly fucking hack needed to be implemented)
 sampler3D GetCascadeVolume(int cascade) {
 
 	if (cascade == 0) { return u_VoxelVolumes[0]; }
@@ -202,22 +211,14 @@ bool PositionInVolume(int Volume, vec3 WorldPosition) {
 	return InScreenspace(Voxel);
 }
 
-
 const float ReinhardExp = 1.0f;
 
-vec3 InverseReinhard(vec3 RGB)
-{
+vec3 InverseReinhard(vec3 RGB){
     return (RGB / (vec3(1.0f) - Luminance(RGB))) / ReinhardExp;
 }
 
 vec4 DecodeVolumeLighting(const vec4 Lighting) {
-
 	return vec4(Lighting.xyz * 5.0f, Lighting.w);
-
-	//vec3 RemappedLighting = InverseReinhard(Lighting.xyz);
-	//RemappedLighting *= 2.0f;
-	//float AlphaMask = 1.0f - pow(1.0f - Lighting.w, 5.0f);
-	//return vec4(RemappedLighting.xyz, AlphaMask);
 }
 
 uint   packSnorm2x12(vec2 v) { uvec2 d = uvec2(round(2047.5 + v*2047.5)); return d.x|(d.y<<12u); }
@@ -250,10 +251,7 @@ int GetCascadeNumber(vec3 P, int MinCascade) {
 	return 5;
 }
 
-const vec3 FACE_NORMALS[6] = vec3[](vec3(1.0, 0.0, 0.0),vec3(-1.0, 0.0, 0.0),vec3(0.0, 1.0, 0.0),vec3(0.0, -1.0, 0.0),vec3(0.0, 0.0, 1.0),vec3(0.0, 0.0, -1.0));
-const vec3 OTHER_NORMALS[6] = vec3[](vec3(1.0, 0.0, 0.0),vec3(0.0, 1.0, 0.0),vec3(0.0, 0.0, 1.0),vec3(0.0, -1.0, 0.0),vec3(0.0, 0.0, 1.0),vec3(0.0, 0.0, -1.0));
-
-// Raytraces voxel cascades 
+// Voxel volume raytracer 
 vec4 RaymarchCascades(vec3 WorldPosition, vec3 Normal, vec3 Direction, float Aperature, float LowDiscrepHash, const int Steps, out vec4 Intersection, int MinCascade, out vec3 VoxelNormal, bool CalcNormal) 
 {
 	const float Diagonal = sqrt(2.0f);
@@ -343,20 +341,24 @@ vec4 RaymarchCascades(vec3 WorldPosition, vec3 Normal, vec3 Direction, float Ape
 // Samples direct lighting for a point 
 vec3 SampleRadiance(vec3 P, vec3 N, vec3 A, vec3 E, bool AmplifySunGI) {
 	const mat4 Satmat = SaturationMatrix(2.2f);
-	const vec3 SUN_COLOR = vec3(8.5f);
+	const vec3 SUN_COLOR = u_AmplifySunGI ? vec3(10.0f) : vec3(8.0f);
 	vec4 ProjectionCoordinates = u_SunShadowMatrix * vec4(P + N * 0.5f, 1.0f);
 	ProjectionCoordinates.xyz = ProjectionCoordinates.xyz / ProjectionCoordinates.w;
     ProjectionCoordinates.xyz = ProjectionCoordinates.xyz * 0.5f + 0.5f;
 	float SimpleFetch = texture(u_Shadowmap, ProjectionCoordinates.xy).x;
     float Shadow = float(ProjectionCoordinates.z - (0.0045f) > SimpleFetch);
-	float Lambertian = clamp(max(0.0f, dot(N, -u_SunDirection))*1.5f,0.0f,1.0f);
+	float Lambertian = clamp(max(0.0f, dot(N, -u_SunDirection))*1.5f,0.0f,1.0f); 
     vec3 Direct = Lambertian * SUN_COLOR * (1.0f - Shadow) * A;
 	Direct = AmplifySunGI ? vec3(Satmat * vec4(Direct, 1.0f)) : Direct;
 	return Direct + E;
 }
 
-// Camera centric probe raytracing -> ->
 
+
+
+// Camera centric probe raytracing -> -> //
+
+// Gets the ID of the face a direction faces in a virtual unit cube (direction has to be normalized)
 int GetFaceID(vec3 Direction)
 {
     vec3 AbsoluteDirection = abs(Direction);
@@ -419,11 +421,13 @@ vec4 RaytraceProbe(const vec3 WorldPosition, vec3 Direction, float Hash, int Ste
 
         bool AccurateishHit = DepthError < ThresholdCurr;
 
+		// We found a hit! break and integrate lighting 
         if (L > ProbeDepth && AccurateishHit) {
              FoundHit = true;
              break;
         }
 
+		// Break if ray is behind depth buffer 
 		if (L > ProbeDepth) { break; }
 
         PrevRayDepth = L;
@@ -467,7 +471,7 @@ vec4 RaytraceProbe(const vec3 WorldPosition, vec3 Direction, float Hash, int Ste
         vec3 IntersectAlbedo = AlbedoFetch.xyz;
 		vec3 IntersectEmissive = mix(AlbedoFetch.xyz,vec3(Luminance(AlbedoFetch.xyz)),0.1f) * NormalFetch.w * 16.0f;
 		oNormal = IntersectNormal.xyz;
-		return vec4(SampleRadiance(IntersectionPos, IntersectNormal, IntersectAlbedo, IntersectEmissive, true),
+		return vec4(SampleRadiance(IntersectionPos, IntersectNormal, IntersectAlbedo, IntersectEmissive, u_AmplifySunGI),
 					clamp(distance(WorldPosition, RayPosition) / 42.0f, 0.0f, 1.0f)) ;
     }
 
@@ -475,18 +479,20 @@ vec4 RaytraceProbe(const vec3 WorldPosition, vec3 Direction, float Hash, int Ste
     return vec4(vec3(0.0f), 1.0f);
 }
 
-// Raytrace in screenspace
+
+// Screenspace raytracer 
 vec4 ScreenspaceRaytrace(const vec3 Origin, vec3 Direction, float ThresholdMultiplier, float Hash, int Steps, int BinarySteps, out vec4 IntersectionPos, out vec3 IntersectionNormal)
 {
 	IntersectionPos = vec4(-1.0f);
 
-    const float Distance = 140.0f;
+    const float Distance = u_HQ_SSRTGI ? 192.0f : 128.0f;
 
     float StepSize = float(Distance) / float(Steps);
 	vec3 RayPosition = Origin + Direction * Hash * 1.2; 
 	vec2 FinalUV = vec2(-1.0f);
 
-    float ExpStep = mix(1.025f, 1.05f, float(Hash)); //clamp((log(500.0f) / log(float(Steps))) * 0.75f, 1.05f, 6.0f);// mix(1.075f, 1.5f, float(Hash));
+	//float ExpStep = clamp((log(500.0f) / log(float(Steps))) * 0.75f, 1.05f, 6.0f);// mix(1.075f, 1.5f, float(Hash));
+    float ExpStep = u_HQ_SSRTGI ? mix(1.02f, 1.05f, clamp(hash2().x * 1.33333f, 0.0f, 1.0f)) : mix(1.03f, 1.065f, clamp(hash2().x * 1.33333f, 0.0f, 1.0f)); 
 
 	for(int CurrentStep = 0; CurrentStep < Steps; CurrentStep++) 
 	{
@@ -567,7 +573,7 @@ vec4 ScreenspaceRaytrace(const vec3 Origin, vec3 Direction, float ThresholdMulti
 
 			float AO = clamp(distance(IntersectionPos.xyz, Origin) / 52.0f, 0.0f, 1.0f);
 			AO = pow(AO, 1.5f);
-			return vec4(SampleRadiance(Position, Normal, Albedo, Emissive, true) * 2.0f, AO);
+			return vec4(SampleRadiance(Position, Normal, Albedo, Emissive, u_AmplifySunGI) * 2.5f, AO + 1.0f);
 		}
 
 		if (ProjectedRayScreenspace.z > DepthAt) {
@@ -584,14 +590,8 @@ vec4 ScreenspaceRaytrace(const vec3 Origin, vec3 Direction, float ThresholdMulti
 
 }
 
-// Pseudo whitenoise rng 
-float HASH2SEED = 0.0f;
-vec2 hash2() 
-{
-	return fract(sin(vec2(HASH2SEED += 0.1, HASH2SEED += 0.1)) * vec2(43758.5453123, 22578.1459123));
-}
 
-// Lambertian BRDF 
+// Lambertian ray generation
 vec3 CosWeightedHemisphere(const vec3 n, vec2 r) 
 {
 	float PI2 = 2.0f * 3.1415926f;
@@ -605,6 +605,7 @@ vec3 CosWeightedHemisphere(const vec3 n, vec2 r)
     return normalize(rr);
 }
 
+// Lambert brdf function 
 float LambertianBRDF(float N, float D) {
 	return max(dot(N, D), 0.0f) / PI;
 }
@@ -734,15 +735,16 @@ void main() {
 
 		// Raytrace in screen space?
 		if (u_SSRTGI) {
-			vec4 SSRadiance = ScreenspaceRaytrace(WorldPosition + Normal * 1.5, CosineHemisphereDirection, 0.0015f, BayerHash, 36, 8, IntersectionPositionb, IntersectionNormalb);	
+			vec4 SSRadiance = ScreenspaceRaytrace(WorldPosition + Normal * 1.5, CosineHemisphereDirection, 0.0015f, BayerHash, u_HQ_SSRTGI ? 64 : 32, 6, IntersectionPositionb, IntersectionNormalb);	
 		
+			// Did the screen trace find an intersection? If so, add lighting for that point
 			if (SSRadiance.w > 0.0f) {
-				DiffuseVX = vec4(SSRadiance.xyz, SSRadiance.w);
+				DiffuseVX = vec4(SSRadiance.xyz, SSRadiance.w - 1.0f);
 			}
 
 			// RT in voxel space
 			else {
-				DiffuseVX = RaymarchCascades(WorldPosition, Normal, CosineHemisphereDirection, 1.0f, BayerHash, 256, IntersectionPositionb, 1, IntersectionNormalb, true);
+				DiffuseVX = RaymarchCascades(WorldPosition, Normal, CosineHemisphereDirection, 1.0f, BayerHash, 236, IntersectionPositionb, 1, IntersectionNormalb, true);
 			}
 
 		}
@@ -760,9 +762,11 @@ void main() {
 
 	TotalRadiance += DiffuseVX;
 
+	Hash = hash2();
 
 	if (DO_SECOND_BOUNCE && IntersectionPositionb.w > 0.6f && u_DiffuseSecondBounce) {
 		
+		Hash = hash2();
 		vec3 SecondCosineHemisphereDirection = CosWeightedHemisphere(IntersectionNormalb, Hash.xy);
 
 		// Calculate ray throughput 
@@ -811,7 +815,7 @@ void main() {
 
 	o_Color = TotalRadiance;
     o_Color.xyz = max(o_Color.xyz, 0.0f);
-	
+
 	if (isnan(o_Color.x) || isnan(o_Color.y) || isnan(o_Color.z) || isnan(o_Color.w) || isinf(o_Color.x) || isinf(o_Color.y) || isinf(o_Color.z) || isinf(o_Color.w)) {
         o_Color.xyzw = vec4(0.0f);
     }

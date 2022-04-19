@@ -71,6 +71,7 @@ static bool DiffuseSecondBounce = true;
 bool Lumen_DiffuseAmplifiedSunGI = true; // Extern
 static bool DiffTemporalEnabled = true;
 static bool SSRTGI = false;
+static bool HQ_SSRTGI = false;
 
 // Specular settings
 static bool SSCT = false;
@@ -270,6 +271,8 @@ public:
 		ImGui::Text("-- Indirect Diffuse --");
 		ImGui::NewLine();
 		ImGui::Checkbox("Screenspace RTGI?", &SSRTGI);
+		if (SSRTGI)
+			ImGui::Checkbox("HQ (High-Quality) Screenspace RTGI?", &HQ_SSRTGI);
 		ImGui::Checkbox("Second bounce diffuse?", &DiffuseSecondBounce);
 		ImGui::Checkbox("Amplified Sun GI?", &Lumen_DiffuseAmplifiedSunGI);
 		ImGui::Checkbox("Temporally filter Diffuse?", &DiffTemporalEnabled);
@@ -854,12 +857,12 @@ void Lumen::StartPipeline()
 
 		// Create sun direction 
 		SunDirection = glm::vec3(0.0f);
-		const float PiBy180 = PI / 180.0f;
+		const float ToRadians = PI / 180.0f;
 		float Rx = SunDirectionAmt.x;
 		float Ry = SunDirectionAmt.y - 90.0f;
-		SunDirection.x -= (cos(Ry * (PiBy180)) * cos(Rx * (PiBy180)));
-		SunDirection.y += (sin(Rx * (PiBy180)));
-		SunDirection.z -= (sin(Ry * (PiBy180)) * cos(Rx * (PiBy180)));
+		SunDirection.x -= (cos(Ry * (ToRadians)) * cos(Rx * (ToRadians)));
+		SunDirection.y += (sin(Rx * (ToRadians)));
+		SunDirection.z -= (sin(Ry * (ToRadians)) * cos(Rx * (ToRadians)));
 		SunDirection = glm::normalize(SunDirection);
 
 		// Matrices 
@@ -1211,6 +1214,8 @@ void Lumen::StartPipeline()
 		DiffuseVXTrace.SetBool("u_Checker", CheckerboardIndirect);
 		DiffuseVXTrace.SetBool("u_DiffuseSecondBounce", DiffuseSecondBounce);
 		DiffuseVXTrace.SetBool("u_SSRTGI", SSRTGI);
+		DiffuseVXTrace.SetBool("u_HQ_SSRTGI", HQ_SSRTGI);
+		DiffuseVXTrace.SetBool("u_AmplifySunGI", Lumen_DiffuseAmplifiedSunGI);
 		DiffuseVXTrace.SetVector3f("u_SunDirection", SunDirection);
 		DiffuseVXTrace.SetMatrix4("u_SunShadowMatrix", GetLightViewProjection(SunDirection));
 
