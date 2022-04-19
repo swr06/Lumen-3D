@@ -2,7 +2,7 @@
 
 (For the record, I came up with this name much much before Unreal did :P) 
 
-A *highly* work-in-progress **TOY ENGINE**. This project is mostly used as a testing ground to experiment/learn with various graphics techniques. 
+A *highly* work-in-progress **TOY ENGINE**. This project is mostly used as a testing ground to experiment with and learn various graphics techniques. 
 
 ## Current Feature List 
 
@@ -11,12 +11,12 @@ A *highly* work-in-progress **TOY ENGINE**. This project is mostly used as a tes
 - Indirect Multibounce Diffuse Lighting (Voxel Raytracing + Screenspace RTGI/SSGI) 
 - Indirect Specular/Reflections (Voxel Raytracing + (parallax correct) Cubemap/Screenspace reflections)
 - Support for checkerboard rendering (Heavily used for indirect lighting and other raytraced effects)
-- Temporal filtering/supersampling
-- SVGF For Indirect Diffuse with specialized filter for indirect specular
+- Temporal filtering/supersampling 
+- SVGF For Indirect Diffuse and specialized denoising filter for indirect specular lighting
 - Cook torrance BRDF for direct lighting
 - Shadowmapping (with PCF filtering)
 - TAA + TAA-Upscaling
-- FXAA 3.11
+- FXAA 3.11 
 - Volumetric Fog (Crepuscular rays + exponential fog)
 - Post Processing pipeline (Bokeh DOF, Bloom, Chromatic Aberration, Contrast Adaptive Sharpening, Film Grain)
 - Skybox/Environment Map Support
