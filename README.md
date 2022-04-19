@@ -1,9 +1,8 @@
 # Lumen Engine
 
-(For the record, I came up with this name much much before unreal did.) 
+(For the record, I came up with this name much much before Unreal did :P) 
 
-
-A *highly* *w*ork-*i*n-*p*rogress **TOY ENGINE**. This project is mostly used as a testing ground to experiment/learn with various graphics techniques. 
+A *highly* work-in-progress **TOY ENGINE**. This project is mostly used as a testing ground to experiment/learn with various graphics techniques. 
 
 ## Current Feature List 
 
@@ -19,3 +18,54 @@ A *highly* *w*ork-*i*n-*p*rogress **TOY ENGINE**. This project is mostly used as
 - Post process pipeline (DOF, Bloom, CA, Sharpening, Film Grain)
 - Skybox/Environment Map Support
 
+## Special Thanks
+- [UglySwedishFish](https://github.com/UglySwedishFish)
+- [Lars](https://github.com/Ciwiel3/)
+
+## License
+- MIT (See LICENSE)
+
+## Notice
+This project is purely educational. I own none of the assets. All the rights go to their respective owners.
+
+## Screenshots 
+
+</br>
+
+![s1](https://github.com/swr06/Lumen-Engine/blob/main/Source/Screenshots/1.png)
+
+</br>
+
+</br>
+
+![s2](https://github.com/swr06/Lumen-Engine/blob/main/Source/Screenshots/2.jpg)
+
+</br>
+
+</br>
+
+![s3](https://github.com/swr06/Lumen-Engine/blob/main/Source/Screenshots/3.jpg)
+
+</br>
+
+</br>
+
+![s4](https://github.com/swr06/Lumen-Engine/blob/main/Source/Screenshots/4.png)
+
+</br>
+
+</br>
+
+![s5](https://github.com/swr06/Lumen-Engine/blob/main/Source/Screenshots/5.jpg)
+
+</br>
+
+</br>
+
+![s6](https://github.com/swr06/Lumen-Engine/blob/main/Source/Screenshots/6.jpg)
+
+</br>
+
+# Supporting
+
+If you'd like to support this project, consider starring it. Thanks!
