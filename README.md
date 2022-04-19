@@ -3,7 +3,7 @@
 (For the record, I came up with this name much much before unreal did.) 
 
 
-A **TOY ENGINE**. This project is mostly used as a testing ground to experiment with various graphics techniques. 
+A *highly* *w*ork-*i*n-*p*rogress **TOY ENGINE**. This project is mostly used as a testing ground to experiment/learn with various graphics techniques. 
 
 ## Current Feature List 
 
@@ -15,7 +15,7 @@ A **TOY ENGINE**. This project is mostly used as a testing ground to experiment 
 - SVGF For Indirect Diffuse with specialized filter for indirect specular
 - TAA + TAA-Upscaling
 - FXAA 3.11
-- Volumetric Fog (Directional lighting + exponential fog)
+- Volumetric Fog (Crepuscular rays + exponential fog)
 - Post process pipeline (DOF, Bloom, CA, Sharpening, Film Grain)
 - Skybox/Environment Map Support
 
