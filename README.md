@@ -15,7 +15,7 @@ A *highly* work-in-progress **TOY ENGINE**. This project is mostly used as a tes
 - TAA + TAA-Upscaling
 - FXAA 3.11
 - Volumetric Fog (Crepuscular rays + exponential fog)
-- Post process pipeline (DOF, Bloom, CA, Sharpening, Film Grain)
+- Post Processing pipeline (DOF, Bloom, Chromatic Aberration, Contrast Adaptive Sharpening, Film Grain)
 - Skybox/Environment Map Support
 
 ## Special Thanks
