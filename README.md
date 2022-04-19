@@ -6,6 +6,7 @@ A *highly* work-in-progress **TOY ENGINE**. This project is mostly used as a tes
 
 ## Current Feature List 
 
+- Model Loading 
 - Voxelization
 - Indirect Multibounce Diffuse Lighting (Voxel Raytracing + Screenspace RTGI/SSGI) 
 - Indirect Specular/Reflections (Voxel Raytracing + (parallax correct) Cubemap/Screenspace reflections)
@@ -15,7 +16,7 @@ A *highly* work-in-progress **TOY ENGINE**. This project is mostly used as a tes
 - TAA + TAA-Upscaling
 - FXAA 3.11
 - Volumetric Fog (Crepuscular rays + exponential fog)
-- Post Processing pipeline (DOF, Bloom, Chromatic Aberration, Contrast Adaptive Sharpening, Film Grain)
+- Post Processing pipeline (Bokeh DOF, Bloom, Chromatic Aberration, Contrast Adaptive Sharpening, Film Grain)
 - Skybox/Environment Map Support
 
 ## Special Thanks
