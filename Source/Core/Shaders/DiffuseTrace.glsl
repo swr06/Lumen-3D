@@ -341,7 +341,8 @@ vec4 RaymarchCascades(vec3 WorldPosition, vec3 Normal, vec3 Direction, float Ape
 // Samples direct lighting for a point 
 vec3 SampleRadiance(vec3 P, vec3 N, vec3 A, vec3 E, bool AmplifySunGI) {
 	const mat4 Satmat = SaturationMatrix(2.2f);
-	const vec3 SUN_COLOR = u_AmplifySunGI ? vec3(10.0f) : vec3(8.0f);
+	const mat4 SatmatWeak = SaturationMatrix(1.333333f);
+	const vec3 SUN_COLOR = vec3(10.5f);
 	vec4 ProjectionCoordinates = u_SunShadowMatrix * vec4(P + N * 0.5f, 1.0f);
 	ProjectionCoordinates.xyz = ProjectionCoordinates.xyz / ProjectionCoordinates.w;
     ProjectionCoordinates.xyz = ProjectionCoordinates.xyz * 0.5f + 0.5f;
@@ -349,12 +350,9 @@ vec3 SampleRadiance(vec3 P, vec3 N, vec3 A, vec3 E, bool AmplifySunGI) {
     float Shadow = float(ProjectionCoordinates.z - (0.0045f) > SimpleFetch);
 	float Lambertian = clamp(max(0.0f, dot(N, -u_SunDirection))*1.5f,0.0f,1.0f); 
     vec3 Direct = Lambertian * SUN_COLOR * (1.0f - Shadow) * A;
-	Direct = AmplifySunGI ? vec3(Satmat * vec4(Direct, 1.0f)) : Direct;
+	Direct = AmplifySunGI ? vec3(Satmat * vec4(Direct, 1.0f)) : vec3(SatmatWeak * vec4(Direct, 1.0f));
 	return Direct + E;
 }
-
-
-
 
 // Camera centric probe raytracing -> -> //
 
@@ -721,7 +719,7 @@ void main() {
 	vec3 Incident = normalize(PlayerPosition - WorldPosition);
 	vec3 R = normalize(reflect(-Incident, Normal));
 
-	// Raytrace and accumulate radians ->
+	// Raytrace and accumulate radiance ->
 
 	vec4 TotalRadiance = vec4(0.0f);
 	vec3 CosineHemisphereDirection = CosWeightedHemisphere(Normal, Hash.xy);

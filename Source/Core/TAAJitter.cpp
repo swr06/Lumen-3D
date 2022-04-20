@@ -47,7 +47,7 @@ glm::vec2 Lumen::GetTAAJitterSecondary(int CurrentFrame)
 	return Jitter;
 }
 
-
+// Creates the jitter matrix
 glm::mat4 Lumen::GetTAAJitterMatrix(int CurrentFrame, const glm::vec2& resolution)
 {
 	glm::vec2 Jitter = HaltonSequenceData[CurrentFrame % 24];

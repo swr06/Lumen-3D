@@ -108,18 +108,18 @@ static bool SpatialSpecular = true;
 // Post Process
 static float ExposureMultiplier = 1.0f;
 static bool PostProcess_Bloom = true;
-static float PostProcess_FilmGrainStrength = 0.350f;
-static float PostProcess_CAStrength = 0.05f;
+static float PostProcess_FilmGrainStrength = 0.275f;
+static float PostProcess_CAStrength = 0.04f;
 static bool PostProcess_DOF = false;
 
 // DOF 
 static float CenterDepthSmooth = 1.0f;
-static float DOFResolutionScale = 0.25f;
+static float DOFResolutionScale = 0.375f;
 static float DOFCOCScale = 1.0f;
 static float DOFBlurScale = 1.0f;
 static bool DOFCA = false;
 static bool DOF_HQ = false;
-static float DOFCAScale = 1.4f;
+static float DOFCAScale = 1.45f;
 static glm::vec2 DOFFocusPoint;
 
 // Basic ass math
@@ -145,7 +145,6 @@ static glm::vec3 SnapPosition(glm::vec3 p, float ax, float ay, float az) {
 	p.z = Align(p.z, az);
 	return p;
 }
-
 
 // Application 
 class RayTracerApp : public Lumen::Application
@@ -197,13 +196,13 @@ public:
 		float ChangeSpeed = 0.4f;
 		float ChangeSpeed2 = 0.2f;
 
-		if (glfwGetKey(window, GLFW_KEY_R) == GLFW_PRESS)
+		if (glfwGetKey(window, GLFW_KEY_T) == GLFW_PRESS)
 			SunDirectionAmt.x += 14.0f * ChangeSpeed;
 
 		if (glfwGetKey(window, GLFW_KEY_Y) == GLFW_PRESS)
 			SunDirectionAmt.y += 14.0f * ChangeSpeed;
 
-		if (glfwGetKey(window, GLFW_KEY_T) == GLFW_PRESS)
+		if (glfwGetKey(window, GLFW_KEY_R) == GLFW_PRESS)
 			SunDirectionAmt.x -= 14.0f * ChangeSpeed2;
 
 		if (glfwGetKey(window, GLFW_KEY_U) == GLFW_PRESS)
@@ -858,6 +857,7 @@ void Lumen::StartPipeline()
 
 		RENDER_SCALE = RoundToNearest(RENDER_SCALE, 0.25f);
 		CAS_Amount = RoundToNearest(CAS_Amount, 0.125f);
+		DOFResolutionScale = RoundToNearest(DOFResolutionScale, 0.125f);
 
 		// Create sun direction 
 		SunDirection = glm::vec3(0.0f);
@@ -974,9 +974,11 @@ void Lumen::StartPipeline()
 			glBindTexture(GL_TEXTURE_2D, 0);
 		}
 
+		bool ShadowKeysPressed = (glfwGetKey(app.GetWindow(), GLFW_KEY_T) == GLFW_PRESS) || (glfwGetKey(app.GetWindow(), GLFW_KEY_R) == GLFW_PRESS)	||
+								 (glfwGetKey(app.GetWindow(), GLFW_KEY_U) == GLFW_PRESS) || (glfwGetKey(app.GetWindow(), GLFW_KEY_Y) == GLFW_PRESS);
 
 		// Shadowmap update 
-		if (PreviousSunAmt != SunDirectionAmt || app.GetCurrentFrame() % 6 == 0) //PreviousSunDirection != SunDirection)
+		if (PreviousSunAmt != SunDirectionAmt || app.GetCurrentFrame() % 6 == 0 || ShadowKeysPressed) //PreviousSunDirection != SunDirection)
 		{
 			// Shadow pass 
 			RenderShadowMap(Shadowmap, Camera.GetPosition(), SunDirection, SunDirectionAmt, EntityRenderList, Camera.GetViewProjection());

@@ -33,13 +33,6 @@ namespace Lumen
 		
 		LightViewMatrix = glm::lookAt(LightPosition, LightPosition + (sun_dir), (1.f - fabs(dot)) < 0.01f ? glm::vec3(0.0f, 0.0f, 1.0f) : glm::vec3(0.0f, 1.0f, 0.0f));
 		
-		//LightViewMatrix = glm::mat4(1.0f);
-		//LightViewMatrix = glm::rotate(LightViewMatrix, glm::radians(-sunrot.x), { 1, 0, 0 });
-		//LightViewMatrix = glm::rotate(LightViewMatrix, glm::radians(-sunrot.y), { 0, 1, 0 });
-		//LightViewMatrix = glm::rotate(LightViewMatrix, glm::radians(0.0f), { 0, 0, 1 });
-		//LightViewMatrix = glm::translate(LightViewMatrix, -glm::vec3(LightPosition.x, LightPosition.y, LightPosition.z));
-
-
 		GLClasses::Shader& shader = ShaderManager::GetShader("DEPTH");
 
 		glEnable(GL_DEPTH_TEST);
