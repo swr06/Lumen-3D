@@ -21,6 +21,9 @@ A *highly* work-in-progress **TOY ENGINE**. This project is mostly used as a tes
 - Post Processing pipeline (Bokeh DOF, Bloom, Chromatic Aberration, Contrast Adaptive Sharpening, Film Grain)
 - Skybox/Environment Map Support
 
+## Known issues
+- Shadow mapping is a bit iffy at steep sun angles
+
 ## Planned 
 - Physically based sky rendering (with volumetric clouds)
 - Cascaded shadow maps with PCSS filtering
