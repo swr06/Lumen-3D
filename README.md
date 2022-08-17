@@ -2,7 +2,7 @@
 
 (For the record, I came up with this name much much before Unreal did :P) 
 
-A *highly* work-in-progress **TOY ENGINE**. This project is mostly used as a testing ground to experiment with and learn various graphics techniques. 
+An ***Unfinished*** **TOY ENGINE**. This project is mostly used as a testing ground to experiment with and learn various graphics techniques. 
 
 ## Current Feature List 
 
@@ -22,7 +22,8 @@ A *highly* work-in-progress **TOY ENGINE**. This project is mostly used as a tes
 - Skybox/Environment Map Support
 
 ## Known issues
-- Shadow mapping is a bit iffy at steep sun angles
+- Shadow mapping iffy at steep-ish sun angles 
+- Noise on aggressive movement or disocclusions 
 
 ## Planned 
 - Physically based sky rendering (with volumetric clouds)
