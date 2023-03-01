@@ -361,9 +361,9 @@ bool IsSky(float NonLinearDepth) {
 
 float ResolveAO(vec3 WorldPosition, vec3 Normal, vec3 Direction, float Bayer) {
 
-	const float Distance = 32.0f;
+	const float Distance = 5.0f;
 	
-	GBufferData Hit = ScreenspaceRaytrace(WorldPosition + (Normal * 1.0f) - (Direction * 0.6f), Direction, 0.005f, Bayer, 24, 0, Distance, 1.0f);
+	GBufferData Hit = ScreenspaceRaytrace(WorldPosition + (Normal * 0.01f), Direction, 0.005f, Bayer, 24, 0, Distance, 1.0f);
 
 	if (!Hit.ValidMask) { return 1.0f; }
 
@@ -379,7 +379,7 @@ float ResolveAO(vec3 WorldPosition, vec3 Normal, vec3 Direction, float Bayer) {
 
 float ResolveShadow(vec3 WorldPosition, vec3 Normal, vec3 Direction, float Bayer) {
 
-	GBufferData Hit = ScreenspaceRaytrace(WorldPosition + (Normal * 1.1125f) - (Direction * 0.4f), Direction, 0.00225f, 0.0f, 40, 4, 40.0f, 1.0f);
+	GBufferData Hit = ScreenspaceRaytrace(WorldPosition + Normal * 0.02f, Direction, 0.00225f, 0.0f, 40, 4, 2.0f, 1.0f);
 	return Hit.ValidMask ? 0.0f : 1.0f;
 }
 

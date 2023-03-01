@@ -566,7 +566,7 @@ void main()
 	
 	// 0 -> None, 1 -> Diffuse, 2 -> Specular, 3 -> AO, 4 -> Shadowmap, 5 -> SSShadows, 6 -> Voxel volume
 	if (LUMEN_DEBUG_LEVEL == 0) {}
-	else if (LUMEN_DEBUG_LEVEL == 1) { o_Color = DiffuseIndirect.xyz * 0.5f; } // <---- MULTIPLIED HERE!
+	else if (LUMEN_DEBUG_LEVEL == 1) { o_Color = DiffuseIndirect.xyz; } // <---- MULTIPLIED HERE!
 	else if (LUMEN_DEBUG_LEVEL == 2) { o_Color = SpecularIndirect.xyz * 0.7f;} // <---- MULTIPLIED HERE!
 	else if (LUMEN_DEBUG_LEVEL == 3) { o_Color = vec3(AmbientOcclusion); }
 	else if (LUMEN_DEBUG_LEVEL == 4) { o_Color = vec3(1.-Shadowmap); }
@@ -605,7 +605,6 @@ void main()
 
 
 
-
 	// Nan/inf check
 	if (isnan(o_Color.x) || isnan(o_Color.y) || isnan(o_Color.z) || isinf(o_Color.x) || isinf(o_Color.y) || isinf(o_Color.z)) {
         o_Color = vec3(0.0f);
@@ -636,7 +635,7 @@ float FilterShadows(vec3 WorldPosition, vec3 N)
 	noise = mod(noise + 1.61803f * mod(float(u_CurrentFrame), 100.0f), 1.0f);
 	float scale = 0.9f;
 
-    int Samples = 20;
+    int Samples = 8;
 
 	for(int x = 0; x < Samples; x++)
 	{
@@ -648,8 +647,6 @@ float FilterShadows(vec3 WorldPosition, vec3 N)
 		jitter_value = PoissonDisk[x] * dither;
 		float pcf = texture(u_ShadowTexture, ProjectionCoordinates.xy + (jitter_value * scale * TexelSize)).r;  
 		shadow += ProjectionCoordinates.z - Bias > pcf ? 1.0f : 0.0f;
-		
-		scale *= 1.05f;
 	}
 
 	shadow /= float(Samples);

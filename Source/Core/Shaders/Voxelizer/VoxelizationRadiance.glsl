@@ -113,7 +113,7 @@ vec3 SampleLighting(vec3 Albedo, vec3 WorldPosition, vec3 Normal) {
 
 	//WorldPosition += Normal * (u_VoxelRanges[u_CascadeNumber] * (1.0f/128.0f) * sqrt(2.));
 
-	float Bias = 0.004f;  
+	float Bias = 0.0007f;  
 
 	float Shadow = 0.0f; 
 	vec4 ProjectionCoordinates = u_LightVP * vec4(WorldPosition, 1.0f);

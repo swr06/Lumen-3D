@@ -5,47 +5,123 @@
 
 namespace Lumen
 {
-	const static float SHADOW_DISTANCE_X = 450.0f;
-	const static float SHADOW_DISTANCE_Y = 450.0f;
-	const static float SHADOW_DISTANCE_Z = 2500.0f;
+	class Bounds {
 
-	static glm::mat4 LightProjectionMatrix;
-	static glm::mat4 LightViewMatrix;
-	
-	void InitShadowMapRenderer()
-	{
+	public:
+
+		Bounds(const glm::vec3& x, const glm::vec3& y) {
+			Min = x;
+			Max = y;
+		}
+
+		glm::vec3 Min;
+		glm::vec3 Max;
+	};
+
+	void GenerateShadowMatrices(const glm::vec3& Origin, const glm::vec3& SunDirection, glm::mat4& Projection, glm::mat4& View, float Distance) {
+
+		float MaxDistance = Distance;
+
+		Bounds Box = Bounds(
+			glm::round(Origin - MaxDistance),
+			glm::round(Origin + MaxDistance)
+		);
+
+		glm::vec3 StartPoints[8];
+		glm::vec3 Points[8];
+
+		StartPoints[0] = Box.Min;
+		StartPoints[1] = Box.Max;
+		StartPoints[2] = glm::vec3(StartPoints[0].x, StartPoints[0].y, StartPoints[1].z);
+		StartPoints[3] = glm::vec3(StartPoints[0].x, StartPoints[1].y, StartPoints[0].z);
+		StartPoints[4] = glm::vec3(StartPoints[1].x, StartPoints[0].y, StartPoints[0].z);
+		StartPoints[5] = glm::vec3(StartPoints[0].x, StartPoints[1].y, StartPoints[1].z);
+		StartPoints[6] = glm::vec3(StartPoints[1].x, StartPoints[0].y, StartPoints[1].z);
+		StartPoints[7] = glm::vec3(StartPoints[1].x, StartPoints[1].y, StartPoints[0].z);
+
+		glm::vec3 Center;
+
+		// Calculate world space bounds
+		{
+			glm::vec3 WorldspaceMin = glm::vec3(1000000.0f);
+			glm::vec3 WorldspaceMax = glm::vec3(-1000000.0f);
+
+			for (int i = 0; i < 8; i++) {
+
+				WorldspaceMin = glm::min(WorldspaceMin, StartPoints[i]);
+				WorldspaceMax = glm::max(WorldspaceMax, StartPoints[i]);
+
+			}
+
+			Center = (WorldspaceMin + WorldspaceMax) / 2.0f; // Centroid 
+		}
+
+		View = glm::mat4(1.0f);
+		View = glm::lookAt(Center, Center + SunDirection, glm::normalize(glm::vec3(0.0f, 1.0f, 0.0f)));
+
+		// Transform to light space 
+		for (int i = 0; i < 8; i++) {
+			Points[i] = glm::vec3(View * glm::vec4(StartPoints[i], 1.0f));
+		}
+
+		glm::vec3 OrthoMin = glm::vec3(1000000.0f);
+		glm::vec3 OrthoMax = glm::vec3(-1000000.0f);
+
+		for (int i = 0; i < 8; i++) {
+
+			glm::vec3 CurrentPoint = Points[i];
+
+			// X
+			if (CurrentPoint.x > OrthoMax.x) {
+				OrthoMax.x = CurrentPoint.x;
+			}
+
+			else if (CurrentPoint.x < OrthoMin.x) {
+				OrthoMin.x = CurrentPoint.x;
+			}
+
+			// Y
+			if (CurrentPoint.y > OrthoMax.y) {
+				OrthoMax.y = CurrentPoint.y;
+			}
+
+			else if (CurrentPoint.y < OrthoMin.y) {
+				OrthoMin.y = CurrentPoint.y;
+			}
+
+			// Z
+			if (CurrentPoint.z > OrthoMax.z) {
+				OrthoMax.z = CurrentPoint.z;
+			}
+			else if (CurrentPoint.z < OrthoMin.z) {
+				OrthoMin.z = CurrentPoint.z;
+			}
+		}
+
+
+		Projection = glm::mat4(1.0f);
+		Projection = glm::ortho(OrthoMin.x, OrthoMax.x, OrthoMin.y, OrthoMax.y, -OrthoMin.z - 1250.0f, OrthoMax.z + 32.0f);
 	}
 
-	void PrintVec3(std::string s, glm::vec3 x) 
+	void RenderShadowMap(Shadowmap& Shadowmap, const glm::vec3& Origin, glm::vec3 SunDirection, const std::vector<Entity*>& Entities, float Distance, glm::mat4& Projection, glm::mat4& View)
 	{
-		std::cout << "\n" << s << "  :  " << x.x << "  " << x.y << "  " << x.z << "\n";
-	}
+		glm::mat4 LightProjectionMatrix;
+		glm::mat4 LightViewMatrix;
 
-	void RenderShadowMap(GLClasses::DepthBuffer& depthbuffer, const glm::vec3& player_pos, const glm::vec3& sun_dir, const glm::vec2& sunrot, std::vector<Entity*> entities, glm::mat4 m)
-	{
-		glm::vec3 LightPosition = (glm::vec3(-sun_dir * 450.0f));
+		SunDirection = glm::normalize(SunDirection);
+		GenerateShadowMatrices(Origin, SunDirection, LightProjectionMatrix, LightViewMatrix, Distance);
 
-		float dot = glm::dot(sun_dir, glm::vec3(0.0f, 1.0f, 0.0f));
-
-		LightProjectionMatrix = glm::ortho(-SHADOW_DISTANCE_X, SHADOW_DISTANCE_X,
-			-SHADOW_DISTANCE_Y, SHADOW_DISTANCE_Y,
-			0.1f, SHADOW_DISTANCE_Z);
-		
-		LightViewMatrix = glm::lookAt(LightPosition, LightPosition + (sun_dir), (1.f - fabs(dot)) < 0.01f ? glm::vec3(0.0f, 0.0f, 1.0f) : glm::vec3(0.0f, 1.0f, 0.0f));
-		
 		GLClasses::Shader& shader = ShaderManager::GetShader("DEPTH");
 
 		glEnable(GL_DEPTH_TEST);
-		glDisable(GL_CULL_FACE);
-		
+
 		shader.Use();
-		depthbuffer.Bind();
-		depthbuffer.OnUpdate();
+		Shadowmap.Bind();
+		glClear(GL_DEPTH_BUFFER_BIT);
 
 		shader.SetMatrix4("u_ViewProjection", LightProjectionMatrix * LightViewMatrix);
-		//shader.SetMatrix4("u_ViewProjection", m);
 
-		for (auto& entity : entities)
+		for (auto& entity : Entities)
 		{
 			shader.SetMatrix4("u_ModelMatrix", entity->m_Model);
 
@@ -74,11 +150,10 @@ namespace Lumen
 			}
 		}
 
-		depthbuffer.Unbind();
+		Shadowmap.Unbind();
+
+		Projection = LightProjectionMatrix;
+		View = LightViewMatrix;
 	}
 
-	glm::mat4 GetLightViewProjection(const glm::vec3& sun_dir)
-	{
-		return LightProjectionMatrix * LightViewMatrix;
-	}
 }

@@ -221,7 +221,7 @@ void main() {
 			vec3 PreviousNormal = texelFetch(u_PreviousNormals, SampleCoordHighRes, 0).xyz;
 			float NormalDot = dot(Normals, PreviousNormal);
 
-			if (DepthError < 1.02f && NormalDot > 0.5f) 
+			if (DepthError < 1.05f && NormalDot > 0.5f) 
 			{
 				float Weight = BilinearWeights[Sample];
 

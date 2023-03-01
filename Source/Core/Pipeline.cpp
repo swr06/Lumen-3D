@@ -51,8 +51,7 @@ static uint32_t MainRenderPolygons;
 static bool VSync = false;
 
 // Sun Settings 
-static float SunTick = 50.0f;
-static glm::vec2 SunDirectionAmt = glm::vec2(-76.3f, 106.3f);
+static glm::vec3 SunDirection_ = glm::vec3(0.1f, -1.0f, 0.1f);
 static glm::vec3 SunDirection = glm::vec3(0.1f, -1.0f, 0.1f);
 
 // Flags 
@@ -170,7 +169,7 @@ public:
 
 		bool TabPressed = glfwGetKey(window, GLFW_KEY_TAB) == GLFW_PRESS;
 
-		float camera_speed = 0.525f * 3.0f * (TabPressed ? 2.3f : 1.0f);
+		float camera_speed = 0.125f * (TabPressed ? 2.3f : 1.0f);
 
 		if (GetCursorLocked()) {
 			if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS)
@@ -193,28 +192,13 @@ public:
 
 		}
 
-		float ChangeSpeed = 0.4f;
-		float ChangeSpeed2 = 0.2f;
-
-		if (glfwGetKey(window, GLFW_KEY_T) == GLFW_PRESS)
-			SunDirectionAmt.x += 14.0f * ChangeSpeed;
-
-		if (glfwGetKey(window, GLFW_KEY_Y) == GLFW_PRESS)
-			SunDirectionAmt.y += 14.0f * ChangeSpeed;
-
-		if (glfwGetKey(window, GLFW_KEY_R) == GLFW_PRESS)
-			SunDirectionAmt.x -= 14.0f * ChangeSpeed2;
-
-		if (glfwGetKey(window, GLFW_KEY_U) == GLFW_PRESS)
-			SunDirectionAmt.y -= 14.0f * ChangeSpeed2;
 
 	}
 
 	void OnImguiRender(double ts) override
 	{
 		ImGui::Text("-- Info --");
-		ImGui::Text("Sun Direction : %f,  %f,  %f", SunDirection.x, SunDirection.y, SunDirection.z);
-		ImGui::Text("Sun Rotation : %f,   %f", SunDirectionAmt.x, SunDirectionAmt.y);
+		ImGui::SliderFloat3("Sun Direction", &SunDirection_[0], -1.0f, 1.0f);
 		ImGui::Text("Position : %f,  %f,  %f", Camera.GetPosition().x, Camera.GetPosition().y, Camera.GetPosition().z);
 		ImGui::Text("Front : %f,  %f,  %f", Camera.GetFront().x, Camera.GetFront().y, Camera.GetFront().z);
 		ImGui::Text("VSync : %d", VSync);
@@ -468,7 +452,7 @@ void RenderProbe(Lumen::ProbeMap& probe, int face, glm::vec3 center, const std::
 
 	probe.CapturePoints[face] = center;
 
-	const glm::mat4 projection_matrix = glm::perspective(glm::radians(90.0f), 1.0f, 0.1f, 800.0f);
+	const glm::mat4 projection_matrix = glm::perspective(glm::radians(90.0f), 1.0f, 0.01f, 400.0f);
 	const glm::mat4 inverse_projection = glm::inverse(projection_matrix);
 
 	auto& ProbeSkyShader = Lumen::ShaderManager::GetShader("PROBE_SKY");
@@ -658,51 +642,46 @@ void Lumen::StartPipeline()
 	// Create entities!
 
 	Entity MainEntity(&Sponza);
-	MainEntity.m_Model = glm::scale(glm::mat4(1.0f), glm::vec3(0.2f));
+	MainEntity.m_Model = glm::scale(glm::mat4(1.0f), glm::vec3(0.01f));
 	MainEntity.m_Model = glm::translate(MainEntity.m_Model, glm::vec3(0.0f));
 
 	Entity SecondaryEntity(&Cube);
-	SecondaryEntity.m_Model = glm::scale(glm::mat4(1.0f), glm::vec3(16.0f));
 	SecondaryEntity.m_Model = glm::translate(SecondaryEntity.m_Model, glm::vec3(0.0f, 2.0f, 0.0f));
 
 	Entity RedCubeEntity(&RedCube);
-	RedCubeEntity.m_Model = glm::scale(glm::mat4(1.0f), glm::vec3(12.0f));
-	RedCubeEntity.m_Model = glm::translate(RedCubeEntity.m_Model, glm::vec3(230.0f, 97.0f, 10.0f) / 12.0f);
+	RedCubeEntity.m_Model = glm::translate(RedCubeEntity.m_Model, glm::vec3(230.0f, 97.0f, 10.0f) / 100.0f);
 
 	Entity BlueCubeEntity(&BlueCube);
-	BlueCubeEntity.m_Model = glm::scale(glm::mat4(1.0f), glm::vec3(12.0f));
-	BlueCubeEntity.m_Model = glm::translate(BlueCubeEntity.m_Model, glm::vec3(230.0f, 97.0f, -20.0f) / 12.0f);
+	BlueCubeEntity.m_Model = glm::translate(BlueCubeEntity.m_Model, glm::vec3(230.0f, 97.0f, -20.0f) / 100.0f);
 
 	Entity RedCubeEntity2(&RedCube);
-	RedCubeEntity2.m_Model = glm::scale(glm::mat4(1.0f), glm::vec3(12.0f));
-	RedCubeEntity2.m_Model = glm::translate(RedCubeEntity2.m_Model, glm::vec3(-230.0f, 97.0f, 10.0f) / 12.0f);
+	RedCubeEntity2.m_Model = glm::translate(RedCubeEntity2.m_Model, glm::vec3(-230.0f, 97.0f, 10.0f) / 100.0f);
 
 	Entity BlueCubeEntity2(&BlueCube);
-	BlueCubeEntity2.m_Model = glm::scale(glm::mat4(1.0f), glm::vec3(12.0f));
-	BlueCubeEntity2.m_Model = glm::translate(BlueCubeEntity2.m_Model, glm::vec3(-230.0f, 97.0f, -20.0f) / 12.0f);
+	BlueCubeEntity2.m_Model = glm::translate(BlueCubeEntity2.m_Model, glm::vec3(-230.0f, 97.0f, -20.0f) / 100.0f);
 
-	float EntityScale = 3.5f;
+	float EntityScale = 1.0f;
 	Entity SecondaryEntity0(&SecondaryModel);
 	SecondaryEntity0.m_Model = glm::scale(glm::mat4(1.0f), glm::vec3(EntityScale));
-	SecondaryEntity0.m_Model = glm::translate(SecondaryEntity0.m_Model, glm::vec3(0.0f, 2.0f, -90.0f) * (1.0f / EntityScale));
+	SecondaryEntity0.m_Model = glm::translate(SecondaryEntity0.m_Model, glm::vec3(0.0f, 2.0f, -90.0f) * (1.0f / 100));
 	SecondaryEntity0.m_EmissiveAmount = 10.0f;
 	
 	Entity SecondaryEntity1(&SecondaryModel);
 	SecondaryEntity1.m_Model = glm::scale(glm::mat4(1.0f), glm::vec3(EntityScale));
-	SecondaryEntity1.m_Model = glm::translate(SecondaryEntity1.m_Model, glm::vec3(0.0f, 2.0f, 90.0f) * (1.0f / EntityScale));
+	SecondaryEntity1.m_Model = glm::translate(SecondaryEntity1.m_Model, glm::vec3(0.0f, 2.0f, 90.0f) * (1.0f / 100));
 	SecondaryEntity1.m_EmissiveAmount = 10.0f;
 	
 	Entity SecondaryEntity2(&SecondaryModel);
 	SecondaryEntity2.m_Model = glm::scale(glm::mat4(1.0f), glm::vec3(EntityScale));
-	SecondaryEntity2.m_Model = glm::translate(SecondaryEntity2.m_Model, glm::vec3(220.0f, 2.0f, 0.0f) * (1.0f / EntityScale));
+	SecondaryEntity2.m_Model = glm::translate(SecondaryEntity2.m_Model, glm::vec3(220.0f, 2.0f, 0.0f) * (1.0f / 100));
 	SecondaryEntity2.m_EmissiveAmount = 10.0f;
 	
 	Entity SecondaryEntity3(&SecondaryModel);
 	SecondaryEntity3.m_Model = glm::scale(glm::mat4(1.0f), glm::vec3(EntityScale));
-	SecondaryEntity3.m_Model = glm::translate(SecondaryEntity3.m_Model, glm::vec3(-220.0f, 2.0f, 0.0f) * (1.0f / EntityScale));
+	SecondaryEntity3.m_Model = glm::translate(SecondaryEntity3.m_Model, glm::vec3(-220.0f, 2.0f, 0.0f) * (1.0f / 100));
 	SecondaryEntity3.m_EmissiveAmount = 10.0f;
 
-	float EntityScale2 = 10.0f;
+	float EntityScale2 = 1.0f;
 
 	Entity SecondaryEntity4(&Suzanne);
 	SecondaryEntity4.m_Model = glm::scale(glm::mat4(1.0f), glm::vec3(EntityScale2));
@@ -715,26 +694,24 @@ void Lumen::StartPipeline()
 	// ----------------------------
 
 	// Entity list
-	std::vector<Entity*> EntityRenderList = { &MainEntity, &SecondaryEntity, &SecondaryEntity0, &SecondaryEntity1, &SecondaryEntity2, &SecondaryEntity3, &RedCubeEntity, &BlueCubeEntity, &RedCubeEntity2, &BlueCubeEntity2, &SecondaryEntity4, &SecondaryEntity5 };
+	//std::vector<Entity*> EntityRenderList = { &MainEntity, &SecondaryEntity, &SecondaryEntity0, &SecondaryEntity1, &SecondaryEntity2, &SecondaryEntity3, &RedCubeEntity, &BlueCubeEntity, &RedCubeEntity2, &BlueCubeEntity2, &SecondaryEntity4, &SecondaryEntity5 };
+	std::vector<Entity*> EntityRenderList = { &MainEntity, &SecondaryEntity };
 	auto& EntityList = EntityRenderList;
 
-	// Clear CPU side vertex/index data (After bvh construction ofc.) 
+	// Clear CPU side vertex/index data (After construction ofc.) 
 	std::vector<Object*> ObjectList = { &Sponza, &Cube, &SecondaryModel };
 	for (auto& e : ObjectList) {
 		e->ClearCPUSideData();
 	}
-
-
+	
 	////// ENGINE //////
 	
 	// Data object initialization 
 	GLClasses::VertexBuffer ScreenQuadVBO;
 	GLClasses::VertexArray ScreenQuadVAO;
-	GLClasses::DepthBuffer Shadowmap(4096, 4096);
+	Shadowmap Shadowmap;
 	GLClasses::Texture BlueNoise;
 	GLClasses::CubeTextureMap Skymap;
-
-	glm::vec2 PreviousSunAmt = SunDirectionAmt;
 
 	Skymap.CreateCubeTextureMap(
 		{
@@ -847,6 +824,10 @@ void Lumen::StartPipeline()
 
 	Voxelizer::CreateVolumes();
 
+	// Shadow
+
+	Shadowmap.Create(3000, 3000);
+
 	GLClasses::Framebuffer* FinalDenoiseBufferPtr = &SpatialFilterBuffers[0];
 
 	const float PI = 3.14159265f;
@@ -859,22 +840,13 @@ void Lumen::StartPipeline()
 		CAS_Amount = RoundToNearest(CAS_Amount, 0.125f);
 		DOFResolutionScale = RoundToNearest(DOFResolutionScale, 0.125f);
 
-		// Create sun direction 
-		SunDirection = glm::vec3(0.0f);
-		const float ToRadians = PI / 180.0f;
-		float Rx = SunDirectionAmt.x;
-		float Ry = SunDirectionAmt.y - 90.0f;
-		SunDirection.x -= (cos(Ry * (ToRadians)) * cos(Rx * (ToRadians)));
-		SunDirection.y += (sin(Rx * (ToRadians)));
-		SunDirection.z -= (sin(Ry * (ToRadians)) * cos(Rx * (ToRadians)));
-		SunDirection = glm::normalize(SunDirection);
+		SunDirection = glm::normalize(SunDirection_);
 
 		// Matrices 
 		PreviousProjection = Camera.GetProjectionMatrix();
 		PreviousView = Camera.GetViewMatrix();
 
 		// App update 
-		PreviousSunAmt = SunDirectionAmt;
 		app.OnUpdate();
 
 		// Update current matrices 
@@ -974,15 +946,10 @@ void Lumen::StartPipeline()
 			glBindTexture(GL_TEXTURE_2D, 0);
 		}
 
-		bool ShadowKeysPressed = (glfwGetKey(app.GetWindow(), GLFW_KEY_T) == GLFW_PRESS) || (glfwGetKey(app.GetWindow(), GLFW_KEY_R) == GLFW_PRESS)	||
-								 (glfwGetKey(app.GetWindow(), GLFW_KEY_U) == GLFW_PRESS) || (glfwGetKey(app.GetWindow(), GLFW_KEY_Y) == GLFW_PRESS);
-
-		// Shadowmap update 
-		if (PreviousSunAmt != SunDirectionAmt || app.GetCurrentFrame() % 6 == 0 || ShadowKeysPressed) //PreviousSunDirection != SunDirection)
-		{
-			// Shadow pass 
-			RenderShadowMap(Shadowmap, Camera.GetPosition(), SunDirection, SunDirectionAmt, EntityRenderList, Camera.GetViewProjection());
-		}
+		// Shadow pass 
+		glm::mat4 LightProj, LightView;
+		RenderShadowMap(Shadowmap, Camera.GetPosition(), SunDirection, EntityRenderList, 32.0f, LightProj, LightView);
+		glm::mat4 LightVP = LightProj * LightView;
 
 		// Probe update 
 		PlayerProbeCapturePoint = Camera.GetPosition();
@@ -1032,12 +999,12 @@ void Lumen::StartPipeline()
 		// Update voxel cascades for the first frames when everything is being updated
 		if (app.GetCurrentFrame() < 6 || FullyDynamicVoxelization) {
 			for (int i = 0; i < 6; i++) {
-				Voxelizer::VoxelizeCascade(GetUpdateCascade(i), Camera.GetPosition(), Camera.GetProjectionMatrix(), Camera.GetViewMatrix(), Shadowmap.GetDepthTexture(), GetLightViewProjection(SunDirection), SunDirection, EntityList, LargeVoxelRange);
+				Voxelizer::VoxelizeCascade(GetUpdateCascade(i), Camera.GetPosition(), Camera.GetProjectionMatrix(), Camera.GetViewMatrix(), Shadowmap.GetDepthTexture(), LightVP, SunDirection, EntityList, LargeVoxelRange);
 			}
 		}
 
 		if (!FullyDynamicVoxelization) {
-			Voxelizer::VoxelizeCascade(GetUpdateCascade(app.GetCurrentFrame()), Camera.GetPosition(), Camera.GetProjectionMatrix(), Camera.GetViewMatrix(), Shadowmap.GetDepthTexture(), GetLightViewProjection(SunDirection), SunDirection, EntityList, LargeVoxelRange);
+			Voxelizer::VoxelizeCascade(GetUpdateCascade(app.GetCurrentFrame()), Camera.GetPosition(), Camera.GetProjectionMatrix(), Camera.GetViewMatrix(), Shadowmap.GetDepthTexture(), LightVP, SunDirection, EntityList, LargeVoxelRange);
 		}
 
 		glm::vec3 PrevPosition = glm::vec3(UniformBuffer.InvPrevView[3]);
@@ -1117,7 +1084,7 @@ void Lumen::StartPipeline()
 		SpecularTraceShader.SetBool("u_RoughSpecular", RoughSpecular);
 		SpecularTraceShader.SetBool("u_Checker", CheckerboardIndirect);
 		SpecularTraceShader.SetVector3f("u_SunDirection", SunDirection);
-		SpecularTraceShader.SetMatrix4("u_SunShadowMatrix", GetLightViewProjection(SunDirection));
+		SpecularTraceShader.SetMatrix4("u_SunShadowMatrix", LightVP);
 		SpecularTraceShader.SetVector2f("u_Jitter", GetTAAJitterSecondary(app.GetCurrentFrame()));
 		SpecularTraceShader.SetVector2f("u_Dimensions", SpecularIndirect.GetDimensions());
 
@@ -1223,7 +1190,7 @@ void Lumen::StartPipeline()
 		DiffuseVXTrace.SetBool("u_HQ_SSRTGI", HQ_SSRTGI);
 		DiffuseVXTrace.SetBool("u_AmplifySunGI", Lumen_DiffuseAmplifiedSunGI);
 		DiffuseVXTrace.SetVector3f("u_SunDirection", SunDirection);
-		DiffuseVXTrace.SetMatrix4("u_SunShadowMatrix", GetLightViewProjection(SunDirection));
+		DiffuseVXTrace.SetMatrix4("u_SunShadowMatrix", LightVP);
 
 		for (int i = 0; i < 6; i++) {
 			std::string name = "u_ProbeCapturePoints[" + std::to_string(i) + "]";
@@ -1665,7 +1632,7 @@ void Lumen::StartPipeline()
 			VolumetricsShader.SetInteger("u_HistoryVolumetrics", 3);
 			VolumetricsShader.SetInteger("u_HistoryDepth", 4);
 			VolumetricsShader.SetVector3f("u_SunDirection", SunDirection);
-			VolumetricsShader.SetMatrix4("u_SunShadowMatrix", GetLightViewProjection(SunDirection));
+			VolumetricsShader.SetMatrix4("u_SunShadowMatrix", LightVP);
 			VolumetricsShader.SetFloat("u_SunVLStrength", SunVolumetricsStrength);
 			VolumetricsShader.SetBool("u_VolumetricsTemporal", VolumetricsTemporal);
 			SetCommonUniforms(VolumetricsShader, UniformBuffer);
@@ -1745,7 +1712,7 @@ void Lumen::StartPipeline()
 		LightingShader.SetFloat("u_DiffuseGIStrength", DiffuseGIStrength);
 		LightingShader.SetFloat("u_SpecularGIStrength", SpecularGIStrength);
 
-		LightingShader.SetMatrix4("u_LightVP", GetLightViewProjection(SunDirection));
+		LightingShader.SetMatrix4("u_LightVP", LightVP);
 		LightingShader.SetVector2f("u_Dims", glm::vec2(app.GetWidth(), app.GetHeight()));
 
 		LightingShader.SetVector3f("u_LightDirection", SunDirection);

@@ -94,22 +94,6 @@ float GetLuminance(vec3 color) {
 
 float Luminance(vec3 x) { return GetLuminance(x) ; } // wrapper 
 
-mat4 SaturationMatrix(float saturation)
-{
-  vec3 luminance = vec3(0.3086, 0.6094, 0.0820);
-  float oneMinusSat = 1.0 - saturation;
-  vec3 red = vec3(luminance.x * oneMinusSat);
-  red += vec3(saturation, 0, 0);
-  vec3 green = vec3(luminance.y * oneMinusSat);
-  green += vec3(0, saturation, 0);
-  vec3 blue = vec3(luminance.z * oneMinusSat);
-  blue += vec3(0, 0, saturation);
-  return mat4(red, 0,
-    green, 0,
-    blue, 0,
-    0, 0, 0, 1);
-}
-
 vec3 ProjectToClipSpace(vec3 WorldPos) 
 {
 	vec4 ProjectedPosition = u_ViewProjection * vec4(WorldPos, 1.0f);
@@ -258,15 +242,15 @@ vec4 RaymarchCascades(vec3 WorldPosition, vec3 Normal, vec3 Direction, float Ape
 
 	float HashScale = mix(1.0f, 2.0f, LowDiscrepHash / 2.0f);
 
-	vec3 RayOrigin = WorldPosition + Normal * Diagonal * 1.0f;
+	vec3 RayOrigin = WorldPosition + Normal * Diagonal * 0.02f;
 
 	// Figure out the best cascade to start from
 	int CurrentCascade = GetCascadeNumber(RayOrigin, MinCascade);
 
-	float Distance = (u_VoxelRanges[CurrentCascade] / 128.0f) * Diagonal;
+	float Distance = (u_VoxelRanges[CurrentCascade] / 128.0f) * Diagonal * 1.2f;
 	RayOrigin += Direction * Distance;
 
-	vec3 RayPosition = RayOrigin + Direction * Distance * 2.0f * LowDiscrepHash;
+	vec3 RayPosition = RayOrigin + Direction * LowDiscrepHash;
 	float StepSize = u_VoxelRanges[CurrentCascade] / 128.0f;
 
 	vec4 TotalGI = vec4(0.0f);
@@ -323,13 +307,13 @@ vec4 RaymarchCascades(vec3 WorldPosition, vec3 Normal, vec3 Direction, float Ape
 	VoxelNormal = DecodeNormal(EncodedNormal);
 
 	SkyVisibility = pow(SkyVisibility, 24.0f);
-	vec3 SkySample = pow(texture(u_Skymap, Direction).xyz, vec3(2.0f));
+	vec3 SkySample = pow(texture(u_Skymap, Direction).xyz, vec3(1.0f));
 	float LambertSky = pow(clamp(dot(VoxelNormal, vec3(0.0f, 1.0f, 0.0f)), 0.0f, 1.0f), 1.0f);
-	vec3 SkyRadiance = SkySample * 1.4f * LambertSky * SkyVisibility;
+	vec3 SkyRadiance = SkySample * 1.7f * LambertSky * SkyVisibility;
 
-	float AO = clamp(distance(WorldPosition, RayPosition) / 52.0f, 0.0f, 1.0f);
+	float AO = clamp(distance(WorldPosition, RayPosition) / 1.0f, 0.0f, 1.0f);
 
-	AO = pow(AO, 1.5f);
+	AO = pow(AO, 1.8f);
 
 	Intersection = vec4(RayPosition, float(IntersectionFound));
 
@@ -340,8 +324,6 @@ vec4 RaymarchCascades(vec3 WorldPosition, vec3 Normal, vec3 Direction, float Ape
 
 // Samples direct lighting for a point 
 vec3 SampleRadiance(vec3 P, vec3 N, vec3 A, vec3 E, bool AmplifySunGI) {
-	const mat4 Satmat = SaturationMatrix(2.2f);
-	const mat4 SatmatWeak = SaturationMatrix(1.333333f);
 	const vec3 SUN_COLOR = vec3(10.5f);
 	vec4 ProjectionCoordinates = u_SunShadowMatrix * vec4(P + N * 0.5f, 1.0f);
 	ProjectionCoordinates.xyz = ProjectionCoordinates.xyz / ProjectionCoordinates.w;
@@ -350,7 +332,6 @@ vec3 SampleRadiance(vec3 P, vec3 N, vec3 A, vec3 E, bool AmplifySunGI) {
     float Shadow = float(ProjectionCoordinates.z - (0.0045f) > SimpleFetch);
 	float Lambertian = clamp(max(0.0f, dot(N, -u_SunDirection))*1.5f,0.0f,1.0f); 
     vec3 Direct = Lambertian * SUN_COLOR * (1.0f - Shadow) * A;
-	Direct = AmplifySunGI ? vec3(Satmat * vec4(Direct, 1.0f)) : vec3(SatmatWeak * vec4(Direct, 1.0f));
 	return Direct + E;
 }
 
@@ -470,7 +451,7 @@ vec4 RaytraceProbe(const vec3 WorldPosition, vec3 Direction, float Hash, int Ste
 		vec3 IntersectEmissive = mix(AlbedoFetch.xyz,vec3(Luminance(AlbedoFetch.xyz)),0.1f) * NormalFetch.w * 16.0f;
 		oNormal = IntersectNormal.xyz;
 		return vec4(SampleRadiance(IntersectionPos, IntersectNormal, IntersectAlbedo, IntersectEmissive, u_AmplifySunGI),
-					clamp(distance(WorldPosition, RayPosition) / 42.0f, 0.0f, 1.0f)) ;
+					clamp(distance(WorldPosition, RayPosition) / 1.0f, 0.0f, 1.0f)) ;
     }
 
 	oNormal = vec3(-1.);
@@ -569,7 +550,7 @@ vec4 ScreenspaceRaytrace(const vec3 Origin, vec3 Direction, float ThresholdMulti
 
 			//return vec4(Albedo, 1 + 1.0f);
 
-			float AO = clamp(distance(IntersectionPos.xyz, Origin) / 52.0f, 0.0f, 1.0f);
+			float AO = clamp(distance(IntersectionPos.xyz, Origin) / 1.0f, 0.0f, 1.0f);
 			AO = pow(AO, 1.5f);
 			return vec4(SampleRadiance(Position, Normal, Albedo, Emissive, u_AmplifySunGI) * 2.5f, AO + 1.0f);
 		}
@@ -732,8 +713,8 @@ void main() {
 	if (VX_FIRST_BOUNCE) {
 
 		// Raytrace in screen space?
-		if (u_SSRTGI) {
-			vec4 SSRadiance = ScreenspaceRaytrace(WorldPosition + Normal * 1.5, CosineHemisphereDirection, 0.0015f, BayerHash, u_HQ_SSRTGI ? 64 : 32, 6, IntersectionPositionb, IntersectionNormalb);	
+		if (false) {
+			vec4 SSRadiance = ScreenspaceRaytrace(WorldPosition + Normal * 0.01f, CosineHemisphereDirection, 0.0015f, BayerHash, u_HQ_SSRTGI ? 64 : 32, 6, IntersectionPositionb, IntersectionNormalb);	
 		
 			// Did the screen trace find an intersection? If so, add lighting for that point
 			if (SSRadiance.w > 0.0f) {
@@ -754,7 +735,7 @@ void main() {
 	}
 
 	else {
-		DiffuseVX = RaytraceProbe(WorldPosition.xyz + Normal * 3.f, CosineHemisphereDirection, BayerHash, 64, 32, 0.625f, IntersectionNormalb) * 2.;
+		DiffuseVX = RaytraceProbe(WorldPosition.xyz + Normal * 0.01f, CosineHemisphereDirection, BayerHash, 64, 32, 0.625f, IntersectionNormalb) * 2.;
 	}
 
 

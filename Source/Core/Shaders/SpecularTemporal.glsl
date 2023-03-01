@@ -331,6 +331,10 @@ void main() {
         const float DepthWeightStrength = 1.6f;
         float DepthRejection = pow(exp(-ErrorSurface), 64.0f); 
 
+        if (ErrorSurface > 1.0f) {
+            DepthRejection = 0.0f;
+        }
+
         // Calculate temporal blur and frame increment
         float Frames = texture(u_Frames, Reprojected.xy).x * 64.0f;
         Frames += 1.0f;

@@ -1,6 +1,6 @@
 // Spatio-temporal denoiser based on SVGF and Atrous wavelet filtering 
 
-#version 330 core
+#version 450 core
 
 #define PI 3.14159265359
 
@@ -192,8 +192,6 @@ float SpecularWeight(in float CenterDepth, in float SampleDepth, in float Center
 	SampleTransversal *= 64.0f;
 	CenterTransversal *= 64.0f;
 
-	// Depth weight 
-	float DepthWeight = clamp(pow(exp(-abs(CenterDepth - SampleDepth)), 32.0f), 0.0f, 1.0f);
 
 	// Specular lobe weight 
 
@@ -237,7 +235,7 @@ float SpecularWeight(in float CenterDepth, in float SampleDepth, in float Center
 		LuminanceWeight = mix(clamp(LuminanceWeight * 3.5f, 0.142f, 1.0f), LuminanceWeight, Framebias);
 	}
 
-	float CombinedWeight = clamp(LobeWeight * DepthWeight * Kernel * LuminanceWeight, 0.0f, 1.0f);
+	float CombinedWeight = clamp(LobeWeight  * Kernel * LuminanceWeight, 0.0f, 1.0f);
 
 	return CombinedWeight;
 }
@@ -246,7 +244,7 @@ float DiffuseWeightSVGF(float CenterDepth, float SampleDepth, vec3 CenterNormal,
 {
 	float LumaDistance = abs(CenterLuma - SampleLuma);
 
-	float DepthWeight = clamp(pow(exp(-abs(CenterDepth - SampleDepth)), 32.0f), 0.0f, 1.0f);
+	float DepthWeight =1.;// clamp(pow(exp(-abs(CenterDepth - SampleDepth)), 32.0f), 0.0f, 1.0f);
 	//float DepthWeight = exp((-abs(CenterDepth - SampleDepth)) / (abs(dot(DepthGradient, xy)) + 0.00001f));
 	float NormalWeight = clamp(pow(max(dot(CenterNormal, SampleNormal), 0.0f), 8.0f), 0.0f, 1.0f);
 
@@ -262,7 +260,7 @@ float DiffuseWeightSVGF(float CenterDepth, float SampleDepth, vec3 CenterNormal,
 
 float DiffuseWeightBasic(float CenterDepth, float SampleDepth, vec3 CenterNormal, vec3 SampleNormal, float Kernel) {
 
-	float DepthWeight = clamp(pow(exp(-abs(CenterDepth - SampleDepth)), 32.0f), 0.0f, 1.0f);
+	float DepthWeight = 1.; //clamp(pow(exp(-abs(CenterDepth - SampleDepth)), 32.0f), 0.0f, 1.0f);
 	float NormalWeight = clamp(pow(max(dot(CenterNormal, SampleNormal), 0.0f), 8.0f), 0.0f, 1.0f);
 	float TotalWeight = DepthWeight * NormalWeight * clamp(Kernel, 0.0f, 1.0f);
 	return TotalWeight;
@@ -311,11 +309,12 @@ void main() {
 
 	// Sample GBuffers 
     float Depth = texelFetch(u_Depth, Pixel, 0).x;
+	float CenterDepth = LinearizeDepth(Depth);
 	vec3 Normal = normalize(texelFetch(u_Normals, Pixel, 0).xyz); 
     vec3 PBR = texelFetch(u_PBR, Pixel, 0).xyz;
 
 	// Screenspace derivatives to get depth gradient
-	vec2 DepthGradient = vec2(dFdx(Depth), dFdy(Depth));
+	float Derivative = max(dFdxFine(abs(CenterDepth)), dFdxFine(abs(CenterDepth)));
 
 	// Calculate positions 
 	float LinearDepth = LinearizeDepth(Depth);
@@ -327,7 +326,7 @@ void main() {
 	float RawVar = 0.0f;
 	vec4 UtilityFetch = texelFetch(u_TemporalUtility, Pixel, 0).xyzw;
 	float GaussianVar = u_SVGF ? GaussianVariance(Pixel, RawVar) : 0.0f;
-	float PhiL = SVGFGetPhiL(GaussianVar,RawVar,UtilityFetch.z);
+	float PhiL = 3. * 1. * sqrt(max(0.0f, 0.00000001f + GaussianVar));
 	float PhiDepth = 0.005f * float(u_StepSize);
 	float FramebiasDiffuse = clamp(UtilityFetch.z / 16.0f, 0.0f, 1.0f);
 
@@ -356,6 +355,9 @@ void main() {
 
 	// Diffuse 
 	vec4 CenterDiffuse = texelFetch(u_Diffuse, Pixel, 0).xyzw;
+
+	float CenterDiffLuma = Luminance(CenterDiffuse.xyz);
+
 	float CenterAOL = dot(CenterDiffuse.w, 0.333f);
 	vec4 DiffuseSum = CenterDiffuse;
 	float TotalDiffuseWeight = 1.0f;
@@ -382,6 +384,15 @@ void main() {
 
 			// Sample gbuffers 
 			float SampleDepth = LinearizeDepth(texelFetch(u_Depth, SamplePixel, 0).x);
+
+			float DepthError = abs(SampleDepth - CenterDepth);
+
+			float Threshold = clamp((Derivative * 6.5), 0.00175f, 0.0175f);
+
+			if (DepthError > Threshold) {
+				continue;
+			}
+
 			vec3 SampleNormal = normalize(texelFetch(u_Normals, SamplePixel, 0).xyz); 
 			vec3 SamplePBR = texelFetch(u_PBR, SamplePixel, 0).xyz;
 
@@ -396,8 +407,10 @@ void main() {
 			float DiffuseWeight = 0.0f; 
 			
 			if (u_SpatialDiffuse) {
-				DiffuseWeight = u_SVGF ? DiffuseWeightSVGF(LinearDepth, SampleDepth, Normal, SampleNormal, Luminance(CenterDiffuse.xyz), Luminance(DiffuseSample.xyz), GaussianVar, PhiL, PhiDepth, vec2(x,y), FramebiasDiffuse, DepthGradient, KernelWeight) :
-								  GBufferWeight;
+				
+				DiffuseWeight = GBufferWeight;
+				float LumaError = abs(CenterDiffLuma - Luminance(DiffuseSample.xyz));
+				float LumaWeight = pow(clamp(exp(-LumaError / (1.0f * PhiL + 0.0000001f)), 0.0f, 1.0f), 1.0f);
 			}
 
 
@@ -408,7 +421,7 @@ void main() {
 			float AOWeight = 0.0f;
 			
 			if (u_SpatialDiffuse) {
-				AOWeight = GBufferWeight * mix(1.0f, clamp(exp( -(abs(CenterAOL - dot(SampleAO, 0.333f)) * 64.0f)), 0.0f, 1.0f), clamp(FramebiasDiffuse * 1.6f, 0.0f, 1.0f));
+				AOWeight = GBufferWeight * mix(1.0f, clamp(exp( -(abs(CenterAOL - dot(SampleAO, 0.333f)) * 1.0f)), 0.0f, 1.0f), clamp(FramebiasDiffuse * 1.6f, 0.0f, 1.0f));
 			}
 
 			DiffuseSum.w += SampleAO * AOWeight;

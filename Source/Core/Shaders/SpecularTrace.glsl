@@ -291,7 +291,7 @@ GBufferData Raytrace(vec3 WorldPosition, vec3 Direction, float ErrorTolerance, f
    
     // Settings 
 
-    const float Distance = 384.0f;
+    const float Distance = 32.0f;
 
     float StepSize = Distance / float(Steps);
 
@@ -1121,7 +1121,7 @@ void main() {
             }
 
             // SSRT (more stable)
-            else {
+            else if (false){
                 Intersection = ScreenspaceRaytrace(WorldPosition + LFNormal * Bias_n, Direction, ToleranceSS, BayerHash, SSSteps, SSBinarySteps);
             }
 

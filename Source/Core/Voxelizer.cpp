@@ -10,8 +10,8 @@ namespace Lumen {
 
 	static bool GenerateMips = true;
 
-	static float C_VoxelRanges[CascadeCount] = { 128.0f, 256.0f, 384.0f, 512.0f, 1024.0f, 2048.0f };
-	static float C_VoxelRangesLarge[CascadeCount] = { 256.0f, 512.0f, 1024.0f, 2048.0f, 4096.0f, 8192.0f };
+	static float C_VoxelRanges[CascadeCount] = { 6.0f, 12.0f, 24.0f, 48.0f, 96.0f };
+	static float C_VoxelRangesLarge[CascadeCount] = { 6.0f * 2.0f, 12.0f * 2.0f, 24.0f * 2.0f, 48.0f * 2.0f, 96.0f * 2.0f };
 	static float VoxelRangesTrue[CascadeCount] = { 0.,0.,0.,0.,0.,0. };
 
 	static GLuint VoxelVolumes[CascadeCount]{ 0, 0, 0, 0, 0, 0 };
